@@ -36,15 +36,25 @@ This document outlines the strategic milestones, component delivery roadmap, and
 - [x] Sparse matrix assembly infrastructure (`psierra/utility/assembly.py`).
 - [x] Linear static solver with Dirichlet and load boundaries (`psierra/solver/linear_static.py`).
 - [x] Linear dynamic solver with Rayleigh damping (`psierra/solver/linear_dynamic.py`, `psierra/damping/rayleigh.py`).
-- [ ] End-to-end runnable demonstration scripts in `example/` authored by `developer` with PyVista 3D visualization.
-- [ ] Comprehensive automated adversarial test suite in `tests/` authored by `tester` (`uv run pytest -n auto`).
+- [x] End-to-end runnable demonstration scripts in `example/` authored by `developer` with PyVista 3D visualization.
+- [ ] **Tiered Automated Test Suite in `tests/` (Immediate Priority)**:
+  - [ ] `tests/test_material.py`: Parameter conversions, Hookean/Neo-Hookean stress & tangent consistency via finite difference ($< 10^{-5}$).
+  - [ ] `tests/test_element_tet4.py`: Volume calculation, shape function partition of unity, B-matrix, patch test ($< 10^{-10}$), rigid body invariance ($< 10^{-10}$).
+  - [ ] `tests/test_mesh.py`: VolumetricMesh & SurfaceMesh loading, boundary extraction, volume/area, coordinate transforms.
+  - [ ] `tests/test_boundary.py`: Dirichlet constraint indexing, DOF reduction, nodal force & gravity load assembly.
+  - [ ] `tests/test_solvers_linear.py`: Cantilever beam deflection benchmark against analytical Euler-Bernoulli/Timoshenko solution ($< 5\%$), Rayleigh damping dynamic decay.
+  - [ ] `tests/test_solvers_nonlinear.py`: Nonlinear static Newton-Raphson convergence, dynamic integration with Newmark-$\beta$.
 - [ ] Educational LaTeX theory documents authored by `teacher`.
 
 ---
 
 ## Phase 2: Non-Linear Mechanics & Large Deformations
 
-- [ ] Quadratic tetrahedral element (`Tet10`) and hexahedral elements (`Hex8`, `Hex20`).
+- [ ] **Quadratic Tetrahedral Element (`Tet10`) (Immediate Phase 2 Target)**:
+  - Higher-order 10-node isoparametric tetrahedron with quadratic shape functions.
+  - Alleviates artificial shear and volumetric locking in complex anatomical meshes (brain, tumor, liver).
+  - Shape function gradient evaluations, numerical quadrature (4-point / 5-point Gauss rules), and B-matrix.
+- [ ] Hexahedral elements (`Hex8`, `Hex20`) for structured mesh domains.
 - [ ] Kinematic formulations:
   - Total Lagrangian (TL) with Green-Lagrange strain $E$ and 2nd Piola-Kirchhoff stress $S$.
   - Updated Lagrangian (UL) with Almansi strain and Cauchy stress.

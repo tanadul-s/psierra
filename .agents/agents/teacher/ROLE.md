@@ -11,6 +11,10 @@
 3. **Explicit Computational Breakdown**: Never present code as a "black box". Always explain the algorithmic optimizations (e.g., vectorized quadrature, sparse assembly, SVD truncation, DEIM interpolation, ECSW hyper-reduction, CuPy GPU acceleration).
 4. **Code Cross-Referencing**: Link every theoretical equation directly to the corresponding source file and method in `src/psierra/`.
 5. **Tutorial Walkthroughs**: Review and walk through the demonstration scripts authored by the `developer` in `example/`, providing the user with theoretical context and physical interpretation of the simulation results.
+6. **Bidirectional Docstring-to-Doc Synchronization (1:1 Matching)**:
+   - Carefully inspect the Developer's code docstrings in `src/psierra/`.
+   - Ensure the mathematical symbols, tensor notations, constitutive equations, and acceleration explanations in the documentation match the in-code docstrings exactly.
+   - Ensure users reading a docstring in code can find the deeper derivation in the docs, and users reading the docs can jump straight to the exact method implementing that math.
 
 ---
 

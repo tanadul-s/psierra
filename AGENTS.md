@@ -59,9 +59,9 @@ All agents writing or modifying code in this repository MUST strictly adhere to 
   - Always execute tasks within the managed environment using `uv run <command>`.
 
 ### 2.2 Architectural & Coding Conventions
-- **Strictly Object-Oriented (OOP)**:
-  - Organize all core logic into cohesive domain classes with explicit lifecycles (e.g., `Tet4`, `SolidDomain`, `NeoHookean`, `LinearStaticSolver`, `ProperOrthogonalDecomposition`).
-  - **No loose, scattered utility functions**: Standalone global functions are prohibited. Group helper operations into dedicated utility classes or domain methods.
+- **Strictly Object-Oriented (OOP) Core**:
+  - Organize all core physics and simulation logic into cohesive domain classes with explicit lifecycles (e.g., `Tet4`, `SolidDomain`, `NeoHookean`, `LinearStaticSolver`, `ProperOrthogonalDecomposition`).
+  - **Utility Function Scope**: Stateless, frequently used mathematical transformations, indexing operations, COO sparsity assembly, and boundary node selectors in `psierra/utility/` and `psierra/boundary/selector.py` are explicitly permitted as pure functional helpers for ergonomic reuse across different analysis classes. All other domain and stateful logic must remain strictly class-based.
 - **Pragmatic & Modern Python (3.12+)**:
   - Write clean, Pythonic, and readable code.
   - Avoid over-engineering, excessive abstraction layers, and brittle, deep inheritance hierarchies. Prefer composition over inheritance.
@@ -90,6 +90,14 @@ All agents MUST uphold these pedagogical standards:
 3. **Continuous Knowledge Capture & Further Reading**:
    - Maintain clear records in docstrings, documentation, and agent logs specifying the mathematics and algorithms introduced at each development step.
    - Provide curated "Where to read further" references (chapter and section numbers) to guide in-depth learning.
+4. **Bidirectional Code-Docstring & Documentation Synchronization**:
+   - **Developer Contract**: Every domain class, kernel method, and public API in `src/psierra/` MUST contain structured, mathematically grounded docstrings explicitly stating:
+     - The governing physical/continuum mechanics law and equation (in LaTeX or canonical notation).
+     - Definitions and units of all tensors, matrices, inputs, and outputs.
+     - Numerical/acceleration techniques employed (vectorization, sparsity, symmetry).
+     - Cross-references to corresponding theoretical documentation and textbook chapters.
+   - **Teacher Contract**: Every educational document and theory guide MUST mirror the exact mathematical terminology, variable symbols, and equations used in code docstrings, while embedding direct, clickable cross-references to the exact source files and methods (`ClassName.method_name`).
+   - The user must be able to move seamlessly between code docstrings and theoretical documents with 1:1 matched explanations.
 
 ---
 
@@ -150,6 +158,6 @@ Detailed role playbooks and system instructions are maintained in dedicated dire
 | Role | Primary Mandate | Key Deliverables | Strict Constraints | Deep Handbook |
 | :--- | :--- | :--- | :--- | :--- |
 | **`manager`** | Translates physics & requirements into formal contracts | Class signatures, data transfer models, edge case lists, API specs | Strictly defines interfaces; does not write production implementation or tests | [`manager/ROLE.md`](.agents/agents/manager/ROLE.md) |
-| **`developer`** | Implements numerical logic, domain classes, and example scripts | Clean code in `src/psierra/`, fast numerical kernels, runnable scripts in `example/` | Pure OOP, strict typing, no loose functions, zero test bias (does not write tests in `tests/`) | [`developer/ROLE.md`](.agents/agents/developer/ROLE.md) |
+| **`developer`** | Implements numerical logic, domain classes, and example scripts | Clean code in `src/psierra/`, rich docstrings synchronized with docs, runnable scripts in `example/` | Pure OOP, strict typing, no loose functions, zero test bias (does not write tests in `tests/`) | [`developer/ROLE.md`](.agents/agents/developer/ROLE.md) |
 | **`tester`** | Writes adversarial validation & verification suites | Independent tests in `tests/`, patch tests, benchmark verifications | Zero bias, tests independently from contract, runs `uv run pytest -n auto` | [`tester/ROLE.md`](.agents/agents/tester/ROLE.md) |
-| **`teacher`** | Authors educational documentation and theoretical foundations | LaTeX theory guides, algorithmic acceleration notes, code cross-referencing maps, citations | Plain English, retains math rigor, links equations to code lines, references developer's examples | [`teacher/ROLE.md`](.agents/agents/teacher/ROLE.md) |
+| **`teacher`** | Authors educational documentation and theoretical foundations | LaTeX theory guides, algorithmic notes, 1:1 docstring-matched code maps, citations | Plain English, retains math rigor, links equations to code lines, references developer's examples | [`teacher/ROLE.md`](.agents/agents/teacher/ROLE.md) |

@@ -15,6 +15,14 @@
    - Vectorize operations across elements whenever possible using NumPy.
    - Use SciPy sparse matrices (`coo_matrix`, `csr_matrix`) for global system assembly.
    - Design code to be GPU-compatible via CuPy when array backends are configured.
+7. **Docstring & Theory Synchronization (1:1 with Teacher Docs)**:
+   - Every domain class and computational method MUST include structured, mathematically grounded docstrings.
+   - Specify:
+     - The governing mathematical formula (in LaTeX or clear canonical symbols).
+     - Physical definitions, tensor shapes, and units of all arguments and return values.
+     - Algorithmic acceleration techniques used (vectorized broadcasting, COO indexing, sparsity).
+     - Relevant textbook chapter and section references.
+   - Ensure symbols, formulas, and terminology match 1:1 with the documentation authored by `teacher`.
 
 ---
 
@@ -72,8 +80,9 @@ Inside tensor contractions, shape function evaluations, B-matrix evaluations, an
   uv run python example/[script_name].py
   ```
 
-### Step 6: Self-Check & Handoff
-- Ensure every public method has clear docstrings documenting arguments, return values, and mathematical formulas.
+### Step 6: Docstring Verification & Handoff
+- Ensure every public method and computational kernel has rich mathematical docstrings (formula, symbols, physical meaning, references).
+- Verify that variable naming and mathematical symbols correspond directly to the notation used in the documentation.
 - Hand off the implemented class and example script to the `tester` and `teacher` agents.
 
 ---
