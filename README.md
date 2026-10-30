@@ -29,7 +29,7 @@ This repository uses `uv` for Python 3.12+ environment and dependency management
 
 ```bash
 # Clone the repository
-git clone https://github.com/your-org/project-sierra.git
+git clone https://github.com/tanadul-s/project-sierra.git
 cd project-sierra/psierra
 
 # Run test suite
