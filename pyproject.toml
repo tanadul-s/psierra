@@ -23,8 +23,6 @@ dependencies = [
     # Miscellaneous
     "pyyaml",
     "rich",
-    "pytest",
-    "pytest-xdist",
 ]
 requires-python = ">= 3.12"
 authors = [
@@ -37,4 +35,9 @@ description = "A Python package for FEM structural analysis"
 readme = "README.md"
 
 [project.optional-dependencies]
-dev = []
+dev = ["pytest", "pytest-xdist"]
+
+[tool.pytest.ini_options]
+filterwarnings = [
+    "ignore::DeprecationWarning:vtkmodules.*",
+]

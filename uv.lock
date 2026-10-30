@@ -832,14 +832,18 @@ dependencies = [
     { name = "meshio" },
     { name = "numpy" },
     { name = "pandas" },
-    { name = "pytest" },
-    { name = "pytest-xdist" },
     { name = "pytetwild" },
     { name = "pyvista" },
     { name = "pyyaml" },
-    { name = "rich" },
     { name = "scipy" },
     { name = "trimesh" },
+]
+
+[package.optional-dependencies]
+dev = [
+    { name = "pytest" },
+    { name = "pytest-xdist" },
+    { name = "rich" },
 ]
 
 [package.metadata]
@@ -850,12 +854,12 @@ requires-dist = [
     { name = "meshio" },
     { name = "numpy" },
     { name = "pandas" },
-    { name = "pytest" },
-    { name = "pytest-xdist" },
+    { name = "pytest", marker = "extra == 'dev'" },
+    { name = "pytest-xdist", marker = "extra == 'dev'" },
     { name = "pytetwild" },
     { name = "pyvista" },
     { name = "pyyaml" },
-    { name = "rich" },
+    { name = "rich", marker = "extra == 'dev'" },
     { name = "scipy" },
     { name = "trimesh" },
 ]
