@@ -71,6 +71,12 @@ All agents writing or modifying code in this repository MUST strictly adhere to 
 - **Mathematical Kernel Exception**:
   - Inside computational kernels, numerical integration routines, tensor/matrix assembly loops, and reduced-order projection algebra, single-letter variable names matching standard continuum mechanics notation (e.g., $K, M, C, F, B, D, u, v, a, V, \Phi, \Sigma$) are explicitly permitted and encouraged to keep mathematical expressions concise and aligned with textbook formulations. Add inline comments documenting their physical definitions.
 
+### 2.3 Version Control & Git Commit Policy
+- **No Automatic Git Commits**:
+  - Agents must NEVER commit changes to git automatically on their own initiative.
+  - The user will normally handle staging and committing changes themselves.
+  - Only execute `git commit` when explicitly and directly instructed to do so by the user.
+
 ---
 
 ## 3. Educational & Pedagogical Imperatives
