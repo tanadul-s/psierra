@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "psierra"
-version = "26.09"
+version = "26.10"
 dependencies = [
     # Scientific
     "numpy",
@@ -38,6 +38,4 @@ readme = "README.md"
 dev = ["pytest", "pytest-xdist"]
 
 [tool.pytest.ini_options]
-filterwarnings = [
-    "ignore::DeprecationWarning:vtkmodules.*",
-]
+filterwarnings = ["ignore::DeprecationWarning:vtkmodules.*"]
