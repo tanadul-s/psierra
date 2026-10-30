@@ -36,16 +36,23 @@ class VolumetricMesh:
                 f"VolumetricMesh expects a pathlib.Path or pv.UnstructuredGrid, got {type(source)}."
             )
 
-        if pv.CellType.TETRA not in self._ugrid.cells_dict:
+        has_tet4 = pv.CellType.TETRA in self._ugrid.cells_dict
+        has_tet10 = pv.CellType.QUADRATIC_TETRA in self._ugrid.cells_dict
+
+        if not (has_tet4 or has_tet10):
             raise ValueError(
-                "Mesh does not contain tetrahedral cells (CellType.TETRA)."
+                "Mesh does not contain tetrahedral cells (CellType.TETRA or CellType.QUADRATIC_TETRA)."
             )
+
+        self._cell_type = (
+            pv.CellType.QUADRATIC_TETRA if has_tet10 else pv.CellType.TETRA
+        )
 
         # Ensure ugrid contains ONLY 3D tetrahedral solid elements.
         # Files from Gmsh/CAD often bundle 0D points, 1D lines, and 2D triangles.
-        if not np.all(self._ugrid.celltypes == pv.CellType.TETRA):
+        if not np.all(self._ugrid.celltypes == self._cell_type):
             self._ugrid = self._ugrid.extract_cells(
-                self._ugrid.celltypes == pv.CellType.TETRA
+                self._ugrid.celltypes == self._cell_type
             )
 
         # Cached SurfaceMesh
@@ -97,9 +104,78 @@ class VolumetricMesh:
         self._surface = None
 
     @property
+    def cell_type(self) -> pv.CellType:
+        """Active tetrahedral cell type (CellType.TETRA or CellType.QUADRATIC_TETRA)."""
+        return self._cell_type
+
+    @property
+    def order(self) -> int:
+        """Element interpolation order: 1 for linear Tet4, 2 for quadratic Tet10."""
+        return 2 if self._cell_type == pv.CellType.QUADRATIC_TETRA else 1
+
+    @property
+    def nodes_per_element(self) -> int:
+        """Number of nodes per element (4 for Tet4, 10 for Tet10)."""
+        return 10 if self._cell_type == pv.CellType.QUADRATIC_TETRA else 4
+
+    @property
     def elements(self) -> np.ndarray:
-        """Tetrahedral element connectivity array of shape (N_tetra, 4)."""
-        return np.array(self._ugrid.cells_dict[pv.CellType.TETRA], dtype=np.int64)
+        """Tetrahedral element connectivity array of shape (N_tetra, 4) or (N_tetra, 10)."""
+        return np.array(self._ugrid.cells_dict[self._cell_type], dtype=np.int64)
+
+    @property
+    def is_linear(self) -> bool:
+        """True if mesh consists of linear Tet4 elements (order 1)."""
+        return self.order == 1
+
+    @property
+    def is_quadratic(self) -> bool:
+        """True if mesh consists of quadratic Tet10 elements (order 2)."""
+        return self.order == 2
+
+    @property
+    def corner_nodes(self) -> np.ndarray:
+        """
+        Nodal coordinates of the primary element corner vertices.
+        For Tet4, this equals self.nodes.
+        For Tet10, returns the coordinates of the 4 corner vertices per element.
+        """
+        if self.is_linear:
+            return self.nodes
+        corner_indices = np.unique(self.elements[:, :4])
+        return self.nodes[corner_indices]
+
+    @property
+    def midedge_nodes(self) -> np.ndarray:
+        """
+        Nodal coordinates of the mid-edge nodes (Tet10 only).
+        Returns empty array of shape (0, 3) for linear Tet4 meshes.
+        """
+        if self.is_linear:
+            return np.empty((0, 3), dtype=np.float64)
+        midedge_indices = np.unique(self.elements[:, 4:])
+        return self.nodes[midedge_indices]
+
+    def to_quadratic(self) -> VolumetricMesh:
+        """
+        Returns a new VolumetricMesh upgraded to quadratic Tet10 elements.
+        Guarantees that all corner vertices, element topology, and volume are preserved,
+        adding exactly one mid-edge node per unique edge in canonical VTK ordering.
+        """
+        if self.is_quadratic:
+            return self.copy()
+        from psierra.mesher.order import upgrade_tet4_to_tet10
+        return upgrade_tet4_to_tet10(self)  # type: ignore[return-value]
+
+    def to_linear(self) -> VolumetricMesh:
+        """
+        Returns a new VolumetricMesh downgraded to linear Tet4 elements.
+        Extracts the 4 corner vertices per tetrahedron.
+        """
+        if self.is_linear:
+            return self.copy()
+        from psierra.mesher.order import downgrade_tet10_to_tet4
+        return downgrade_tet10_to_tet4(self)  # type: ignore[return-value]
 
     @property
     def n_nodes(self) -> int:
@@ -181,6 +257,14 @@ class VolumetricMesh:
         -----------
         metric : {'scaled_jacobian', 'aspect_ratio', 'radius_ratio', 'collapse_ratio'}, default='scaled_jacobian'
         """
+        if self._cell_type == pv.CellType.QUADRATIC_TETRA:
+            # vtkMeshQuality evaluates linear simplices; compute quality on corner vertices
+            base_tet4 = pv.UnstructuredGrid(
+                {pv.CellType.TETRA: self.elements[:, :4]}, self.nodes
+            )
+            q_mesh = base_tet4.cell_quality(quality_measure=metric)
+            return np.array(q_mesh.cell_data[metric], dtype=np.float64)
+
         q_mesh = self._ugrid.cell_quality(quality_measure=metric)
         return np.array(q_mesh.cell_data[metric], dtype=np.float64)
 
@@ -251,8 +335,9 @@ class VolumetricMesh:
         self._ugrid.save(str(filepath))
 
     def __repr__(self) -> str:
+        cell_desc = "Tet10 (Quadratic)" if self.order == 2 else "Tet4 (Linear)"
         return (
-            f"VolumetricMesh"
+            f"VolumetricMesh [{cell_desc}]"
             f"\n  N Nodes         : {self.n_nodes} nodes"
             f"\n  N DoFs          : {self.n_dofs} DoFs"
             f"\n  N Elements      : {self.n_elements} elements"
