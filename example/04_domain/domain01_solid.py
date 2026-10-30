@@ -46,13 +46,15 @@ def main():
     print(domain)
 
     # 7. Create ugrid from domain
-    ugrid = domain.to_pyvista(include_cell_data={"Von Mises Stress": synthetic_vonmises})
+    ugrid = domain.to_pyvista(
+        include_cell_data={"Von Mises Stress": synthetic_vonmises}
+    )
     print(f"  Nodal fields      : {list(ugrid.point_data.keys())}")
     print(f"  Element fields    : {list(ugrid.cell_data.keys())}")
 
     # 8. Save directly to ParaView in 1 line
     domain.save_state(
-        filepath=Path("example/04_domain/domain01_output.vtu"),
+        filepath=Path("example/04_domain/domain01_output/output.vtu"),
         cell_data={"Von Mises Stress": synthetic_vonmises},
     )
 
