@@ -60,7 +60,7 @@ All agents writing or modifying code in this repository MUST strictly adhere to 
 
 ### 2.2 Architectural & Coding Conventions
 - **Strictly Object-Oriented (OOP) Core**:
-  - Organize all core physics and simulation logic into cohesive domain classes with explicit lifecycles (e.g., `Tet4`, `SolidDomain`, `NeoHookean`, `LinearStaticSolver`, `ProperOrthogonalDecomposition`).
+  - Organize all core physics and simulation logic into cohesive domain classes with explicit lifecycles (e.g., `Tet4`, `SolidDomain`, `NeoHookean`, `LinearStaticAnalysis`, `ProperOrthogonalDecomposition`).
   - **Utility Function Scope**: Stateless, frequently used mathematical transformations, indexing operations, COO sparsity assembly, and boundary node selectors in `psierra/utility/` and `psierra/boundary/selector.py` are explicitly permitted as pure functional helpers for ergonomic reuse across different analysis classes. All other domain and stateful logic must remain strictly class-based.
 - **Pragmatic & Modern Python (3.12+)**:
   - Write clean, Pythonic, and readable code.

@@ -37,13 +37,14 @@ This document outlines the strategic milestones, component delivery roadmap, and
 - [x] Linear static solver with Dirichlet and load boundaries (`psierra/solver/linear_static.py`).
 - [x] Linear dynamic solver with Rayleigh damping (`psierra/solver/linear_dynamic.py`, `psierra/damping/rayleigh.py`).
 - [x] End-to-end runnable demonstration scripts in `example/` authored by `developer` with PyVista 3D visualization.
-- [ ] **Tiered Automated Test Suite in `tests/` (Immediate Priority)**:
-  - [ ] `tests/test_material.py`: Parameter conversions, Hookean/Neo-Hookean stress & tangent consistency via finite difference ($< 10^{-5}$).
-  - [ ] `tests/test_element_tet4.py`: Volume calculation, shape function partition of unity, B-matrix, patch test ($< 10^{-10}$), rigid body invariance ($< 10^{-10}$).
-  - [ ] `tests/test_mesh.py`: VolumetricMesh & SurfaceMesh loading, boundary extraction, volume/area, coordinate transforms.
-  - [ ] `tests/test_boundary.py`: Dirichlet constraint indexing, DOF reduction, nodal force & gravity load assembly.
-  - [ ] `tests/test_solvers_linear.py`: Cantilever beam deflection benchmark against analytical Euler-Bernoulli/Timoshenko solution ($< 5\%$), Rayleigh damping dynamic decay.
-  - [ ] `tests/test_solvers_nonlinear.py`: Nonlinear static Newton-Raphson convergence, dynamic integration with Newmark-$\beta$.
+- [x] **Tiered Automated Test Suite in `tests/`**:
+  - [x] `tests/test_material.py`: Parameter conversions, Hookean/Neo-Hookean stress & tangent consistency via finite difference ($< 10^{-4}$).
+  - [x] `tests/test_element_tet4.py`: Volume calculation, shape function partition of unity, B-matrix, patch test ($< 10^{-14}$), rigid body translation & rotation invariance ($< 10^{-10}$).
+  - [x] `tests/test_mesh.py`: VolumetricMesh & SurfaceMesh loading, boundary extraction, volume/area, coordinate transforms.
+  - [x] `tests/test_boundary.py`: Dirichlet constraint indexing, DOF reduction, lifecycle (`add`/`remove`/`clear`), nodal force & gravity load assembly.
+  - [x] `tests/test_solvers_linear.py`: DirectSolver, FactorizedSolver, and ConjugateGradientSolver solving $A x = b$.
+  - [x] `tests/test_analysis_linear.py`: Cantilever beam deflection benchmark against analytical solution ($< 5\%$), equilibrium balance ($< 10^{-8}$), Rayleigh dynamic decay.
+  - [x] `tests/test_analysis_nonlinear.py`: Nonlinear static Newton-Raphson convergence, dynamic integration with Newmark-$\beta$.
 - [ ] Educational LaTeX theory documents authored by `teacher`.
 
 ---

@@ -73,3 +73,6 @@
 - Inverted tetrahedral elements cause $\det(J) \le 0$; check Jacobian determinant before assembly.
 - Unconstrained Dirichlet boundaries lead to singular stiffness matrices; always verify rigid body constraints.
 - In nearly incompressible materials ($\nu \to 0.5$), standard displacement-based elements lock; will need mixed or selective reduced integration.
+- **Canonical Voigt Ordering**: `psierra` explicitly uses `(xx, yy, zz, xy, yz, zx)` via `VOIGT_MAP_3D`. Do not confuse with Abaqus/ANSYS `(xx, yy, zz, yz, xz, xy)` ordering.
+- **Floating-point Rigid Modes**: For high stiffness ($E \sim 10^{11}$ Pa), unconstrained zero eigenvalues from `eigvalsh(K)` evaluate to $\sim 10^{-5}$, which is exact IEEE 754 float64 machine epsilon ($\sim 10^{-16}$) relative to $\|K\|$. Always check relative to $\|K\|$.
+- **Reaction Equilibrium**: Support reactions $R_p = K_{pf} u_f + K_{pp} u_p - F_p$ balance applied loads: $\sum R_p + \sum F_{ext} = 0$.
