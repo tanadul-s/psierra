@@ -14,7 +14,7 @@ from psierra.boundary import (
     DirichletConstraint,
     DirichletManager,
 )
-from psierra.solver import LinearStaticSolver
+from psierra.analysis import LinearStaticAnalysis
 
 
 def main():
@@ -55,11 +55,11 @@ def main():
 
     gravity_load = GravityLoad(acceleration=(0, 0, -9.81e+3))
     M = domain.assemble_mass_matrix()
-    f_ext = gravity_load.assemble(mass_matrix=M)
+    f_ext = gravity_load.compute_force_vector(mass_matrix=M)
     
     # 6. Solve Linear Statics
-    solver = LinearStaticSolver(domain)
-    result = solver.solve(dirichlet=dirichlet, f_ext=f_ext)
+    analysis = LinearStaticAnalysis(domain)
+    result = analysis.solve(dirichlet=dirichlet, f_ext=f_ext)
 
     # 7. Physical Verification Checks
     total_mass = params.mass_density * mesh.volume

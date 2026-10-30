@@ -1,15 +1,15 @@
 from __future__ import annotations
 from dataclasses import dataclass
 import numpy as np
-import scipy.sparse as spsp
 
 from psierra.domain.solid import SolidDomain
 from psierra.boundary.dirichlet import DirichletManager, DirichletConstraint
 from psierra.solver.sparse_linear_solver import SparseLinearSolver, DirectSolver
+from psierra.analysis.base import Analysis
 
 
 @dataclass
-class StaticResult:
+class LinearStaticResult:
     """Container for linear static simulation results."""
 
     displacement: np.ndarray  # Full displacement vector (n_dofs,)
@@ -19,7 +19,7 @@ class StaticResult:
     prescribed_dofs: np.ndarray  # Constrained global DOF indices
 
 
-class LinearStaticSolver:
+class LinearStaticAnalysis(Analysis):
     """
     Solves the linear static boundary value problem:
     K_ff * u_f = F_f - K_fp * u_p
@@ -39,7 +39,7 @@ class LinearStaticSolver:
         self,
         dirichlet: DirichletManager | list[DirichletConstraint],
         f_ext: np.ndarray,
-    ) -> StaticResult:
+    ) -> LinearStaticResult:
         """
         Solves the static equilibrium equation.
 
@@ -52,7 +52,7 @@ class LinearStaticSolver:
 
         Returns:
         --------
-        result : StaticResult
+        result : LinearStaticResult
         """
         # Ensure DirichletManager
         if isinstance(dirichlet, list):
@@ -104,7 +104,7 @@ class LinearStaticSolver:
         # 7. Update SolidDomain State
         self.domain.update_state(u=u_full)
 
-        return StaticResult(
+        return LinearStaticResult(
             displacement=u_full,
             reactions=reactions,
             strain_energy=strain_energy,

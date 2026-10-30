@@ -208,7 +208,7 @@ class Tet4(Element):
     # Nonlinear Total Lagrangian Stiffness & Internal Force
     # =========================================================================
 
-    def compute_nonlinear_components(
+    def compute_nonlinear_force_and_tangent_stiffness(
         self, node_coords: np.ndarray, u_nodes: np.ndarray
     ) -> tuple[np.ndarray, np.ndarray]:
         """

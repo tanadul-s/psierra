@@ -34,8 +34,8 @@ class NodalForce(NeumannBoundaryCondition):
                 f"force_vector must have shape ({self.dofs_per_node},), got {self.force_vector.shape}"
             )
 
-    def assemble(self, total_dofs: int) -> np.ndarray:
-        """Assembles the concentrated forces into a global load vector."""
+    def compute_force_vector(self, total_dofs: int) -> np.ndarray:
+        """Computes and returns the assembled concentrated nodal force vector."""
         f_global = np.zeros(total_dofs, dtype=np.float64)
         for i, node in enumerate(self.node_indices):
             start_dof = node * self.dofs_per_node
@@ -63,7 +63,7 @@ class GravityLoad(NeumannBoundaryCondition):
         self.acceleration = np.asarray(acceleration, dtype=np.float64)
         self.dofs_per_node = dofs_per_node
 
-    def assemble(self, mass_matrix: spsp.csr_matrix) -> np.ndarray:
+    def compute_force_vector(self, mass_matrix: spsp.csr_matrix) -> np.ndarray:
         """
         Computes F_gravity = M @ g_global.
 

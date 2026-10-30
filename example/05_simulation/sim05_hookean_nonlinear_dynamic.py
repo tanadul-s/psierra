@@ -14,7 +14,7 @@ from psierra.boundary import (
     GravityLoad,
 )
 from psierra.damping import RayleighDamping
-from psierra.solver import NonlinearDynamicSolver
+from psierra.analysis import NonlinearDynamicAnalysis
 
 
 def main():
@@ -43,16 +43,16 @@ def main():
     # 4. Gravity Load (9810 mm/s^2 in -Z)
     gravity = GravityLoad(acceleration=(0, 0, -9810.0))
     M = domain.assemble_mass_matrix()
-    f_ext = gravity.assemble(M)
+    f_ext = gravity.compute_force_vector(M)
 
     # 5. Rayleigh Damping
     damping = RayleighDamping(alpha=2.0, beta=0.001)
 
     # 6. Run Nonlinear Dynamic Simulation (100 steps of dt = 0.005 s -> Total Time = 0.5 s)
-    solver = NonlinearDynamicSolver(domain, damping=damping)
+    analysis = NonlinearDynamicAnalysis(domain, damping=damping)
     output_dir = Path("example/05_simulation/sim05_output")
 
-    result = solver.solve(
+    result = analysis.solve(
         dirichlet=dirichlet,
         f_ext=f_ext,
         dt=0.005,

@@ -91,7 +91,7 @@ class Element:
     # Nonlinear (Total Lagrangian) FEM Interface
     # =========================================================================
 
-    def compute_nonlinear_components(
+    def compute_nonlinear_force_and_tangent_stiffness(
         self, node_coords: np.ndarray, u_nodes: np.ndarray
     ) -> tuple[np.ndarray, np.ndarray]:
         """
@@ -113,5 +113,5 @@ class Element:
             Internal force vector.
         """
         raise NotImplementedError(
-            "Subclasses must implement compute_nonlinear_components."
+            "Subclasses must implement compute_nonlinear_force_and_tangent_stiffness."
         )

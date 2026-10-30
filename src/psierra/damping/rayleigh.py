@@ -18,9 +18,9 @@ class RayleighDamping:
         self.alpha = float(alpha)
         self.beta = float(beta)
 
-    def assemble(
+    def assemble_damping_matrix(
         self, mass_matrix: spsp.csr_matrix, stiffness_matrix: spsp.csr_matrix
     ) -> spsp.csr_matrix:
-        """Assembles the global damping matrix C."""
+        """Assembles the global damping matrix C = alpha * M + beta * K."""
         C = self.alpha * mass_matrix + self.beta * stiffness_matrix
         return C.tocsr()

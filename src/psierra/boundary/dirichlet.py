@@ -72,6 +72,14 @@ class DirichletManager:
         """Adds a Dirichlet constraint to the manager."""
         self._constraints.append(constraint)
 
+    def remove_constraint(self, constraint: DirichletConstraint) -> None:
+        """Removes a Dirichlet constraint from the manager."""
+        self._constraints.remove(constraint)
+
+    def clear(self) -> None:
+        """Clears all Dirichlet constraints from the manager."""
+        self._constraints.clear()
+
     @property
     def prescribed_dofs(self) -> np.ndarray:
         """Sorted array of unique constrained global DOF indices."""

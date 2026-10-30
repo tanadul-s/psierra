@@ -14,7 +14,7 @@ from psierra.boundary import (
     DirichletManager,
     GravityLoad,
 )
-from psierra.solver import NonlinearStaticSolver
+from psierra.analysis import NonlinearStaticAnalysis
 
 
 def main():
@@ -46,14 +46,14 @@ def main():
     # 4. Gravity Load (9810 mm/s^2 in -Z)
     gravity = GravityLoad(acceleration=(0, 0, -9810.0))
     M = domain.assemble_mass_matrix()
-    f_ext = gravity.assemble(M)
+    f_ext = gravity.compute_force_vector(M)
 
     total_weight = f_ext[2::3].sum()
     print(f"Total Physical Weight: {total_weight:.3f} N")
 
     # 5. Solve Nonlinear Equilibrium with Incremental Newton-Raphson
-    solver = NonlinearStaticSolver(domain)
-    result = solver.solve(
+    analysis = NonlinearStaticAnalysis(domain)
+    result = analysis.solve(
         dirichlet=dirichlet,
         f_ext=f_ext,
         n_steps=10,

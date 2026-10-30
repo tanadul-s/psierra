@@ -72,6 +72,16 @@ class SolidDomain:
         return self.u.reshape(-1, 3)
 
     @property
+    def velocity(self) -> np.ndarray:
+        """Nodal velocity reshaped to (N_nodes, 3) as a zero-copy view."""
+        return self.v.reshape(-1, 3)
+
+    @property
+    def acceleration(self) -> np.ndarray:
+        """Nodal acceleration reshaped to (N_nodes, 3) as a zero-copy view."""
+        return self.a.reshape(-1, 3)
+
+    @property
     def current_nodes(self) -> np.ndarray:
         """Current spatial coordinates x = X + u."""
         return self.mesh.nodes + self.displacement
@@ -184,7 +194,11 @@ class SolidDomain:
             elem_nodes = elements[e]
             coords = nodes[elem_nodes]
             u_elem = disp[elem_nodes]
-            _, f_int_elem = self.element.compute_nonlinear_components(coords, u_elem)
+            k_tan_elem, f_int_elem = (
+                self.element.compute_nonlinear_force_and_tangent_stiffness(
+                    coords, u_elem
+                )
+            )
             self._f_local_buffer[e] = f_int_elem
 
         return assemble_vector(
@@ -210,7 +224,11 @@ class SolidDomain:
             elem_nodes = elements[e]
             coords = nodes[elem_nodes]
             u_elem = disp[elem_nodes]
-            k_tan_elem, _ = self.element.compute_nonlinear_components(coords, u_elem)
+            k_tan_elem, _ = (
+                self.element.compute_nonlinear_force_and_tangent_stiffness(
+                    coords, u_elem
+                )
+            )
             self._k_local_buffer[e] = k_tan_elem
 
         return assemble_sparse_matrix(
@@ -224,15 +242,13 @@ class SolidDomain:
     # Energy & Stresses
     # =========================================================================
 
-    @property
-    def kinetic_energy(self) -> float:
-        """Kinetic energy: E_k = 0.5 * v^T M v."""
+    def compute_kinetic_energy(self) -> float:
+        """Computes kinetic energy: E_k = 0.5 * v^T M v."""
         M = self.assemble_mass_matrix()
         return 0.5 * float(self.v @ (M @ self.v))
 
-    @property
-    def strain_energy(self) -> float:
-        """Linear strain energy: E_s = 0.5 * u^T K u."""
+    def compute_strain_energy(self) -> float:
+        """Computes linear strain energy: E_s = 0.5 * u^T K u."""
         K = self.assemble_stiffness_matrix()
         return 0.5 * float(self.u @ (K @ self.u))
 

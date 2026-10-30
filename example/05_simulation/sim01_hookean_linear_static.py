@@ -14,7 +14,7 @@ from psierra.boundary import (
     DirichletManager,
     NodalForce,
 )
-from psierra.solver import LinearStaticSolver
+from psierra.analysis import LinearStaticAnalysis
 
 
 def main():
@@ -60,12 +60,12 @@ def main():
         node_indices=tip_nodes,
         force_vector=[0.0, 0.0, force_per_node],
     )
-    f_ext = tip_load.assemble(total_dofs=domain.mesh.n_dofs)
+    f_ext = tip_load.compute_force_vector(total_dofs=domain.mesh.n_dofs)
     print(f"Applied total F_z = {total_force_z} N across {len(tip_nodes)} tip nodes.")
 
     # 6. Solve Linear Statics
-    solver = LinearStaticSolver(domain)
-    result = solver.solve(dirichlet=dirichlet, f_ext=f_ext)
+    analysis = LinearStaticAnalysis(domain)
+    result = analysis.solve(dirichlet=dirichlet, f_ext=f_ext)
 
     # 7. Physical Verification Checks
     print("\n[bold green]Results & Verification Checks:[/bold green]")
