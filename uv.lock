@@ -823,7 +823,7 @@ wheels = [
 
 [[package]]
 name = "psierra"
-version = "26.9"
+version = "26.10"
 source = { editable = "." }
 dependencies = [
     { name = "cupy-cuda12x" },
