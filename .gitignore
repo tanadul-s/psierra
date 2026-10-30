@@ -1,8 +1,12 @@
 # Project
 data/
+*.step
+*.stp
+*.stl
 *.pvd
 *.vtu
-sim*_output/
+*.msh
+*_output/
 
 # Byte-compiled / optimized / DLL files
 __pycache__/
