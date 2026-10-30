@@ -27,7 +27,7 @@ This document outlines the strategic milestones, component delivery roadmap, and
 
 ---
 
-## Phase 1: Linear FEM Foundation & Infrastructure (Active / Near Completion)
+## Phase 1: Linear FEM Foundation & Infrastructure (Completed)
 
 - [x] Repository setup with Python 3.12, `uv`, and `pyproject.toml`.
 - [x] Basic mesh abstractions (`psierra/mesh/surface.py`, `psierra/mesh/volumetric.py`).
@@ -45,7 +45,7 @@ This document outlines the strategic milestones, component delivery roadmap, and
   - [x] `tests/test_solvers_linear.py`: DirectSolver, FactorizedSolver, and ConjugateGradientSolver solving $A x = b$.
   - [x] `tests/test_analysis_linear.py`: Cantilever beam deflection benchmark against analytical solution ($< 5\%$), equilibrium balance ($< 10^{-8}$), Rayleigh dynamic decay.
   - [x] `tests/test_analysis_nonlinear.py`: Nonlinear static Newton-Raphson convergence, dynamic integration with Newmark-$\beta$.
-- [ ] Educational LaTeX theory documents authored by `teacher`.
+- [x] Educational LaTeX theory documents authored by `teacher` (see [`docs/`](../docs/)).
 
 ---
 
