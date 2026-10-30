@@ -86,7 +86,7 @@ def main() -> None:
 
     # 5. Executing Simulation Solver
     console.print("\n[bold yellow][5/6] Executing Simulation Solver[/bold yellow]")
-    output_dir = Path("example/05_simulation/sim05_output")
+    output_dir = Path("examples/05_simulation/sim05_output")
     output_dir.mkdir(parents=True, exist_ok=True)
 
     dt = 0.005

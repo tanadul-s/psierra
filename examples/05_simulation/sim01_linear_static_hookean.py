@@ -115,7 +115,7 @@ def main() -> None:
 
     console.print(summary_table)
 
-    output_dir = Path("example/05_simulation/sim01_output")
+    output_dir = Path("examples/05_simulation/sim01_output")
     output_dir.mkdir(parents=True, exist_ok=True)
     output_path = output_dir / "output.vtu"
     domain.save_state(output_path)

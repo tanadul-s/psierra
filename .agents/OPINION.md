@@ -10,7 +10,7 @@
 - **Math kernel exception**: Single-letter variables (`K`, `M`, `C`, `F`, `B`, `D`, `u`, `v`, `a`) are allowed inside inner numerical loops to match textbook equations.
 - **4-Role Division**:
   - `manager`: Writes technical contract and API specs.
-  - `developer`: Writes production code in `src/psierra/` **AND** runnable scripts in `example/`. Does not write tests.
+  - `developer`: Writes production code in `src/psierra/` **AND** runnable scripts in `examples/`. Does not write tests.
   - `tester`: Writes adversarial unit and benchmark tests in `tests/`.
   - `teacher`: Writes LaTeX theory docs, algorithmic acceleration notes, and textbook citations.
 - **Docstring-Document 1:1 Synchronization**: Developer embeds governing equations, physical definitions, and numerical notes in code docstrings. Teacher mirrors these exact equations, symbols, and terminology in documentation, linking directly to code methods. Every part must have matched explanations between docstring and document.

@@ -35,10 +35,10 @@ To independently verify the finite element implementations, we compare the numer
 
 ## 2. Complete Simulation Suite Walkthrough
 
-All simulation examples are located in [`psierra/example/05_simulation/`](../example/05_simulation/).
+All simulation examples are located in [`psierra/examples/05_simulation/`](../examples/05_simulation/).
 
 ### 2.1 Simulation 01: Linear Static Hookean (Distributed Tip Load)
-- **Script**: [`sim01_linear_static_hookean.py`](../example/05_simulation/sim01_linear_static_hookean.py)
+- **Script**: [`sim01_linear_static_hookean.py`](../examples/05_simulation/sim01_linear_static_hookean.py)
 - **Physics**: 3D Cantilever beam subjected to a distributed downward shear force $F_z = -150 \text{ kN}$ at the free tip.
 - **Material**: Linear isotropic Hookean ($E = 21000 \text{ MPa}$, $\nu = 0.35$, $\rho = 1100 \times 10^{-6} \text{ kg/mm}^3$).
 - **Mesh**: 1,457 nodes (4,371 DOFs), 6,304 linear tetrahedral elements (`Tet4`).
@@ -54,7 +54,7 @@ All simulation examples are located in [`psierra/example/05_simulation/`](../exa
 ---
 
 ### 2.2 Simulation 02: Linear Static Hookean (Gravity Self-Weight)
-- **Script**: [`sim02_linear_static_hookean.py`](../example/05_simulation/sim02_linear_static_hookean.py)
+- **Script**: [`sim02_linear_static_hookean.py`](../examples/05_simulation/sim02_linear_static_hookean.py)
 - **Physics**: Static deflection under Earth's gravitational acceleration ($g_z = -9810 \text{ mm/s}^2$) formulated through the consistent mass matrix.
 - **Total Integrated Mass**:
   $$M_{mesh} = \int_{\Omega} \rho \, d\Omega = 1025.20 \text{ kg} \quad (\text{Exact theoretical } \rho V = 1025.20 \text{ kg})$$
@@ -69,7 +69,7 @@ All simulation examples are located in [`psierra/example/05_simulation/`](../exa
 ---
 
 ### 2.3 Simulation 03: Linear Dynamic Hookean (Implicit Newmark-$\beta$)
-- **Script**: [`sim03_linear_dynamic_hookean.py`](../example/05_simulation/sim03_linear_dynamic_hookean.py)
+- **Script**: [`sim03_linear_dynamic_hookean.py`](../examples/05_simulation/sim03_linear_dynamic_hookean.py)
 - **Physics**: Transient dynamic oscillation under suddenly applied gravitational acceleration with Rayleigh proportional damping ($\alpha = 2.0, \beta = 0.001$).
 - **Time Stepping**: $\Delta t = 0.005 \text{ s}$, $N_{steps} = 100$ (total duration $0.50 \text{ s}$).
 - **Solver Optimization**: Single pre-factorization of effective dynamic matrix $\boldsymbol{K}_{eff} = \boldsymbol{K}_{ff} + a_0 \boldsymbol{M}_{ff} + a_1 \boldsymbol{C}_{ff}$.
@@ -82,7 +82,7 @@ All simulation examples are located in [`psierra/example/05_simulation/`](../exa
 ---
 
 ### 2.4 Simulation 04: Nonlinear Static Hookean (Large Deformation Gravity)
-- **Script**: [`sim04_nonlinear_static_hookean.py`](../example/05_simulation/sim04_nonlinear_static_hookean.py)
+- **Script**: [`sim04_nonlinear_static_hookean.py`](../examples/05_simulation/sim04_nonlinear_static_hookean.py)
 - **Physics**: Finite rotation Total Lagrangian bending under gravitational body load ($0.5g = -4905 \text{ mm/s}^2$).
 - **Solver**: Incremental Newton-Raphson across 10 load steps ($\lambda = 0.1 \dots 1.0$) with backtracking line search.
 
@@ -98,7 +98,7 @@ All simulation examples are located in [`psierra/example/05_simulation/`](../exa
 ---
 
 ### 2.5 Simulation 05: Nonlinear Dynamic Hookean (Total Lagrangian Transient)
-- **Script**: [`sim05_nonlinear_dynamic_hookean.py`](../example/05_simulation/sim05_nonlinear_dynamic_hookean.py)
+- **Script**: [`sim05_nonlinear_dynamic_hookean.py`](../examples/05_simulation/sim05_nonlinear_dynamic_hookean.py)
 - **Physics**: Finite deformation dynamic oscillation under gravity ($E = 70000 \text{ MPa}$, $\Delta t = 0.005 \text{ s}$, 100 steps).
 
 **Verification Results & Physical Meaning**:
@@ -108,7 +108,7 @@ All simulation examples are located in [`psierra/example/05_simulation/`](../exa
 ---
 
 ### 2.6 Simulation 06: Nonlinear Static Neo-Hookean (Hyperelasticity)
-- **Script**: [`sim06_nonlinear_static_neohookean.py`](../example/05_simulation/sim06_nonlinear_static_neohookean.py)
+- **Script**: [`sim06_nonlinear_static_neohookean.py`](../examples/05_simulation/sim06_nonlinear_static_neohookean.py)
 - **Physics**: Finite-strain compressible Neo-Hookean hyperelastic beam under full gravitational load ($1.0g = -9810 \text{ mm/s}^2$).
 - **Material**: Compressible Neo-Hookean with shear modulus $\mu = 7777.78 \text{ MPa}$ and bulk modulus $K = 23333.33 \text{ MPa}$.
 
@@ -121,7 +121,7 @@ All simulation examples are located in [`psierra/example/05_simulation/`](../exa
 ---
 
 ### 2.7 Simulation 07: Nonlinear Dynamic Neo-Hookean (Hyperelastic Transient)
-- **Script**: [`sim07_nonlinear_dynamic_neohookean.py`](../example/05_simulation/sim07_nonlinear_dynamic_neohookean.py)
+- **Script**: [`sim07_nonlinear_dynamic_neohookean.py`](../examples/05_simulation/sim07_nonlinear_dynamic_neohookean.py)
 - **Physics**: Extended dynamic transient simulation ($N_{steps} = 200$, duration $1.00 \text{ s}$) of hyperelastic beam swinging under gravity with Rayleigh damping.
 
 **Verification Results & Physical Meaning**:
@@ -149,12 +149,12 @@ All simulation examples are located in [`psierra/example/05_simulation/`](../exa
 All simulation outputs can be visualized and animated directly in [ParaView](https://www.paraview.org/):
 
 1. **Static Analyses (`sim01`, `sim02`, `sim04`, `sim06`)**:
-   - File $\to$ Open $\to$ `example/05_simulation/simXX_output/output.vtu`.
+   - File $\to$ Open $\to$ `examples/05_simulation/simXX_output/output.vtu`.
    - Click **Apply**.
    - Under **Coloring**, choose `Displacement` or `Von Mises Stress`.
    - Add filter: **Filters $\to$ Alphabetical $\to$ Warp By Vector** (Vectors = `Displacement`, Scale Factor = 1.0) to visualize true deformed geometry.
 2. **Dynamic Analyses (`sim03`, `sim05`, `sim07`)**:
-   - File $\to$ Open $\to$ `example/05_simulation/simXX_output/output.pvd`.
+   - File $\to$ Open $\to$ `examples/05_simulation/simXX_output/output.pvd`.
    - Click **Apply**.
    - Add filter: **Warp By Vector**.
    - Click the green **Play** button in the animation toolbar to scrub through the dynamic oscillation.

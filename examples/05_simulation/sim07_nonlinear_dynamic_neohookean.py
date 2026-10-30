@@ -6,7 +6,7 @@ from rich.table import Table
 from rich.traceback import install
 from scipy.spatial.transform import Rotation
 
-from psierra.material import IsotropicElasticParameters, Hookean
+from psierra.material import IsotropicElasticParameters, NeoHookean
 from psierra.element import Tet4
 from psierra.mesh import VolumetricMesh
 from psierra.domain import SolidDomain
@@ -17,7 +17,7 @@ from psierra.boundary import (
     GravityLoad,
 )
 from psierra.damping import RayleighDamping
-from psierra.analysis import LinearDynamicAnalysis
+from psierra.analysis import NonlinearDynamicAnalysis
 
 install(show_locals=False)
 console = Console()
@@ -27,8 +27,8 @@ def main() -> None:
     # 0. Header Banner
     console.print(
         Panel.fit(
-            "[bold cyan]Simulation 03: Linear Dynamic Analysis (Hookean)[/bold cyan]\n"
-            "[dim]Dynamic Cantilever Beam Transient Vibration with Rayleigh Damping[/dim]",
+            "[bold cyan]Simulation 07: Nonlinear Dynamic Analysis (Neo-Hookean)[/bold cyan]\n"
+            "[dim]Finite Strain Hyperelastic Beam Transient Vibration with Rayleigh Damping[/dim]",
             title="[bold blue]project-sierra[/bold blue]",
             border_style="cyan",
         )
@@ -36,7 +36,7 @@ def main() -> None:
 
     # 1. Loading Mesh Geometry
     console.print("\n[bold yellow][1/6] Loading Mesh Geometry[/bold yellow]")
-    mesh_path = Path("data/beam1/mesh/beam1_fine.vtk")
+    mesh_path = Path("data/beam1/mesh/beam1.vtk")
     mesh = VolumetricMesh(mesh_path)
     mesh.transform(
         orientation=Rotation.from_euler("zyz", (0, 90, 90), degrees=True),
@@ -53,14 +53,14 @@ def main() -> None:
     console.print("\n[bold yellow][2/6] Configuring Material & Element Formulation[/bold yellow]")
     params = IsotropicElasticParameters()
     params.set_from_youngs_poisson(
-        youngs_modulus=70000.0,
+        youngs_modulus=21000.0,
         poissons_ratio=0.35,
         mass_density=1100e-6,
     )
-    material = Hookean(params)
+    material = NeoHookean(params)
     element = Tet4(material)
-    console.print(f"  • Constitutive Law : [cyan]{material.__class__.__name__}[/cyan]")
-    console.print(f"  • Element Type     : [cyan]{element.__class__.__name__}[/cyan] (Linear Tetrahedron)")
+    console.print(f"  • Constitutive Law : [cyan]{material.__class__.__name__}[/cyan] (Compressible Neo-Hookean)")
+    console.print(f"  • Element Type     : [cyan]{element.__class__.__name__}[/cyan] (Total Lagrangian Tetrahedron)")
     console.print(f"  • Young's Modulus  : [green]{params.youngs_modulus:.1f}[/green] MPa | Poisson's Ratio: [green]{params.poissons_ratio:.2f}[/green]")
 
     # 3. Setting Up Physical Domain
@@ -78,7 +78,6 @@ def main() -> None:
     M = domain.assemble_mass_matrix()
     f_ext = gravity.compute_force_vector(M)
 
-    # Rayleigh Damping: alpha = 2.0 (mass damping), beta = 0.001 (stiffness damping)
     damping = RayleighDamping(alpha=2.0, beta=0.001)
 
     console.print(f"  • Clamped Root     : [green]{len(root_nodes)}[/green] nodes ({len(clamp.dofs)} DOFs)")
@@ -87,17 +86,19 @@ def main() -> None:
 
     # 5. Executing Simulation Solver
     console.print("\n[bold yellow][5/6] Executing Simulation Solver[/bold yellow]")
-    output_dir = Path("example/05_simulation/sim03_output")
+    output_dir = Path("examples/05_simulation/sim07_output")
     output_dir.mkdir(parents=True, exist_ok=True)
 
     dt = 0.005
-    n_steps = 100
-    analysis = LinearDynamicAnalysis(domain, damping=damping)
+    n_steps = 200
+    analysis = NonlinearDynamicAnalysis(domain, damping=damping)
     result = analysis.solve(
         dirichlet=dirichlet,
         f_ext=f_ext,
         dt=dt,
         n_steps=n_steps,
+        max_iterations=15,
+        tolerance=1e-4,
         include_stresses=True,
         smooth_to_nodes=True,
         save_directory=output_dir,
@@ -109,14 +110,17 @@ def main() -> None:
     max_disp = float(np.linalg.norm(domain.displacement, axis=1).max())
     total_time = n_steps * dt
 
-    summary_table = Table(title="Simulation 03 Summary & Verification", border_style="cyan")
+    status_style = "green" if result.converged else "red"
+
+    summary_table = Table(title="Simulation 07 Summary & Verification", border_style="cyan")
     summary_table.add_column("Quantity", style="bold white")
     summary_table.add_column("Value", style="cyan")
     summary_table.add_column("Status / Unit", style="green")
 
+    summary_table.add_row("Convergence Status", f"{result.converged}", f"[bold {status_style}]{result.steps_completed}/{n_steps} Steps[/bold {status_style}]")
     summary_table.add_row("Time Step Size (dt)", f"{dt:.4f} s", "Newmark Time Increment")
     summary_table.add_row("Total Time Steps", f"{n_steps}", f"Duration = {total_time:.2f} s")
-    summary_table.add_row("Max Resultant Displacement", f"{max_disp:.4f} mm", "Transient Dynamic Peak")
+    summary_table.add_row("Max Resultant Displacement", f"{max_disp:.4f} mm", "Peak Dynamic Deflection")
     summary_table.add_row("Exported VTU Snapshots", f"{len(result.time_series_files)}", "PVD Collection Items")
 
     console.print(summary_table)

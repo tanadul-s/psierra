@@ -54,7 +54,7 @@ def main():
 
     # 8. Save directly to ParaView in 1 line
     domain.save_state(
-        filepath=Path("example/04_domain/domain01_output/output.vtu"),
+        filepath=Path("examples/04_domain/domain01_output/output.vtu"),
         cell_data={"Von Mises Stress": synthetic_vonmises},
     )
 

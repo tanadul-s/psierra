@@ -40,29 +40,29 @@ uv run pytest -n auto
 
 ## Running Simulations
 
-The demonstration suite in [`example/05_simulation/`](example/05_simulation/) includes 7 end-to-end simulation pipelines:
+The demonstration suite in [`examples/05_simulation/`](examples/05_simulation/) includes 7 end-to-end simulation pipelines:
 
 ```bash
 # 1. Linear static beam bending under tip load
-python example/05_simulation/sim01_linear_static_hookean.py
+python examples/05_simulation/sim01_linear_static_hookean.py
 
 # 2. Linear static beam bending under gravity self-weight
-python example/05_simulation/sim02_linear_static_hookean.py
+python examples/05_simulation/sim02_linear_static_hookean.py
 
 # 3. Linear dynamic transient vibration with Rayleigh damping
-python example/05_simulation/sim03_linear_dynamic_hookean.py
+python examples/05_simulation/sim03_linear_dynamic_hookean.py
 
 # 4. Nonlinear static large deflection (Saint Venant-Kirchhoff)
-python example/05_simulation/sim04_nonlinear_static_hookean.py
+python examples/05_simulation/sim04_nonlinear_static_hookean.py
 
 # 5. Nonlinear dynamic transient vibration (Saint Venant-Kirchhoff)
-python example/05_simulation/sim05_nonlinear_dynamic_hookean.py
+python examples/05_simulation/sim05_nonlinear_dynamic_hookean.py
 
 # 6. Nonlinear static hyperelastic bending (Neo-Hookean)
-python example/05_simulation/sim06_nonlinear_static_neohookean.py
+python examples/05_simulation/sim06_nonlinear_static_neohookean.py
 
 # 7. Nonlinear dynamic hyperelastic transient (Neo-Hookean)
-python example/05_simulation/sim07_nonlinear_dynamic_neohookean.py
+python examples/05_simulation/sim07_nonlinear_dynamic_neohookean.py
 ```
 
 ---

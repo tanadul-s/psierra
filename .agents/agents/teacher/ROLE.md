@@ -10,7 +10,7 @@
 2. **Comprehensive LaTeX Documentation**: Write clear mathematical derivations (strong form $\to$ weak form $\to$ discretized FEM equations $\to$ linearized tangents $\to$ contact formulations $\to$ reduced-order projection $\to$ inverse formulations).
 3. **Explicit Computational Breakdown**: Never present code as a "black box". Always explain the algorithmic optimizations (e.g., vectorized quadrature, sparse assembly, SVD truncation, DEIM interpolation, ECSW hyper-reduction, CuPy GPU acceleration).
 4. **Code Cross-Referencing**: Link every theoretical equation directly to the corresponding source file and method in `src/psierra/`.
-5. **Tutorial Walkthroughs**: Review and walk through the demonstration scripts authored by the `developer` in `example/`, providing the user with theoretical context and physical interpretation of the simulation results.
+5. **Tutorial Walkthroughs**: Review and walk through the demonstration scripts authored by the `developer` in `examples/`, providing the user with theoretical context and physical interpretation of the simulation results.
 6. **Bidirectional Docstring-to-Doc Synchronization (1:1 Matching)**:
    - Carefully inspect the Developer's code docstrings in `src/psierra/`.
    - Ensure the mathematical symbols, tensor notations, constitutive equations, and acceleration explanations in the documentation match the in-code docstrings exactly.
@@ -48,7 +48,7 @@ Provide a table linking math to code:
 | Reduced Projection | $\boldsymbol{K}_r = \boldsymbol{V}^T \boldsymbol{K} \boldsymbol{V}$ | `src/psierra/mor/pod.py` | `ProperOrthogonalDecomposition.reduce()` |
 
 ### Component 4: Tutorial Walkthrough & Example Analysis
-- Walk through the corresponding executable demonstration script authored by the `developer` under `example/` (e.g., `example/static_beam_bending.py` or `example/contact_indentation.py`).
+- Walk through the corresponding executable demonstration script authored by the `developer` under `examples/` (e.g., `examples/static_beam_bending.py` or `examples/contact_indentation.py`).
 - Explain:
   1. The physical setup (geometry, material properties, applied boundary conditions).
   2. The solver convergence behavior and residual history.
@@ -69,6 +69,6 @@ Provide a table linking math to code:
 
 ## 3. Strict Constraints & Prohibitions
 
-- **DO NOT** author executable scripts under `example/` directly; the `developer` creates runnable demonstration code, while the `teacher` explains, documents, and contextualizes it.
+- **DO NOT** author executable scripts under `examples/` directly; the `developer` creates runnable demonstration code, while the `teacher` explains, documents, and contextualizes it.
 - **DO NOT** omit citations when describing specialized algorithms, contact formulations, or constitutive models.
 - **DO NOT** write overly verbose prose without clear structure, headers, and bullet points.

@@ -6,7 +6,7 @@ from rich.table import Table
 from rich.traceback import install
 from scipy.spatial.transform import Rotation
 
-from psierra.material import IsotropicElasticParameters, NeoHookean
+from psierra.material import IsotropicElasticParameters, Hookean
 from psierra.element import Tet4
 from psierra.mesh import VolumetricMesh
 from psierra.domain import SolidDomain
@@ -16,8 +16,7 @@ from psierra.boundary import (
     DirichletManager,
     GravityLoad,
 )
-from psierra.damping import RayleighDamping
-from psierra.analysis import NonlinearDynamicAnalysis
+from psierra.analysis import NonlinearStaticAnalysis
 
 install(show_locals=False)
 console = Console()
@@ -27,8 +26,8 @@ def main() -> None:
     # 0. Header Banner
     console.print(
         Panel.fit(
-            "[bold cyan]Simulation 07: Nonlinear Dynamic Analysis (Neo-Hookean)[/bold cyan]\n"
-            "[dim]Finite Strain Hyperelastic Beam Transient Vibration with Rayleigh Damping[/dim]",
+            "[bold cyan]Simulation 04: Nonlinear Static Analysis (Hookean)[/bold cyan]\n"
+            "[dim]Large-Rotation Cantilever Beam Bending under Gravity Body Load[/dim]",
             title="[bold blue]project-sierra[/bold blue]",
             border_style="cyan",
         )
@@ -57,9 +56,9 @@ def main() -> None:
         poissons_ratio=0.35,
         mass_density=1100e-6,
     )
-    material = NeoHookean(params)
+    material = Hookean(params)
     element = Tet4(material)
-    console.print(f"  • Constitutive Law : [cyan]{material.__class__.__name__}[/cyan] (Compressible Neo-Hookean)")
+    console.print(f"  • Constitutive Law : [cyan]{material.__class__.__name__}[/cyan] (Saint Venant-Kirchhoff)")
     console.print(f"  • Element Type     : [cyan]{element.__class__.__name__}[/cyan] (Total Lagrangian Tetrahedron)")
     console.print(f"  • Young's Modulus  : [green]{params.youngs_modulus:.1f}[/green] MPa | Poisson's Ratio: [green]{params.poissons_ratio:.2f}[/green]")
 
@@ -74,57 +73,53 @@ def main() -> None:
     dirichlet = DirichletManager(domain.mesh.n_dofs)
     dirichlet.add_constraint(clamp)
 
-    gravity = GravityLoad(acceleration=(0.0, 0.0, -9810.0))
+    # Gravitational acceleration scaled to 0.5g (-4905 mm/s^2) for Saint Venant-Kirchhoff stability
+    gravity = GravityLoad(acceleration=(0.0, 0.0, -4905.0))
     M = domain.assemble_mass_matrix()
     f_ext = gravity.compute_force_vector(M)
 
-    damping = RayleighDamping(alpha=2.0, beta=0.001)
-
+    total_weight = float(f_ext[2::3].sum())
     console.print(f"  • Clamped Root     : [green]{len(root_nodes)}[/green] nodes ({len(clamp.dofs)} DOFs)")
-    console.print(f"  • Gravity Load F_z : [green]{f_ext[2::3].sum():.2f}[/green] N")
-    console.print(f"  • Rayleigh Damping : alpha = [green]{damping.alpha}[/green] | beta = [green]{damping.beta}[/green]")
+    console.print(f"  • Gravity Load F_z : [green]{total_weight:.2f}[/green] N")
 
     # 5. Executing Simulation Solver
     console.print("\n[bold yellow][5/6] Executing Simulation Solver[/bold yellow]")
-    output_dir = Path("example/05_simulation/sim07_output")
-    output_dir.mkdir(parents=True, exist_ok=True)
-
-    dt = 0.005
-    n_steps = 200
-    analysis = NonlinearDynamicAnalysis(domain, damping=damping)
+    analysis = NonlinearStaticAnalysis(domain)
     result = analysis.solve(
         dirichlet=dirichlet,
         f_ext=f_ext,
-        dt=dt,
-        n_steps=n_steps,
-        max_iterations=15,
+        n_steps=10,
+        max_iterations=20,
         tolerance=1e-4,
-        include_stresses=True,
-        smooth_to_nodes=True,
-        save_directory=output_dir,
-        save_interval=5,
     )
 
     # 6. Verifying Results & Post-Processing
     console.print("\n[bold yellow][6/6] Verifying Results & Post-Processing[/bold yellow]")
-    max_disp = float(np.linalg.norm(domain.displacement, axis=1).max())
-    total_time = n_steps * dt
+    disp = domain.displacement
+    max_disp = float(np.linalg.norm(disp, axis=1).max())
+    tip_z = float(disp[:, 2].min())
+    tip_y = float(disp[:, 1].min())
 
     status_style = "green" if result.converged else "red"
 
-    summary_table = Table(title="Simulation 07 Summary & Verification", border_style="cyan")
+    summary_table = Table(title="Simulation 04 Summary & Verification", border_style="cyan")
     summary_table.add_column("Quantity", style="bold white")
     summary_table.add_column("Value", style="cyan")
     summary_table.add_column("Status / Unit", style="green")
 
-    summary_table.add_row("Convergence Status", f"{result.converged}", f"[bold {status_style}]{result.steps_completed}/{n_steps} Steps[/bold {status_style}]")
-    summary_table.add_row("Time Step Size (dt)", f"{dt:.4f} s", "Newmark Time Increment")
-    summary_table.add_row("Total Time Steps", f"{n_steps}", f"Duration = {total_time:.2f} s")
-    summary_table.add_row("Max Resultant Displacement", f"{max_disp:.4f} mm", "Peak Dynamic Deflection")
-    summary_table.add_row("Exported VTU Snapshots", f"{len(result.time_series_files)}", "PVD Collection Items")
+    summary_table.add_row("Convergence Status", f"{result.converged}", f"[bold {status_style}]{result.steps_completed}/10 Steps[/bold {status_style}]")
+    summary_table.add_row("Max Resultant Displacement", f"{max_disp:.2f} mm", "Peak Deflection")
+    summary_table.add_row("Downward Deflection (Z)", f"{tip_z:.2f} mm", "Bending Deflection")
+    summary_table.add_row("Axial Shortening (Y)", f"{tip_y:.2f} mm", "Geometric Inward Pull")
+    summary_table.add_row("Total External Load (F_z)", f"{total_weight:.2f} N", "Applied Load")
 
     console.print(summary_table)
-    console.print(f"[bold green]✓ ParaView animation written to:[/bold green] [cyan]{output_dir / "output.pvd"}[/cyan]\n")
+
+    output_dir = Path("examples/05_simulation/sim04_output")
+    output_dir.mkdir(parents=True, exist_ok=True)
+    output_path = output_dir / "output.vtu"
+    domain.save_state(filepath=output_path, include_stresses=True, smooth_to_nodes=True)
+    console.print(f"[bold green]✓ Output successfully exported to:[/bold green] [cyan]{output_path}[/cyan]\n")
 
 
 if __name__ == "__main__":

@@ -36,7 +36,7 @@ This document outlines the strategic milestones, component delivery roadmap, and
 - [x] Sparse matrix assembly infrastructure (`psierra/utility/assembly.py`).
 - [x] Linear static solver with Dirichlet and load boundaries (`psierra/solver/linear_static.py`).
 - [x] Linear dynamic solver with Rayleigh damping (`psierra/solver/linear_dynamic.py`, `psierra/damping/rayleigh.py`).
-- [x] End-to-end runnable demonstration scripts in `example/` authored by `developer` with PyVista 3D visualization.
+- [x] End-to-end runnable demonstration scripts in `examples/` authored by `developer` with PyVista 3D visualization.
 - [x] **Tiered Automated Test Suite in `tests/`**:
   - [x] `tests/test_material.py`: Parameter conversions, Hookean/Neo-Hookean stress & tangent consistency via finite difference ($< 10^{-4}$).
   - [x] `tests/test_element_tet4.py`: Volume calculation, shape function partition of unity, B-matrix, patch test ($< 10^{-14}$), rigid body translation & rotation invariance ($< 10^{-10}$).
