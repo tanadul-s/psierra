@@ -182,33 +182,41 @@ class NonlinearDynamicAnalysis(Analysis):
             exported_files.append(vtu_path)
 
         if verbose:
-            print("[bold blue]==================================================[/bold blue]")
-            print("[bold blue]    Nonlinear Dynamic Implicit Newmark-beta       [/bold blue]")
-            print("[bold blue]==================================================[/bold blue]")
-            print(f"Total Steps: {n_steps} | dt = {dt:.4e} s | Tol = {tolerance:.1e}\n")
+            print("[bold cyan]Nonlinear Dynamic Analysis (Implicit Newmark-beta)[/bold cyan]")
+            print(
+                f"Total DOFs: {self.domain.mesh.n_dofs} | Free DOFs: {len(free_dofs)} | Total Steps: {n_steps} | dt = {dt:.4e} s | Tol = {tolerance:.1e}\n"
+            )
 
         # 5. Dynamic Time Stepping Loop
         for step in range(1, n_steps + 1):
             t_current = step * dt
 
-            # Predictor displacement and velocity states
+            # Initial trial state for step n+1 starts at previous displacement u_n
             u_f_i = u_f.copy()
-            v_f_i = v_f.copy()
-            a_f_i = a_f.copy()
-
-            converged_step = False
+            step_converged = False
 
             # Newton-Raphson equilibrium iterations within the time step
             for iteration in range(1, max_iterations + 1):
+                # Kinematic accelerations and velocities from Newmark relations
+                a_f_i = (
+                    a0 * (u_f_i - u_f)
+                    - a2 * v_f
+                    - a3 * a_f
+                )
+                v_f_i = (
+                    a1 * (u_f_i - u_f)
+                    - a4 * v_f
+                    - a5 * a_f
+                )
+
                 # Full vectors for internal force evaluation
                 u_full[free_dofs] = u_f_i
                 v_full[free_dofs] = v_f_i
                 a_full[free_dofs] = a_f_i
                 self.domain.update_state(u=u_full, v=v_full, a=a_full)
 
-                # Assemble nonlinear internal forces F_int(u) and tangent stiffness K_tan(u)
+                # Assemble nonlinear internal forces F_int(u)
                 f_int = self.domain.assemble_internal_forces()
-                K_tan = self.domain.assemble_tangent_stiffness_matrix()
 
                 # Dynamic out-of-balance residual: R = F_ext - M*a - C*v - F_int
                 inertia_f = M_ff @ a_f_i
@@ -219,23 +227,41 @@ class NonlinearDynamicAnalysis(Analysis):
                 rel_res = res_norm / f_ref_norm
 
                 if rel_res < tolerance:
-                    converged_step = True
-                    iteration_history.append(iteration)
+                    step_converged = True
+                    iteration_history.append(iteration - 1)
                     break
 
-                # Effective Dynamic Tangent Matrix: K_eff = K_tan + a0 * M + a1 * C
+                # Assemble Tangent Stiffness K_tan(u) and Effective Dynamic Tangent Matrix
+                K_tan = self.domain.assemble_tangent_stiffness_matrix()
                 K_tan_ff = K_tan[free_dofs, :][:, free_dofs]
                 K_eff = (K_tan_ff + a0 * M_ff + a1 * C_ff).tocsc()
 
                 # Solve for displacement increment: K_eff * du = R_eff
                 du_f = self.linear_solver.solve(K_eff, r_eff)
 
-                # Update kinematic state using Newmark relations
-                u_f_i += du_f
-                a_f_i = a0 * (u_f_i - u_f) - a2 * v_f - a3 * a_f
-                v_f_i = v_f + dt * ((1.0 - gamma) * a_f + gamma * a_f_i)
+                # Backtracking Line Search (Guards against element inversion det(F) <= 0)
+                alpha = 1.0
+                line_search_ok = False
+                for _ in range(8):
+                    u_cand = u_f_i + alpha * du_f
+                    u_full[free_dofs] = u_cand
+                    self.domain.update_state(u=u_full)
+                    try:
+                        self.domain.assemble_internal_forces()
+                        u_f_i = u_cand
+                        line_search_ok = True
+                        break
+                    except ValueError:
+                        alpha *= 0.5
 
-            if not converged_step:
+                if not line_search_ok:
+                    if verbose:
+                        print(
+                            f"  [bold red]Step {step:4d}: Element inversion could not be resolved by line search.[/bold red]"
+                        )
+                    break
+
+            if not step_converged:
                 if verbose:
                     print(
                         f"[bold red]✗ Step {step} (t={t_current:.4f}s) failed to converge in {max_iterations} iterations![/bold red]"
@@ -248,7 +274,7 @@ class NonlinearDynamicAnalysis(Analysis):
                     time_series_files=exported_files,
                 )
 
-            # Accept converged step
+            # Accept converged step: advance state
             u_f = u_f_i
             v_f = v_f_i
             a_f = a_f_i
@@ -283,10 +309,9 @@ class NonlinearDynamicAnalysis(Analysis):
         # 6. Write Master .pvd Collection
         if save_dir is not None and pvd_writer is not None:
             pvd_writer.write()
-            if verbose:
-                print(
-                    f"\n[bold green]ParaView animation written to:[/bold green] {pvd_writer.pvd_path}"
-                )
+
+        if verbose:
+            print(f"[bold green]✓ Nonlinear Dynamic Analysis completed successfully ({n_steps}/{n_steps} steps).[/bold green]\n")
 
         return NonlinearDynamicResult(
             time=time_points,

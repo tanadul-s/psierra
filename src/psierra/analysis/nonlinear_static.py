@@ -94,11 +94,8 @@ class NonlinearStaticAnalysis(Analysis):
         iteration_history: list[int] = []
 
         if verbose:
-            print("[bold blue]==================================================[/bold blue]")
-            print("[bold blue]   Incremental Newton-Raphson Nonlinear Static    [/bold blue]")
-            print("[bold blue]==================================================[/bold blue]")
-            print(f"Total DOFs: {len(u_current)} | Free DOFs: {len(free_dofs)}")
-            print(f"Load Steps: {n_steps} | Max Iterations/Step: {max_iterations} | Tol: {tolerance:.1e}\n")
+            print("[bold cyan]Nonlinear Static Analysis (Incremental Newton-Raphson)[/bold cyan]")
+            print(f"Total DOFs: {len(u_current)} | Free DOFs: {len(free_dofs)} | Load Steps: {n_steps} | Max Iter/Step: {max_iterations} | Tol: {tolerance:.1e}\n")
 
         for step in range(1, n_steps + 1):
             load_factor = step / n_steps
@@ -144,8 +141,32 @@ class NonlinearStaticAnalysis(Analysis):
                 # 5. Solve for Displacement Increment: K_tan_free * du = r_free
                 du_free = self.linear_solver.solve(K_tan_free, r_free)
 
-                # 6. Apply Full Newton-Raphson Update
-                u_current[free_dofs] += du_free
+                # 6. Backtracking Line Search (Guards against element inversion det(F) <= 0)
+                alpha = 1.0
+                line_search_success = False
+
+                for _ in range(8):
+                    u_candidate = u_current.copy()
+                    u_candidate[free_dofs] += alpha * du_free
+                    self.domain.update_state(u=u_candidate)
+
+                    try:
+                        # Test if deformation gradient det(F) > 0 for all elements
+                        self.domain.assemble_internal_forces()
+                        u_current = u_candidate
+                        line_search_success = True
+                        break
+                    except ValueError:
+                        # Element inversion detected, backtrack step size
+                        alpha *= 0.5
+
+                if not line_search_success:
+                    if verbose:
+                        print(
+                            f"  [bold red]Step {step:2d}/{n_steps}: Line search failed due to element inversion.[/bold red]"
+                        )
+                    converged_step = False
+                    break
 
             if not converged_step:
                 if verbose:
@@ -166,9 +187,7 @@ class NonlinearStaticAnalysis(Analysis):
         reactions = f_int_final - f_ext
 
         if verbose:
-            print("[bold green]==================================================[/bold green]")
-            print("[bold green]   Nonlinear Static Analysis Successfully Ended   [/bold green]")
-            print("[bold green]==================================================[/bold green]\n")
+            print(f"[bold green]✓ Nonlinear Static Analysis converged successfully ({n_steps}/{n_steps} steps).[/bold green]\n")
 
         return NonlinearStaticResult(
             displacement=u_current,

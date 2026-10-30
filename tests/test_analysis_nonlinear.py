@@ -96,4 +96,6 @@ class TestNonlinearAnalysis:
         assert isinstance(result, NonlinearDynamicResult)
         assert result.converged is True
         assert result.steps_completed == 5
+        assert np.linalg.norm(domain.displacement) > 0.0
+        assert np.linalg.norm(domain.velocity) > 0.0
         assert (tmp_path / "nl_dyn_out" / "output.pvd").exists()

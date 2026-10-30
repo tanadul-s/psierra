@@ -142,8 +142,6 @@ class LinearDynamicAnalysis(Analysis):
         K_eff = (K_ff + a0 * M_ff + a1 * C_ff).tocsc()
 
         # Factorize K_eff ONCE via SuperLU for blazingly fast O(N) back-substitutions
-        if verbose:
-            print("[bold cyan]Factorizing effective dynamic matrix K_eff...[/bold cyan]")
         solve_step = spla.factorized(K_eff)
 
         # 5. Initialize State on Free DOFs
@@ -186,9 +184,8 @@ class LinearDynamicAnalysis(Analysis):
             exported_files.append(vtu_path)
 
         if verbose:
-            print(
-                f"[bold green]Starting Linear Dynamic Simulation ({n_steps} steps, dt={dt:.4e}s)...[/bold green]"
-            )
+            print("[bold cyan]Linear Dynamic Analysis (Implicit Newmark-beta)[/bold cyan]")
+            print(f"Total DOFs: {self.domain.mesh.n_dofs} | Free DOFs: {len(free_dofs)} | Total Steps: {n_steps} | dt = {dt:.4e} s\n")
 
         # 7. Time Integration Steps
         for step in range(1, n_steps + 1):
@@ -243,10 +240,9 @@ class LinearDynamicAnalysis(Analysis):
         # 8. Write Master .pvd Animation File for ParaView
         if save_dir is not None and pvd_writer is not None:
             pvd_writer.write()
-            if verbose:
-                print(
-                    f"\n[bold green]ParaView animation written to:[/bold green] {pvd_writer.pvd_path}"
-                )
+
+        if verbose:
+            print(f"[bold green]✓ Linear Dynamic Analysis completed successfully ({n_steps}/{n_steps} steps).[/bold green]\n")
 
         return LinearDynamicResult(time=time_points, time_series_files=exported_files)
 

@@ -6,6 +6,7 @@ from psierra.domain.solid import SolidDomain
 from psierra.boundary.dirichlet import DirichletManager, DirichletConstraint
 from psierra.solver.sparse_linear_solver import SparseLinearSolver, DirectSolver
 from psierra.analysis.base import Analysis
+from rich import print
 
 
 @dataclass
@@ -39,6 +40,7 @@ class LinearStaticAnalysis(Analysis):
         self,
         dirichlet: DirichletManager | list[DirichletConstraint],
         f_ext: np.ndarray,
+        verbose: bool = True,
     ) -> LinearStaticResult:
         """
         Solves the static equilibrium equation.
@@ -49,6 +51,8 @@ class LinearStaticAnalysis(Analysis):
             Essential boundary conditions.
         f_ext : np.ndarray of shape (n_dofs,)
             Total external load vector (point forces + body gravity loads).
+        verbose : bool, default=True
+            Whether to print solver progress.
 
         Returns:
         --------
@@ -70,6 +74,10 @@ class LinearStaticAnalysis(Analysis):
             raise ValueError(
                 "All degrees of freedom are constrained. Nothing to solve."
             )
+
+        if verbose:
+            print("[bold cyan]Linear Static Analysis (Direct Sparse Factorization)[/bold cyan]")
+            print(f"Total DOFs: {self.domain.mesh.n_dofs} | Free DOFs: {len(free_dofs)} | Constrained DOFs: {len(p_dofs)}\n")
 
         # 1. Assemble Global Stiffness Matrix K
         K = self.domain.assemble_stiffness_matrix()
@@ -103,6 +111,9 @@ class LinearStaticAnalysis(Analysis):
 
         # 7. Update SolidDomain State
         self.domain.update_state(u=u_full)
+
+        if verbose:
+            print("[bold green]✓ Linear Static Analysis converged successfully.[/bold green]\n")
 
         return LinearStaticResult(
             displacement=u_full,

@@ -835,6 +835,7 @@ dependencies = [
     { name = "pytetwild" },
     { name = "pyvista" },
     { name = "pyyaml" },
+    { name = "rich" },
     { name = "scipy" },
     { name = "trimesh" },
 ]
@@ -843,7 +844,6 @@ dependencies = [
 dev = [
     { name = "pytest" },
     { name = "pytest-xdist" },
-    { name = "rich" },
 ]
 
 [package.metadata]
@@ -859,7 +859,7 @@ requires-dist = [
     { name = "pytetwild" },
     { name = "pyvista" },
     { name = "pyyaml" },
-    { name = "rich", marker = "extra == 'dev'" },
+    { name = "rich" },
     { name = "scipy" },
     { name = "trimesh" },
 ]
