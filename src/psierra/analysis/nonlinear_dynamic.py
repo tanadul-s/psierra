@@ -11,7 +11,7 @@ from psierra.damping.rayleigh import RayleighDamping
 from psierra.solver.base import SparseLinearSolver
 from psierra.solver.sparse_linear_solver import DirectSolver
 from psierra.analysis.base import Analysis
-from psierra.analysis.exporter import PvdCollectionWriter
+from psierra.exchange import PvdCollectionWriter
 
 
 @dataclass

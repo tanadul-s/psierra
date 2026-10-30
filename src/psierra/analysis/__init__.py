@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 from psierra.analysis.base import Analysis
-from psierra.analysis.exporter import PvdCollectionWriter
 from psierra.analysis.linear_static import (
     LinearStaticAnalysis,
     LinearStaticResult,
@@ -22,7 +21,6 @@ from psierra.analysis.nonlinear_dynamic import (
 __all__ = [
     # Base
     "Analysis",
-    "PvdCollectionWriter",
     # Linear Static
     "LinearStaticAnalysis",
     "LinearStaticResult",

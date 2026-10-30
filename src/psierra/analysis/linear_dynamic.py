@@ -10,7 +10,7 @@ from psierra.domain.solid import SolidDomain
 from psierra.boundary.dirichlet import DirichletManager, DirichletConstraint
 from psierra.damping.rayleigh import RayleighDamping
 from psierra.analysis.base import Analysis
-from psierra.analysis.exporter import PvdCollectionWriter
+from psierra.exchange import PvdCollectionWriter
 
 
 @dataclass

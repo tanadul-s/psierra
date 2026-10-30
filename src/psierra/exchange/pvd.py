@@ -21,13 +21,13 @@ class PvdCollectionWriter:
         xml_content = [
             '<?xml version="1.0"?>',
             '<VTKFile type="Collection" version="0.1" byte_order="LittleEndian">',
-            "  <Collection>",
+            '  <Collection>',
         ]
         for timestep, filename in self.entries:
             xml_content.append(
                 f'    <DataSet timestep="{timestep:.6e}" group="" part="0" file="{filename}"/>'
             )
-        xml_content.append("  </Collection>")
-        xml_content.append("</VTKFile>")
+        xml_content.append('  </Collection>')
+        xml_content.append('</VTKFile>')
 
-        self.pvd_path.write_text("\n".join(xml_content))
+        self.pvd_path.write_text('\n'.join(xml_content))
