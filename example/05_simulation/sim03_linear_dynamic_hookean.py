@@ -120,7 +120,7 @@ def main() -> None:
     summary_table.add_row("Exported VTU Snapshots", f"{len(result.time_series_files)}", "PVD Collection Items")
 
     console.print(summary_table)
-    console.print(f"[bold green]✓ ParaView animation written to:[/bold green] [cyan]{output_dir / 'output.pvd'}[/cyan]\n")
+    console.print(f"[bold green]✓ ParaView animation written to:[/bold green] [cyan]{output_dir / "output.pvd"}[/cyan]\n")
 
 
 if __name__ == "__main__":

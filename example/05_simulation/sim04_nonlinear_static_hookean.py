@@ -100,12 +100,14 @@ def main() -> None:
     tip_z = float(disp[:, 2].min())
     tip_y = float(disp[:, 1].min())
 
+    status_style = "green" if result.converged else "red"
+
     summary_table = Table(title="Simulation 04 Summary & Verification", border_style="cyan")
     summary_table.add_column("Quantity", style="bold white")
     summary_table.add_column("Value", style="cyan")
     summary_table.add_column("Status / Unit", style="green")
 
-    summary_table.add_row("Convergence Status", f"{result.converged}", f"[bold {'green' if result.converged else 'red'}]{result.steps_completed}/10 Steps[/bold {'green' if result.converged else 'red'}]")
+    summary_table.add_row("Convergence Status", f"{result.converged}", f"[bold {status_style}]{result.steps_completed}/10 Steps[/bold {status_style}]")
     summary_table.add_row("Max Resultant Displacement", f"{max_disp:.2f} mm", "Peak Deflection")
     summary_table.add_row("Downward Deflection (Z)", f"{tip_z:.2f} mm", "Bending Deflection")
     summary_table.add_row("Axial Shortening (Y)", f"{tip_y:.2f} mm", "Geometric Inward Pull")

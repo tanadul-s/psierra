@@ -37,7 +37,7 @@ def main():
     print(f"  Total Volume       : {vmesh.volume:.2f} mm^3")
     print(f"  Domain Centroid    : {vmesh.centroid.round(4)}")
     print(
-        f"  Scaled Jacobian Q  : [{vmesh.compute_qualities('scaled_jacobian').min():.2f}, {vmesh.compute_qualities('scaled_jacobian').max():.2f}]"
+        f"  Scaled Jacobian Q  : [{vmesh.compute_qualities("scaled_jacobian").min():.2f}, {vmesh.compute_qualities("scaled_jacobian").max():.2f}]"
     )
 
     # 2. Surface Mesh
@@ -48,7 +48,7 @@ def main():
     print(f"  Domain Centroid    : {smesh.centroid.round(4)}")
     print(f"  Normals shape      : {smesh.normals.shape}")
     print(
-        f"  Triangle Quality Q : [{vmesh.compute_qualities('aspect_ratio').min():.2f}, {vmesh.compute_qualities('aspect_ratio').max():.2f}]"
+        f"  Triangle Quality Q : [{vmesh.compute_qualities("aspect_ratio").min():.2f}, {vmesh.compute_qualities("aspect_ratio").max():.2f}]"
     )
 
     # 3. Test Point Data & Cell Data

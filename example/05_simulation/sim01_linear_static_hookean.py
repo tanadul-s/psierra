@@ -99,6 +99,7 @@ def main() -> None:
     total_reaction_z = float(result.reactions[clamp.dofs][2::3].sum())
     equilibrium_error = abs(total_reaction_z + total_force_z)
     eq_pass = equilibrium_error < 1e-5
+    status_style = "green" if eq_pass else "red"
 
     summary_table = Table(title="Simulation 01 Summary & Verification", border_style="cyan")
     summary_table.add_column("Quantity", style="bold white")
@@ -110,7 +111,7 @@ def main() -> None:
     summary_table.add_row("Total Elastic Strain Energy", f"{result.strain_energy:.4e} J", "Strain Energy")
     summary_table.add_row("Total Reaction Force (R_z)", f"{total_reaction_z:.2f} N", "Support Reaction")
     summary_table.add_row("Total Applied Force (F_z)", f"{total_force_z:.2f} N", "Applied Load")
-    summary_table.add_row("Static Equilibrium Error", f"{equilibrium_error:.2e} N", f"[bold {'green' if eq_pass else 'red'}]PASS: {eq_pass}[/bold {'green' if eq_pass else 'red'}]")
+    summary_table.add_row("Static Equilibrium Error", f"{equilibrium_error:.2e} N", f"[bold {status_style}]PASS: {eq_pass}[/bold {status_style}]")
 
     console.print(summary_table)
 

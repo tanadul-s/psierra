@@ -110,19 +110,21 @@ def main() -> None:
     max_disp = float(np.linalg.norm(domain.displacement, axis=1).max())
     total_time = n_steps * dt
 
+    status_style = "green" if result.converged else "red"
+
     summary_table = Table(title="Simulation 07 Summary & Verification", border_style="cyan")
     summary_table.add_column("Quantity", style="bold white")
     summary_table.add_column("Value", style="cyan")
     summary_table.add_column("Status / Unit", style="green")
 
-    summary_table.add_row("Convergence Status", f"{result.converged}", f"[bold {'green' if result.converged else 'red'}]{result.steps_completed}/{n_steps} Steps[/bold {'green' if result.converged else 'red'}]")
+    summary_table.add_row("Convergence Status", f"{result.converged}", f"[bold {status_style}]{result.steps_completed}/{n_steps} Steps[/bold {status_style}]")
     summary_table.add_row("Time Step Size (dt)", f"{dt:.4f} s", "Newmark Time Increment")
     summary_table.add_row("Total Time Steps", f"{n_steps}", f"Duration = {total_time:.2f} s")
     summary_table.add_row("Max Resultant Displacement", f"{max_disp:.4f} mm", "Peak Dynamic Deflection")
     summary_table.add_row("Exported VTU Snapshots", f"{len(result.time_series_files)}", "PVD Collection Items")
 
     console.print(summary_table)
-    console.print(f"[bold green]✓ ParaView animation written to:[/bold green] [cyan]{output_dir / 'output.pvd'}[/cyan]\n")
+    console.print(f"[bold green]✓ ParaView animation written to:[/bold green] [cyan]{output_dir / "output.pvd"}[/cyan]\n")
 
 
 if __name__ == "__main__":
