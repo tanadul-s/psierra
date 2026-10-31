@@ -117,3 +117,53 @@ def beam_vtk_path() -> Path:
     """Path to the benchmark cantilever beam mesh."""
     path = Path(__file__).resolve().parent.parent / "data" / "beam1" / "mesh" / "beam1.vtk"
     return path
+
+
+@pytest.fixture
+def regular_tet10_coords(regular_tet_coords: np.ndarray) -> np.ndarray:
+    """
+    Returns reference coordinates of a standard unit right quadratic tetrahedron (10 nodes).
+    Corner nodes 0-3: (0,0,0), (1,0,0), (0,1,0), (0,0,1).
+    Mid-edge nodes 4-9:
+      - 4: (0.5, 0, 0)   [edge 0-1]
+      - 5: (0.5, 0.5, 0) [edge 1-2]
+      - 6: (0, 0.5, 0)   [edge 2-0]
+      - 7: (0, 0, 0.5)   [edge 0-3]
+      - 8: (0.5, 0, 0.5) [edge 1-3]
+      - 9: (0, 0.5, 0.5) [edge 2-3]
+    """
+    v = regular_tet_coords
+    coords = np.zeros((10, 3), dtype=np.float64)
+    coords[0:4] = v
+    coords[4] = 0.5 * (v[0] + v[1])
+    coords[5] = 0.5 * (v[1] + v[2])
+    coords[6] = 0.5 * (v[2] + v[0])
+    coords[7] = 0.5 * (v[0] + v[3])
+    coords[8] = 0.5 * (v[1] + v[3])
+    coords[9] = 0.5 * (v[2] + v[3])
+    return coords
+
+
+@pytest.fixture
+def inverted_tet10_coords(inverted_tet_coords: np.ndarray) -> np.ndarray:
+    """Returns coordinates of an inverted 10-node tetrahedron."""
+    v = inverted_tet_coords
+    coords = np.zeros((10, 3), dtype=np.float64)
+    coords[0:4] = v
+    coords[4] = 0.5 * (v[0] + v[1])
+    coords[5] = 0.5 * (v[1] + v[2])
+    coords[6] = 0.5 * (v[2] + v[0])
+    coords[7] = 0.5 * (v[0] + v[3])
+    coords[8] = 0.5 * (v[1] + v[3])
+    coords[9] = 0.5 * (v[2] + v[3])
+    return coords
+
+
+@pytest.fixture
+def single_element_tet10_mesh(regular_tet10_coords: np.ndarray) -> VolumetricMesh:
+    """Creates a procedural single-element quadratic tetrahedron VolumetricMesh."""
+    cells = np.array([10, 0, 1, 2, 3, 4, 5, 6, 7, 8, 9], dtype=np.int64)
+    cell_types = np.array([pv.CellType.QUADRATIC_TETRA], dtype=np.uint8)
+    ugrid = pv.UnstructuredGrid(cells, cell_types, regular_tet10_coords)
+    return VolumetricMesh(ugrid)
+

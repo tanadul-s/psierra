@@ -213,3 +213,32 @@ class TestTetrahedralMesher:
         with pytest.raises(ValueError, match="Order must be 1"):
             TetrahedralMesher(order=3)  # type: ignore[arg-type]
 
+    def test_rcm_reordering_reduces_bandwidth(self, test_sphere_surface: pv.PolyData) -> None:
+        # Generate Tet10 mesh with appended mid-edge nodes
+        vmesh10 = TetrahedralMesher(order=2, edge_length_fac=0.2, quiet=True).generate(test_sphere_surface)
+        vmesh10["OriginalX"] = vmesh10.nodes[:, 0]
+
+        bw_orig = vmesh10.bandwidth
+        assert bw_orig > 0
+
+        # Apply RCM renumbering
+        vmesh_rcm = vmesh10.reorder_nodes("rcm")
+        bw_rcm = vmesh_rcm.bandwidth
+
+        # Bandwidth must be significantly reduced
+        assert bw_rcm < bw_orig
+        assert bw_orig / bw_rcm > 1.5
+
+        # Volume and centroids must be identical
+        assert np.isclose(vmesh_rcm.volume, vmesh10.volume, atol=1e-12)
+        assert np.allclose(vmesh_rcm.centroid, vmesh10.centroid, atol=1e-12)
+
+        # Point data array must be permuted consistently with coordinates
+        assert np.allclose(vmesh_rcm["OriginalX"], vmesh_rcm.nodes[:, 0], atol=1e-12)
+
+    def test_mesher_auto_reorder_flag(self, test_sphere_surface: pv.PolyData) -> None:
+        vmesh_unreordered = TetrahedralMesher(order=2, edge_length_fac=0.2, reorder=False, quiet=True).generate(test_sphere_surface)
+        vmesh_reordered = TetrahedralMesher(order=2, edge_length_fac=0.2, reorder=True, quiet=True).generate(test_sphere_surface)
+
+        assert vmesh_reordered.bandwidth < vmesh_unreordered.bandwidth
+
