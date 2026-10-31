@@ -118,6 +118,7 @@ def main() -> None:
     vtu_path = output_dir / "beam_tet10.vtu"
     msh_path = output_dir / "beam_tet10.msh"
 
+    # Overwrite vmesh
     vmesh_tet10 = vmesh_tet10_rcm
 
     # Export VTU via PyVista
@@ -163,15 +164,3 @@ def main() -> None:
 
 if __name__ == "__main__":
     main()
-
-    mesh_tet4 = pv.read(str(Path("examples/03_mesh/mesh04_output/beam_tet4.vtu")))
-    mesh_tet10 = pv.read(str(Path("examples/03_mesh/mesh04_output/beam_tet10.vtu")))
-    pl = pv.Plotter()
-    pl.add_mesh(mesh=mesh_tet10, show_edges=True)
-    pl.add_points(
-        points=mesh_tet10.points,
-        point_size=10,
-        render_points_as_spheres=True,
-        scalars=mesh_tet10.points,
-    )
-    pl.show()

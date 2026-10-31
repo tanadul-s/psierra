@@ -46,7 +46,7 @@ def main() -> None:
     print(f"  • Generated Tet4 Elements: {vmesh_tet4.n_elements}")
     print(f"  • Domain Total Volume    : {vmesh_tet4.volume:.2f} mm³")
 
-    vtu_tet4_path = output_dir / "mesh_tet4.vtu"
+    vtu_tet4_path = output_dir / "toroid_tet4.vtu"
     export_mesh(vmesh_tet4, vtu_tet4_path, backend="pyvista")
 
     # 3. Upgrade EXACT Same Tet4 Mesh to Quadratic Tetrahedra (Tet10)
@@ -106,9 +106,10 @@ def main() -> None:
 
     # 4. Multi-backend Export and Roundtrip Verification
     print("\n[4/5] Exporting & Roundtrip Testing via PyVista & Meshio...")
-    vtu_path = output_dir / "mesh_tet10.vtu"
-    msh_path = output_dir / "mesh_tet10.msh"
+    vtu_path = output_dir / "toroid_tet10.vtu"
+    msh_path = output_dir / "toroid_tet10.msh"
 
+    # Overwrite vmesh
     vmesh_tet10 = vmesh_tet10_rcm
 
     # Export VTU via PyVista
@@ -159,15 +160,3 @@ def main() -> None:
 
 if __name__ == "__main__":
     main()
-
-    mesh_tet4 = pv.read(str(Path("examples/03_mesh/mesh03_output/mesh_tet4.vtu")))
-    mesh_tet10 = pv.read(str(Path("examples/03_mesh/mesh03_output/mesh_tet10.vtu")))
-    pl = pv.Plotter()
-    pl.add_mesh(mesh=mesh_tet4, show_edges=True)
-    pl.add_mesh(
-        mesh=pv.PolyData(mesh_tet10.points),
-        point_size=10,
-        render_points_as_spheres=True,
-        scalars=range(mesh_tet10.n_points),
-    )
-    pl.show()

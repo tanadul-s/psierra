@@ -1,4 +1,6 @@
+from decimal import ROUND_UP
 from pathlib import Path
+from cycler import V
 import numpy as np
 import pyvista as pv
 from rich import print
@@ -45,7 +47,13 @@ def main() -> None:
 
     # 2. Generate Linear Tetrahedral Mesh (Tet4) via PyTetWild
     print("\n[2/5] Tetrahedralizing with Envelope-Constrained PyTetWild (Tet4)...")
-    mesher_tet4 = TetrahedralMesher(order=1, edge_length_fac=0.10, quiet=True)
+    mesher_tet4 = TetrahedralMesher(
+        order=1,
+        edge_length_fac=0.03,
+        epsilon=0.001,
+        stop_energy=8,
+        num_opt_iter=300,
+    )
     vmesh_tet4 = mesher_tet4.generate(stl_path)
     print(
         f"  • Generated Tet4 Nodes   : {vmesh_tet4.n_nodes} ({vmesh_tet4.n_dofs} DOFs)"
@@ -117,6 +125,7 @@ def main() -> None:
     vtu_path = output_dir / "brain_tet10.vtu"
     msh_path = output_dir / "brain_tet10.msh"
 
+    # Overwrite vmesh
     vmesh_tet10 = vmesh_tet10_rcm
 
     # Export VTU via PyVista
@@ -174,15 +183,3 @@ def main() -> None:
 
 if __name__ == "__main__":
     main()
-
-    mesh_tet4 = pv.read(str(Path("examples/03_mesh/mesh05_output/brain_tet4.vtu")))
-    mesh_tet10 = pv.read(str(Path("examples/03_mesh/mesh05_output/brain_tet10.vtu")))
-    pl = pv.Plotter()
-    pl.add_mesh(mesh=mesh_tet10, show_edges=True)
-    pl.add_points(
-        points=mesh_tet10.points,
-        point_size=10,
-        render_points_as_spheres=True,
-        scalars=mesh_tet10.points,
-    )
-    pl.show()
