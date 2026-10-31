@@ -54,6 +54,11 @@ def main() -> None:
     print("\n[3/5] Upgrading Tet4 to Quadratic Tetrahedra (Tet10)...")
     vmesh_tet10 = vmesh_tet4.to_quadratic()
 
+    # Matrix bandwidth and RCM reordering evaluation
+    bw_orig = vmesh_tet10.bandwidth
+    vmesh_tet10_rcm = vmesh_tet10.reorder_nodes("rcm")
+    bw_rcm = vmesh_tet10_rcm.bandwidth
+
     # Geometric alignment checks
     assert (
         vmesh_tet10.n_elements == vmesh_tet4.n_elements
@@ -104,6 +109,8 @@ def main() -> None:
     vtu_path = output_dir / "mesh_tet10.vtu"
     msh_path = output_dir / "mesh_tet10.msh"
 
+    vmesh_tet10 = vmesh_tet10_rcm
+
     # Export VTU via PyVista
     export_mesh(vmesh_tet10, vtu_path, backend="pyvista")
     # Export MSH via Meshio
@@ -136,6 +143,11 @@ def main() -> None:
         "Volume (mm³)", f"{vmesh_tet4.volume:.2f}", f"{vmesh_tet10.volume:.2f}"
     )
     table.add_row(
+        "Matrix Bandwidth",
+        str(vmesh_tet4.bandwidth),
+        f"{bw_orig} -> {bw_rcm} ({bw_orig / bw_rcm:.1f}x reduction via RCM)",
+    )
+    table.add_row(
         "CAD (*.step) Support",
         f"Gmsh: {is_gmsh_available()}",
         f"Gmsh: {is_gmsh_available()}",
@@ -146,7 +158,7 @@ def main() -> None:
 
 
 if __name__ == "__main__":
-    # main()
+    main()
 
     mesh_tet4 = pv.read(str(Path("examples/03_mesh/mesh03_output/mesh_tet4.vtu")))
     mesh_tet10 = pv.read(str(Path("examples/03_mesh/mesh03_output/mesh_tet10.vtu")))

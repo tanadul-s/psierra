@@ -60,6 +60,11 @@ def main() -> None:
     print("\n[3/5] Upgrading Tet4 to Quadratic Tetrahedra (Tet10)...")
     vmesh_tet10 = vmesh_tet4.to_quadratic()
 
+    # Matrix bandwidth and RCM reordering evaluation
+    bw_orig = vmesh_tet10.bandwidth
+    vmesh_tet10_rcm = vmesh_tet10.reorder_nodes("rcm")
+    bw_rcm = vmesh_tet10_rcm.bandwidth
+
     # Geometric alignment checks
     assert (
         vmesh_tet10.n_elements == vmesh_tet4.n_elements
@@ -98,6 +103,9 @@ def main() -> None:
         f"  • Generated Tet10 Elements: {vmesh_tet10.n_elements} (Identical to Tet4 count)"
     )
     print(
+        f"  • Matrix Bandwidth       : {bw_orig} -> {bw_rcm} ({bw_orig / bw_rcm:.1f}x reduction via RCM)"
+    )
+    print(
         f"  • Cell Type              : {vmesh_tet10.cell_type.name} (Order {vmesh_tet10.order})"
     )
     print(f"  • Nodes per Element      : {vmesh_tet10.nodes_per_element}")
@@ -109,6 +117,8 @@ def main() -> None:
     print("\n[4/5] Exporting & Roundtrip Testing via PyVista & Meshio...")
     vtu_path = output_dir / "beam_tet10.vtu"
     msh_path = output_dir / "beam_tet10.msh"
+
+    vmesh_tet10 = vmesh_tet10_rcm
 
     # Export VTU via PyVista
     export_mesh(vmesh_tet10, vtu_path, backend="pyvista")
