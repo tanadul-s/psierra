@@ -59,6 +59,11 @@ This document outlines the strategic milestones, component delivery roadmap, and
   - Total Lagrangian formulation with consistent tangent stiffness matrix ($k_{tan}$ matches finite difference to $< 10^{-9}$).
   - Full suite of 13 unit tests in `tests/test_element_tet10.py` and cantilever shear locking alleviation benchmark ($1.87\times$ flexibility over Tet4) in `tests/test_analysis_linear.py`.
 - [ ] Hexahedral elements (`Hex8`, `Hex20`) for structured mesh domains.
+- [ ] **Structural Thin-Walled Shell Elements (`Shell3` / `Shell4`) (Target: Next Step / After TL/UL)**:
+  - Triangular and quadrilateral flat/curved shell elements using Discrete Kirchhoff Triangle (`DKT`) or Mixed Interpolation of Tensorial Components (`MITC3` / `MITC4` Reissner-Mindlin) formulations.
+  - 6 DOFs per node ($u_x, u_y, u_z, \theta_x, \theta_y, \theta_z$) with drilling DOF stabilization for seamless 3D coupling with solid continua (`Tet4`, `Tet10`).
+  - Crucial for anatomical membranes (cranial dura mater, falx cerebri, tentorium, pericardium, fascia, skin, aortic walls) and thin-walled CAD structures.
+  - Linear membrane-bending coupling, composite laminate/thickness integration, and co-rotational / Total Lagrangian large-deflection formulations.
 - [ ] Kinematic formulations:
   - Total Lagrangian (TL) with Green-Lagrange strain $E$ and 2nd Piola-Kirchhoff stress $S$.
   - Updated Lagrangian (UL) with Almansi strain and Cauchy stress.
