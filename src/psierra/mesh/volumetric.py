@@ -156,16 +156,25 @@ class VolumetricMesh:
         midedge_indices = np.unique(self.elements[:, 4:])
         return self.nodes[midedge_indices]
 
-    def to_quadratic(self) -> VolumetricMesh:
+    def to_quadratic(self, reorder: bool = False) -> VolumetricMesh:
         """
         Returns a new VolumetricMesh upgraded to quadratic Tet10 elements.
         Guarantees that all corner vertices, element topology, and volume are preserved,
         adding exactly one mid-edge node per unique edge in canonical VTK ordering.
+
+        Parameters:
+        -----------
+        reorder : bool, default=False
+            If True, automatically applies Reverse Cuthill-McKee (RCM) renumbering
+            to minimize sparse matrix bandwidth and maximize cache locality.
         """
         if self.is_quadratic:
-            return self.copy()
-        from psierra.mesher.order import upgrade_tet4_to_tet10
-        return upgrade_tet4_to_tet10(self)  # type: ignore[return-value]
+            res = self.copy()
+        else:
+            from psierra.mesher.order import upgrade_tet4_to_tet10
+            res = upgrade_tet4_to_tet10(self)  # type: ignore[assignment]
+
+        return res.reorder_nodes("rcm") if reorder else res
 
     def to_linear(self) -> VolumetricMesh:
         """
@@ -176,6 +185,28 @@ class VolumetricMesh:
             return self.copy()
         from psierra.mesher.order import downgrade_tet10_to_tet4
         return downgrade_tet10_to_tet4(self)  # type: ignore[return-value]
+
+    @property
+    def bandwidth(self) -> int:
+        """
+        Maximum nodal index difference interacting within any single element:
+            B = max_e (max_k(e_k) - min_k(e_k))
+        Directly governs sparse matrix profile, bandwidth, and cache locality in FEM.
+        """
+        from psierra.mesher.reorder import compute_mesh_bandwidth
+        return compute_mesh_bandwidth(self.elements)
+
+    def reorder_nodes(self, method: Literal["rcm"] = "rcm") -> VolumetricMesh:
+        """
+        Renumbers mesh nodes using graph ordering algorithms to minimize matrix bandwidth.
+
+        Parameters:
+        -----------
+        method : {'rcm'}, default='rcm'
+            Reverse Cuthill-McKee graph ordering.
+        """
+        from psierra.mesher.reorder import reorder_mesh_nodes
+        return reorder_mesh_nodes(self, method=method)  # type: ignore[return-value]
 
     @property
     def n_nodes(self) -> int:

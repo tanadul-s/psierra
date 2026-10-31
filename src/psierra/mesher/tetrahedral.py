@@ -36,6 +36,7 @@ class TetrahedralMesher:
         num_threads: int = 0,
         num_opt_iter: int = 80,
         quiet: bool = True,
+        reorder: bool = False,
     ) -> None:
         """
         Parameters:
@@ -62,6 +63,9 @@ class TetrahedralMesher:
             Maximum number of optimization iterations.
         quiet : bool, default=True
             Suppress PyTetWild console output.
+        reorder : bool, default=False
+            If True, applies Reverse Cuthill-McKee (RCM) node renumbering to minimize
+            matrix bandwidth and profile for faster sparse solver execution.
         """
         if order not in (1, 2):
             raise ValueError(f"Order must be 1 (Tet4) or 2 (Tet10), got {order}.")
@@ -77,6 +81,7 @@ class TetrahedralMesher:
         self.num_threads = num_threads
         self.num_opt_iter = num_opt_iter
         self.quiet = quiet
+        self.reorder = reorder
 
     def generate(
         self,
@@ -111,14 +116,16 @@ class TetrahedralMesher:
         """
         # 1. Handle existing 3D volumetric mesh directly (DO NOT re-tetrahedralize)
         if isinstance(source, VolumetricMesh):
-            return source.to_quadratic() if self.order == 2 else source.to_linear()
+            res = source.to_quadratic(reorder=self.reorder) if self.order == 2 else source.to_linear()
+            return res.reorder_nodes("rcm") if (self.order == 1 and self.reorder) else res
 
         if isinstance(source, pv.UnstructuredGrid):
             has_tet4 = pv.CellType.TETRA in source.cells_dict
             has_tet10 = pv.CellType.QUADRATIC_TETRA in source.cells_dict
             if has_tet4 or has_tet10:
                 vmesh = VolumetricMesh(source)
-                return vmesh.to_quadratic() if self.order == 2 else vmesh.to_linear()
+                res = vmesh.to_quadratic(reorder=self.reorder) if self.order == 2 else vmesh.to_linear()
+                return res.reorder_nodes("rcm") if (self.order == 1 and self.reorder) else res
 
         # Check if file path points to an existing 3D volumetric mesh file (.vtu, .vtk)
         if isinstance(source, (str, Path)):
@@ -130,7 +137,8 @@ class TetrahedralMesher:
                     has_tet10 = pv.CellType.QUADRATIC_TETRA in loaded.cells_dict
                     if has_tet4 or has_tet10:
                         vmesh = VolumetricMesh(loaded)
-                        return vmesh.to_quadratic() if self.order == 2 else vmesh.to_linear()
+                        res = vmesh.to_quadratic(reorder=self.reorder) if self.order == 2 else vmesh.to_linear()
+                        return res.reorder_nodes("rcm") if (self.order == 1 and self.reorder) else res
                 except Exception:
                     pass
 
@@ -163,22 +171,31 @@ class TetrahedralMesher:
 
         # 3. Upgrade to Tet10 if order=2 (preserves exact same corner nodes!)
         if self.order == 2:
-            return vmesh.to_quadratic()
+            return vmesh.to_quadratic(reorder=self.reorder)
 
-        return vmesh
+        return vmesh.reorder_nodes("rcm") if self.reorder else vmesh
 
     def upgrade(
         self,
         mesh: VolumetricMesh | pv.UnstructuredGrid,
+        reorder: bool | None = None,
     ) -> VolumetricMesh:
         """
         Upgrades an existing linear tetrahedral mesh (Tet4) to quadratic (Tet10).
         Guarantees that all corner vertices, edge connections, and volume are preserved,
         adding exactly one mid-edge node per unique edge in canonical VTK ordering.
+
+        Parameters:
+        -----------
+        mesh : VolumetricMesh or pv.UnstructuredGrid
+            Source linear mesh.
+        reorder : bool, optional
+            Whether to apply Reverse Cuthill-McKee (RCM) bandwidth minimization.
+            Defaults to self.reorder if not specified.
         """
-        if isinstance(mesh, VolumetricMesh):
-            return mesh.to_quadratic()
-        return VolumetricMesh(mesh).to_quadratic()
+        apply_reorder = self.reorder if reorder is None else reorder
+        vmesh = mesh if isinstance(mesh, VolumetricMesh) else VolumetricMesh(mesh)
+        return vmesh.to_quadratic(reorder=apply_reorder)
 
     def _extract_surface(
         self,
@@ -231,6 +248,7 @@ def generate_tetrahedra(
     epsilon: float = 0.001,
     coarsen: bool = False,
     quiet: bool = True,
+    reorder: bool = False,
 ) -> VolumetricMesh:
     """
     Convenience functional interface to TetrahedralMesher.
@@ -255,6 +273,8 @@ def generate_tetrahedra(
         Coarsen interior mesh.
     quiet : bool, default=True
         Suppress solver logs.
+    reorder : bool, default=False
+        If True, applies Reverse Cuthill-McKee (RCM) node renumbering to minimize matrix bandwidth.
 
     Returns:
     --------
@@ -270,5 +290,6 @@ def generate_tetrahedra(
         epsilon=epsilon,
         coarsen=coarsen,
         quiet=quiet,
+        reorder=reorder,
     )
     return mesher.generate(source)
