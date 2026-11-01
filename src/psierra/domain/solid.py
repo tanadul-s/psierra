@@ -375,7 +375,14 @@ class SolidDomain(Domain):
         """
         grid = self.mesh.ugrid.copy(deep=True)
 
+        if factor != 0.0:
+            grid.points = self.mesh.nodes + factor * self.displacement
+
         grid.point_data["Displacement"] = self.displacement
+        grid.point_data["Displacement X"] = self.displacement[:, 0]
+        grid.point_data["Displacement Y"] = self.displacement[:, 1]
+        grid.point_data["Displacement Z"] = self.displacement[:, 2]
+        grid.point_data["Displacement Magnitude"] = np.linalg.norm(self.displacement, axis=1)
         
         # Attach computed stresses
         if include_stresses:

@@ -1,12 +1,14 @@
 from __future__ import annotations
 from pathlib import Path
 import numpy as np
+import pyvista as pv
 import scipy.sparse as spsp
 
 from psierra.domain.base import Domain
 from psierra.domain.solid import SolidDomain
 from psierra.domain.shell import ShellDomain
 from psierra.mesh.volumetric import VolumetricMesh
+from psierra.exchange.pvd import PvdCollectionWriter
 from psierra.utility.assembly import (
     create_coo_sparsity_indices,
     assemble_sparse_matrix,
@@ -249,8 +251,102 @@ class CoupledSolidShellDomain(Domain):
     # Visualization & Export
     # =========================================================================
 
+    def to_pyvista_solid(
+        self,
+        factor: float = 1.0,
+        include_stresses: bool = False,
+        smooth_to_nodes: bool = False,
+        include_cell_data: dict[str, np.ndarray] | None = None,
+    ) -> pv.UnstructuredGrid:
+        """
+        Exports the deformed solid continuum mesh of the coupled domain.
+        """
+        return self.solid_domain.to_pyvista(
+            factor=factor,
+            include_stresses=include_stresses,
+            smooth_to_nodes=smooth_to_nodes,
+            include_cell_data=include_cell_data,
+        )
+
+    def to_pyvista_shell(self, factor: float = 1.0) -> pv.UnstructuredGrid:
+        """
+        Exports the deformed shell skin mesh of the coupled domain.
+        """
+        return self.shell_domain.to_pyvista(factor=factor)
+
+    def to_pyvista(
+        self,
+        factor: float = 1.0,
+        include_stresses: bool = False,
+        smooth_to_nodes: bool = False,
+        include_cell_data: dict[str, np.ndarray] | None = None,
+    ) -> pv.UnstructuredGrid:
+        """
+        Default visualization method: exports the deformed solid continuum mesh.
+        """
+        return self.to_pyvista_solid(
+            factor=factor,
+            include_stresses=include_stresses,
+            smooth_to_nodes=smooth_to_nodes,
+            include_cell_data=include_cell_data,
+        )
+
+    def save_solid_state(self, filepath: Path, **kwargs) -> None:
+        """
+        Exports the deformed solid continuum state to disk as a VTU unstructured mesh (.vtu).
+        """
+        filepath = Path(filepath)
+        if filepath.suffix != ".vtu":
+            filepath = filepath.with_suffix(".vtu")
+        self.solid_domain.save_state(filepath, **kwargs)
+
+    def save_shell_state(self, filepath: Path, **kwargs) -> None:
+        """
+        Exports the deformed shell skin state to disk as a VTU unstructured mesh (.vtu).
+        """
+        filepath = Path(filepath)
+        if filepath.suffix != ".vtu":
+            filepath = filepath.with_suffix(".vtu")
+        self.shell_domain.save_state(filepath, **kwargs)
+
+    def save_pvd(
+        self,
+        filepath: Path,
+        timestep: float | None = None,
+        factor: float = 1.0,
+        **kwargs,
+    ) -> None:
+        """
+        Exports both solid continuum and shell skin as .vtu files and creates
+        a master ParaView Data (.pvd) collection linking them together.
+        """
+        filepath = Path(filepath)
+        if filepath.suffix != ".pvd":
+            filepath = filepath.with_suffix(".pvd")
+        filepath.parent.mkdir(parents=True, exist_ok=True)
+
+        stem = filepath.stem
+        solid_file = filepath.parent / f"{stem}_solid.vtu"
+        shell_file = filepath.parent / f"{stem}_shell.vtu"
+
+        self.save_solid_state(solid_file, factor=factor, **kwargs)
+        self.save_shell_state(shell_file, factor=factor, **kwargs)
+
+        writer = PvdCollectionWriter(filepath)
+        writer.add_dataset(filename=solid_file.name, timestep=timestep, part=0, group="solid")
+        writer.add_dataset(filename=shell_file.name, timestep=timestep, part=1, group="shell")
+        writer.write()
+
     def save_state(self, filepath: Path, **kwargs) -> None:
         """
-        Exports the deformed solid continuum state to disk as a VTU unstructured mesh.
+        Exports coupled domain state.
+
+        - If filepath ends in '.pvd', exports both solid and shell components and a master .pvd.
+        - Otherwise exports the solid continuum state (.vtu).
+        For explicit field export, prefer save_solid_state(), save_shell_state(), or save_pvd().
         """
-        self.solid_domain.save_state(filepath, **kwargs)
+        filepath = Path(filepath)
+        if filepath.suffix == ".pvd":
+            self.save_pvd(filepath, **kwargs)
+        else:
+            self.save_solid_state(filepath, **kwargs)

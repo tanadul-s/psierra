@@ -156,22 +156,36 @@ class ShellDomain(Domain):
     # Visualization & Export
     # =========================================================================
 
-    def save_state(self, filepath: Path, **kwargs) -> None:
+    def to_pyvista(self, factor: float = 1.0) -> pv.UnstructuredGrid:
         """
-        Exports the deformed shell state to disk as a VTK PolyData or UnstructuredGrid.
+        Creates a deformed PyVista UnstructuredGrid representing the shell.
+        """
+        deformed_poly = self.mesh.polydata.copy(deep=True)
+        if factor != 0.0:
+            deformed_poly.points = self.mesh.nodes + factor * self.displacement
+        deformed_poly.point_data["Displacement"] = self.displacement
+        deformed_poly.point_data["Displacement X"] = self.displacement[:, 0]
+        deformed_poly.point_data["Displacement Y"] = self.displacement[:, 1]
+        deformed_poly.point_data["Displacement Z"] = self.displacement[:, 2]
+        deformed_poly.point_data["Displacement Magnitude"] = np.linalg.norm(self.displacement, axis=1)
+        deformed_poly.point_data["Rotation"] = self.rotation
+        deformed_poly.point_data["Rotation X"] = self.rotation[:, 0]
+        deformed_poly.point_data["Rotation Y"] = self.rotation[:, 1]
+        deformed_poly.point_data["Rotation Z"] = self.rotation[:, 2]
+        deformed_poly.point_data["Rotation Magnitude"] = np.linalg.norm(self.rotation, axis=1)
+
+        if isinstance(deformed_poly, pv.PolyData):
+            return deformed_poly.cast_to_unstructured_grid()
+        return deformed_poly
+
+    def save_state(self, filepath: Path, factor: float = 1.0, **kwargs) -> None:
+        """
+        Exports the deformed shell state to disk as a VTK UnstructuredGrid (.vtu).
         """
         filepath = Path(filepath)
+        if filepath.suffix != ".vtu":
+            filepath = filepath.with_suffix(".vtu")
         filepath.parent.mkdir(parents=True, exist_ok=True)
 
-        deformed_poly = self.mesh.polydata.copy(deep=True)
-        deformed_poly.points = self.current_nodes
-        deformed_poly.point_data["Displacement"] = self.displacement
-        deformed_poly.point_data["Deflection_Uz"] = self.displacement[:, 2]
-        deformed_poly.point_data["Rotation"] = self.rotation
-        deformed_poly.point_data["Disp_Magnitude"] = np.linalg.norm(self.displacement, axis=1)
-
-        if filepath.suffix == ".vtu" and isinstance(deformed_poly, pv.PolyData):
-            grid = deformed_poly.cast_to_unstructured_grid()
-            grid.save(str(filepath))
-        else:
-            deformed_poly.save(str(filepath))
+        grid = self.to_pyvista(factor=factor)
+        grid.save(str(filepath))
