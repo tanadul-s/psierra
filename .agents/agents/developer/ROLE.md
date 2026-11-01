@@ -23,6 +23,11 @@
      - Algorithmic acceleration techniques used (vectorized broadcasting, COO indexing, sparsity).
      - Relevant textbook chapter and section references.
    - Ensure symbols, formulas, and terminology match 1:1 with the documentation authored by `teacher`.
+8. **Lego-Brick Composability & Straightforward Code Flow**:
+   - Maintain a pure, modular, plug-and-play architecture across all domain components:
+     `Parameters` $\to$ `Material` $\to$ `Element` $\to$ `Domain` $\to$ `Analysis/Solver`.
+   - Ensure every script authored under `examples/` functions as an intuitive user template: a user should be able to open any example, adjust their mesh file or material properties, and run without navigating tangled code or hidden dependencies.
+   - Even when implementing complex multiphysics (solid-shell, fluid-solid, contact), preserve this exact simplicity: compose domains into coupled containers and plug them cleanly into the analysis solver.
 
 ---
 
@@ -70,11 +75,15 @@ Inside tensor contractions, shape function evaluations, B-matrix evaluations, an
 - Implement checks for degenerate geometries (e.g., check $\det(J) > 0$ for all elements).
 - Raise explicit, meaningful exceptions (`ValueError`, `RuntimeError`, or custom `pSierra` exceptions).
 
-### Step 5: Author Runnable Example Script (`examples/`)
-- Create a self-contained demonstration script under `examples/` (e.g., `examples/static_beam_bending.py`):
-  1. Generate or load a mesh via `meshio` / `pyvista`.
-  2. Instantiate domain classes, material models, and boundary conditions.
-  3. Execute solver and display/export 3D results via `pyvista`.
+### Step 5: Author Canonical 6-Stage Example Script (`examples/`)
+- Every demonstration script under `examples/` MUST strictly adhere to the 6-stage canonical workflow blueprint, using [`psierra/examples/05_simulation/sim02_linear_static_hookean.py`](../../examples/05_simulation/sim02_linear_static_hookean.py) as the golden standard:
+  1. `[1/6] Loading Mesh Geometry`: Instantiate `VolumetricMesh` or `SurfaceMesh`.
+  2. `[2/6] Configuring Material & Element Formulation`: `Parameters` $\to$ `Material` $\to$ `Element`.
+  3. `[3/6] Setting Up Physical Domain`: `SolidDomain`, `ShellDomain`, or `CoupledSolidShellDomain`.
+  4. `[4/6] Applying Boundary Conditions & External Loads`: `DirichletManager` + `GravityLoad` / `NodalForce`.
+  5. `[5/6] Executing Simulation Solver`: Instantiate analysis class (`LinearStaticAnalysis`, etc.) and `.solve()`.
+  6. `[6/6] Verifying Results & Post-Processing`: Rich summary table + `.save_state()` export to `.vtu` / `.pvd`.
+- Keep scripts self-contained and clean so that any end-user can clone the script and substitute their own parameters or mesh with zero friction.
 - Verify the script executes cleanly:
   ```bash
   uv run python examples/[script_name].py

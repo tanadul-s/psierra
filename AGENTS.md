@@ -71,7 +71,37 @@ All agents writing or modifying code in this repository MUST strictly adhere to 
 - **Mathematical Kernel Exception**:
   - Inside computational kernels, numerical integration routines, tensor/matrix assembly loops, and reduced-order projection algebra, single-letter variable names matching standard continuum mechanics notation (e.g., $K, M, C, F, B, D, u, v, a, V, \Phi, \Sigma$) are explicitly permitted and encouraged to keep mathematical expressions concise and aligned with textbook formulations. Add inline comments documenting their physical definitions.
 
-### 2.3 Version Control & Git Commit Policy
+### 2.3 "Lego-Brick" Composability & Canonical Example Workflow Blueprint
+The ultimate design goal of `pSierra` is to provide an **intuitive, elegant, and straightforward code flow** for both internal development and end-user simulation scripts. 
+
+#### The Universal Composability Chain
+Every physical entity is an independent, cohesive object that plugs cleanly into the next abstraction level without hidden side-effects:
+$$\text{Parameters} \longrightarrow \text{Material} \longrightarrow \text{Element} \longrightarrow \text{Domain} \longrightarrow \text{Analysis/Solver} \longrightarrow \text{Export (.vtu / .pvd)}$$
+
+1. **Parameters**: Define physical constants (`params = IsotropicElasticParameters()`).
+2. **Material**: Plug parameters into constitutive law (`material = Hookean(params)` or `NeoHookean(params)`).
+3. **Element**: Plug material into element kinematics (`element = Tet4(material)` or `Shell3(material)`).
+4. **Domain**: Combine mesh, material, and element into a physical continuum container (`domain = SolidDomain(mesh, material, element)` or `ShellDomain(...)`).
+   - For multiphysics coupling, simply compose: `coupled_domain = CoupledSolidShellDomain(solid_domain, shell_domain)`.
+5. **Boundary Conditions & Loads**: Define constraints via `DirichletManager` and loads via `GravityLoad` or `NodalForce`.
+6. **Solver**: Plug the domain into the analysis pipeline (`analysis = LinearStaticAnalysis(domain)`). The solver treats single and coupled domains identically through the `Domain` base interface.
+
+#### The 6-Stage Example Script Standard
+Every demonstration script in `examples/` MUST serve as a **first-class executable template** for users. If a user needs to build their own simulation, they should be able to open an example script, understand the flow immediately, adjust their parameters or mesh path, and run:
+
+- **Golden Standard Reference**: [`psierra/examples/05_simulation/sim02_linear_static_hookean.py`](examples/05_simulation/sim02_linear_static_hookean.py).
+
+Every script MUST strictly follow the 6-stage lifecycle:
+- `[1/6] Loading Mesh Geometry`: Load and inspect `VolumetricMesh` or `SurfaceMesh`.
+- `[2/6] Configuring Material & Element Formulation`: Instantiate parameters $\to$ material $\to$ element.
+- `[3/6] Setting Up Physical Domain`: Combine into `SolidDomain`, `ShellDomain`, or `CoupledDomain`.
+- `[4/6] Applying Boundary Conditions & External Loads`: Set up `DirichletManager` and body/surface loads.
+- `[5/6] Executing Simulation Solver`: Instantiate analysis class and invoke `.solve()`.
+- `[6/6] Verifying Results & State Export`: Print verification table, export deformed states to `.vtu` and master `.pvd` collections.
+
+Even as `pSierra` expands to complex coupled multiphysics (solid-shell, fluid-structure interaction, acoustics), **this straightforward, stepped workflow must never be compromised**.
+
+### 2.4 Version Control & Git Commit Policy
 - **No Automatic Git Commits**:
   - Agents must NEVER commit changes to git automatically on their own initiative.
   - The user will normally handle staging and committing changes themselves.

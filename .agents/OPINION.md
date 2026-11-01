@@ -14,6 +14,7 @@
   - `tester`: Writes adversarial unit and benchmark tests in `tests/`.
   - `teacher`: Writes LaTeX theory docs, algorithmic acceleration notes, and textbook citations.
 - **Docstring-Document 1:1 Synchronization**: Developer embeds governing equations, physical definitions, and numerical notes in code docstrings. Teacher mirrors these exact equations, symbols, and terminology in documentation, linking directly to code methods. Every part must have matched explanations between docstring and document.
+- **"Lego-Brick" Composability & Example Blueprint**: Pure plug-and-play composability (`Parameters` $\to$ `Material` $\to$ `Element` $\to$ `Domain` $\to$ `Solver`). Every script in `examples/` must follow the 6-stage lifecycle modeled after `sim02_linear_static_hookean.py`. Examples serve as direct executable blueprints where users can simply substitute their mesh or adjust parameters to run their own simulations. Coupled and multiphysics domains must strictly retain this exact simplicity.
 
 ---
 
