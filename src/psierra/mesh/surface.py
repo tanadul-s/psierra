@@ -19,29 +19,29 @@ class SurfaceMesh:
 
     def __init__(
         self,
-        source: Path | pv.PolyData,
+        source: Path | pv.PolyData | pv.UnstructuredGrid,
         node_indices: np.ndarray | None = None,
     ) -> None:
         """
         Parameters:
         -----------
-        source : Path or pv.PolyData
-            File path to a surface mesh (.stl, .ply, .obj, .vtp) OR an existing PyVista PolyData.
+        source : Path, pv.PolyData, or pv.UnstructuredGrid
+            File path to a surface mesh (.stl, .ply, .obj, .vtp) OR an existing PyVista PolyData/UnstructuredGrid.
         node_indices : np.ndarray, optional
             Global volumetric node indices corresponding to each surface node:
             vmesh.nodes[smesh.node_indices] == smesh.nodes.
         """
         if isinstance(source, Path):
             self._polydata = self._read_file(source)
-        elif isinstance(source, pv.PolyData):
+        elif isinstance(source, (pv.PolyData, pv.UnstructuredGrid)):
             self._polydata = source
         else:
             raise TypeError(
-                f"SurfaceMesh expects a pathlib.Path or pv.PolyData, got {type(source)}."
+                f"SurfaceMesh expects a pathlib.Path, pv.PolyData, or pv.UnstructuredGrid, got {type(source)}."
             )
 
-        # Ensure surface is fully triangulated
-        if not self._polydata.is_all_triangles:
+        # Ensure linear surface is fully triangulated
+        if isinstance(self._polydata, pv.PolyData) and not self._polydata.is_all_triangles:
             self._polydata = self._polydata.triangulate()
 
         self._node_indices = (
@@ -97,7 +97,18 @@ class SurfaceMesh:
 
     @property
     def elements(self) -> np.ndarray:
-        """Triangular element connectivity array of shape (N_triangles, 3)."""
+        """Triangular element connectivity array of shape (N_triangles, 3) or (N_triangles, 6)."""
+        if isinstance(self._polydata, pv.UnstructuredGrid):
+            if pv.CellType.QUADRATIC_TRIANGLE in self._polydata.cells_dict:
+                return np.array(
+                    self._polydata.cells_dict[pv.CellType.QUADRATIC_TRIANGLE],
+                    dtype=np.int64,
+                )
+            if pv.CellType.TRIANGLE in self._polydata.cells_dict:
+                return np.array(
+                    self._polydata.cells_dict[pv.CellType.TRIANGLE],
+                    dtype=np.int64,
+                )
         return np.array(self._polydata.regular_faces, dtype=np.int64)
 
     @property
