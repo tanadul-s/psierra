@@ -213,6 +213,10 @@ class SolidDomain(Domain):
             total_dofs=self.mesh.n_dofs,
         )
 
+    def assemble_internal_force_vector(self) -> np.ndarray:
+        """Alias for assemble_internal_forces."""
+        return self.assemble_internal_forces()
+
     def assemble_tangent_stiffness_matrix(self) -> spsp.csr_matrix:
         """
         Assembles the Total Lagrangian tangent stiffness matrix K_tan(u) = K_mat + K_geo.
@@ -354,18 +358,21 @@ class SolidDomain(Domain):
 
     def to_pyvista(
         self,
-        factor: float = 1.0,
+        factor: float = 0.0,
         include_stresses: bool = False,
         smooth_to_nodes: bool = False,
         include_cell_data: dict[str, np.ndarray] | None = None,
     ) -> pv.UnstructuredGrid:
         """
-        Creates a deformed PyVista UnstructuredGrid for rendering or ParaView export.
+        Creates a PyVista UnstructuredGrid for rendering or ParaView export.
 
         Parameters:
         -----------
-        factor : float, default=1.0
-            Displacement magnification factor.
+        factor : float, default=0.0
+            Displacement magnification factor for coordinate warping.
+            When 0.0 (default), exports the initial reference mesh geometry, allowing
+            users to apply 'Warp By Vector' in ParaView to inspect both initial and
+            deformed states interactively.
         include_stresses : bool, default=False
             If True, automatically evaluates and attaches VonMises, Pressure, and Principal stresses.
         smooth_to_nodes : bool, default=False
@@ -379,10 +386,6 @@ class SolidDomain(Domain):
             grid.points = self.mesh.nodes + factor * self.displacement
 
         grid.point_data["Displacement"] = self.displacement
-        grid.point_data["Displacement X"] = self.displacement[:, 0]
-        grid.point_data["Displacement Y"] = self.displacement[:, 1]
-        grid.point_data["Displacement Z"] = self.displacement[:, 2]
-        grid.point_data["Displacement Magnitude"] = np.linalg.norm(self.displacement, axis=1)
         
         # Attach computed stresses
         if include_stresses:
@@ -404,12 +407,17 @@ class SolidDomain(Domain):
     def save_state(
         self,
         filepath: Path,
-        factor: float = 1.0,
+        factor: float = 0.0,
         include_stresses: bool = False,
         smooth_to_nodes: bool = False,
         cell_data: dict[str, np.ndarray] | None = None,
     ) -> None:
-        """Exports the current deformed state with optional stresses to a .vtu file."""
+        """
+        Exports the state with optional stresses to a .vtu file.
+        By default (factor=0.0), exports the initial reference geometry with attached
+        displacement vectors, enabling ParaView 'Warp By Vector' to display both initial
+        and deformed states.
+        """
         if not isinstance(filepath, Path):
             filepath = Path(filepath)
         filepath.parent.mkdir(parents=True, exist_ok=True)

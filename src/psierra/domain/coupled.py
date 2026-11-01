@@ -247,19 +247,128 @@ class CoupledSolidShellDomain(Domain):
 
         return M_solid + M_shell
 
+    def assemble_internal_force_vector(self) -> np.ndarray:
+        """
+        Assembles the monolithic internal force vector f_int(u) combining
+        solid continuum and boundary shell skin elements.
+        """
+        f_int = np.zeros(self._n_dofs, dtype=np.float64)
+
+        # 1. Solid internal force vector
+        f_solid = self.solid_domain.assemble_internal_force_vector()
+        f_int[: self._n_solid_dofs] += f_solid
+
+        # 2. Shell internal forces mapped to coupled DOFs
+        n_shell_elems = self.shell_domain.mesh.n_elements
+        node_indices = self.shell_domain.mesh.node_indices
+        shell_elems = self.shell_domain.mesh.elements
+        solid_nodes = self.solid_domain.mesh.nodes
+
+        for e in range(n_shell_elems):
+            s_conn = shell_elems[e]
+            g_conn = node_indices[s_conn]
+            coords = solid_nodes[g_conn]
+
+            # Collect element kinematic state (translations + rotations)
+            u_elem = np.zeros((len(s_conn), 6), dtype=np.float64)
+            for k in range(len(s_conn)):
+                sk = s_conn[k]
+                gk = g_conn[k]
+                u_elem[k, :3] = self.u[3 * gk : 3 * gk + 3]
+                u_elem[k, 3:] = self.u[
+                    self._n_solid_dofs + 3 * sk : self._n_solid_dofs + 3 * sk + 3
+                ]
+
+            _, f_int_elem = (
+                self.shell_domain.element.compute_nonlinear_force_and_tangent_stiffness(
+                    coords, u_elem
+                )
+            )
+            dofs = self._shell_coupled_dofs[e]
+            f_int[dofs] += f_int_elem
+
+        return f_int
+
+    def assemble_internal_forces(self) -> np.ndarray:
+        """Alias for assemble_internal_force_vector."""
+        return self.assemble_internal_force_vector()
+
+    def assemble_tangent_stiffness_matrix(self) -> spsp.csr_matrix:
+        """
+        Assembles the monolithic tangent stiffness matrix K_tan(u) combining
+        solid continuum and boundary shell skin elements.
+        """
+        # 1. Solid tangent stiffness
+        n_solid_elems = self.solid_domain.mesh.n_elements
+        solid_nodes = self.solid_domain.mesh.nodes
+        solid_elems = self.solid_domain.mesh.elements
+        solid_disp = self.solid_domain.displacement
+
+        for e in range(n_solid_elems):
+            coords = solid_nodes[solid_elems[e]]
+            u_elem = solid_disp[solid_elems[e]]
+            k_tan_elem, _ = (
+                self.solid_domain.element.compute_nonlinear_force_and_tangent_stiffness(
+                    coords, u_elem
+                )
+            )
+            self.solid_domain._k_local_buffer[e] = k_tan_elem
+
+        K_solid = assemble_sparse_matrix(
+            self.solid_domain._k_local_buffer,
+            rows=self.solid_domain._sparsity_rows,
+            cols=self.solid_domain._sparsity_cols,
+            total_dofs=self._n_dofs,
+        )
+
+        # 2. Shell tangent stiffness
+        n_shell_elems = self.shell_domain.mesh.n_elements
+        node_indices = self.shell_domain.mesh.node_indices
+        shell_elems = self.shell_domain.mesh.elements
+
+        for e in range(n_shell_elems):
+            s_conn = shell_elems[e]
+            g_conn = node_indices[s_conn]
+            coords = solid_nodes[g_conn]
+
+            u_elem = np.zeros((len(s_conn), 6), dtype=np.float64)
+            for k in range(len(s_conn)):
+                sk = s_conn[k]
+                gk = g_conn[k]
+                u_elem[k, :3] = self.u[3 * gk : 3 * gk + 3]
+                u_elem[k, 3:] = self.u[
+                    self._n_solid_dofs + 3 * sk : self._n_solid_dofs + 3 * sk + 3
+                ]
+
+            k_tan_elem, _ = (
+                self.shell_domain.element.compute_nonlinear_force_and_tangent_stiffness(
+                    coords, u_elem
+                )
+            )
+            self.shell_domain._k_local_buffer[e] = k_tan_elem
+
+        K_shell = assemble_sparse_matrix(
+            self.shell_domain._k_local_buffer,
+            rows=self._shell_sparsity_rows,
+            cols=self._shell_sparsity_cols,
+            total_dofs=self._n_dofs,
+        )
+
+        return K_solid + K_shell
+
     # =========================================================================
     # Visualization & Export
     # =========================================================================
 
     def to_pyvista_solid(
         self,
-        factor: float = 1.0,
+        factor: float = 0.0,
         include_stresses: bool = False,
         smooth_to_nodes: bool = False,
         include_cell_data: dict[str, np.ndarray] | None = None,
     ) -> pv.UnstructuredGrid:
         """
-        Exports the deformed solid continuum mesh of the coupled domain.
+        Exports the solid continuum mesh of the coupled domain.
         """
         return self.solid_domain.to_pyvista(
             factor=factor,
@@ -268,32 +377,107 @@ class CoupledSolidShellDomain(Domain):
             include_cell_data=include_cell_data,
         )
 
-    def to_pyvista_shell(self, factor: float = 1.0) -> pv.UnstructuredGrid:
+    def to_pyvista_shell(self, factor: float = 0.0) -> pv.UnstructuredGrid:
         """
-        Exports the deformed shell skin mesh of the coupled domain.
+        Exports the shell skin mesh of the coupled domain.
         """
         return self.shell_domain.to_pyvista(factor=factor)
 
     def to_pyvista(
         self,
-        factor: float = 1.0,
+        factor: float = 0.0,
         include_stresses: bool = False,
         smooth_to_nodes: bool = False,
         include_cell_data: dict[str, np.ndarray] | None = None,
     ) -> pv.UnstructuredGrid:
         """
-        Default visualization method: exports the deformed solid continuum mesh.
+        Exports a unified, multi-domain PyVista UnstructuredGrid representing both
+        solid continuum elements (Domain ID=0) and shell skin elements (Domain ID=1).
+
+        This allows users in ParaView to inspect either or both domains via the
+        Threshold filter ('Domain ID' or 'Domain Name'), eliminating the need to save
+        solid and shell meshes to separate files.
+
+        Parameters:
+        -----------
+        factor : float, default=0.0
+            Displacement magnification factor for coordinate warping.
+            0.0 exports reference geometry with displacement vectors attached for
+            interactive ParaView 'Warp By Vector'.
+        include_stresses : bool, default=False
+            If True, evaluates and attaches stresses.
+        smooth_to_nodes : bool, default=False
+            If True, projects cell stresses to nodal averages.
+        include_cell_data : dict[str, np.ndarray] | None, default=None
+            Additional cell-wise attributes to attach.
         """
-        return self.to_pyvista_solid(
+        grid_solid = self.solid_domain.to_pyvista(
             factor=factor,
             include_stresses=include_stresses,
             smooth_to_nodes=smooth_to_nodes,
             include_cell_data=include_cell_data,
         )
 
+        n_solid_cells = grid_solid.n_cells
+        n_shell_cells = self.shell_domain.mesh.n_elements
+        node_indices = self.shell_domain.mesh.node_indices
+        nodes_per_shell = self.shell_domain.element.nodes_per_element
+
+        shell_cell_type = (
+            pv.CellType.TRIANGLE
+            if nodes_per_shell == 3
+            else pv.CellType.QUADRATIC_TRIANGLE
+        )
+        shell_elems_global = node_indices[self.shell_domain.mesh.elements]
+
+        shell_cells = np.column_stack(
+            [
+                np.full(n_shell_cells, nodes_per_shell, dtype=np.int64),
+                shell_elems_global,
+            ]
+        ).ravel()
+
+        combined_cells = np.concatenate([grid_solid.cells, shell_cells])
+        combined_types = np.concatenate(
+            [
+                grid_solid.celltypes,
+                np.full(n_shell_cells, shell_cell_type, dtype=np.uint8),
+            ]
+        )
+
+        unified_grid = pv.UnstructuredGrid(
+            combined_cells, combined_types, grid_solid.points
+        )
+
+        # Label domains for ParaView thresholding
+        domain_id = np.concatenate(
+            [
+                np.zeros(n_solid_cells, dtype=np.int32),
+                np.ones(n_shell_cells, dtype=np.int32),
+            ]
+        )
+        unified_grid.cell_data["Domain ID"] = domain_id
+        unified_grid.cell_data["Domain Name"] = np.array(
+            ["Solid"] * n_solid_cells + ["Shell"] * n_shell_cells
+        )
+
+        # Attach all point data from solid domain (Displacement vectors, etc.)
+        for name, array in grid_solid.point_data.items():
+            unified_grid.point_data[name] = array
+
+        # Attach rotation vectors to point data (surface nodes have rotations, interior nodes zero)
+        rotations = np.zeros((self._n_solid_nodes, 3), dtype=np.float64)
+        for sk, gk in enumerate(node_indices):
+            rotations[gk] = self.u[
+                self._n_solid_dofs + 3 * sk : self._n_solid_dofs + 3 * sk + 3
+            ]
+        unified_grid.point_data["Rotation"] = rotations
+
+        return unified_grid
+
     def save_solid_state(self, filepath: Path, **kwargs) -> None:
         """
-        Exports the deformed solid continuum state to disk as a VTU unstructured mesh (.vtu).
+        Exports the solid continuum state to disk as a VTU unstructured mesh (.vtu).
         """
         filepath = Path(filepath)
         if filepath.suffix != ".vtu":
@@ -302,7 +486,7 @@ class CoupledSolidShellDomain(Domain):
 
     def save_shell_state(self, filepath: Path, **kwargs) -> None:
         """
-        Exports the deformed shell skin state to disk as a VTU unstructured mesh (.vtu).
+        Exports the shell skin state to disk as a VTU unstructured mesh (.vtu).
         """
         filepath = Path(filepath)
         if filepath.suffix != ".vtu":
@@ -313,7 +497,7 @@ class CoupledSolidShellDomain(Domain):
         self,
         filepath: Path,
         timestep: float | None = None,
-        factor: float = 1.0,
+        factor: float = 0.0,
         **kwargs,
     ) -> None:
         """
@@ -337,16 +521,23 @@ class CoupledSolidShellDomain(Domain):
         writer.add_dataset(filename=shell_file.name, timestep=timestep, part=1, group="shell")
         writer.write()
 
-    def save_state(self, filepath: Path, **kwargs) -> None:
+    def save_state(self, filepath: Path, factor: float = 0.0, **kwargs) -> None:
         """
         Exports coupled domain state.
 
-        - If filepath ends in '.pvd', exports both solid and shell components and a master .pvd.
-        - Otherwise exports the solid continuum state (.vtu).
-        For explicit field export, prefer save_solid_state(), save_shell_state(), or save_pvd().
+        - If filepath ends in '.vtu' (default):
+          Exports a single unified VTU mesh containing both solid and shell elements,
+          labeled with 'Domain ID' (0=Solid, 1=Shell) and 'Domain Name' ('Solid', 'Shell')
+          so users in ParaView can easily threshold and inspect each domain within one file.
+        - If filepath ends in '.pvd':
+          Exports separate solid and shell VTUs plus a master ParaView .pvd collection.
         """
         filepath = Path(filepath)
         if filepath.suffix == ".pvd":
-            self.save_pvd(filepath, **kwargs)
+            self.save_pvd(filepath, factor=factor, **kwargs)
         else:
-            self.save_solid_state(filepath, **kwargs)
+            if filepath.suffix != ".vtu":
+                filepath = filepath.with_suffix(".vtu")
+            filepath.parent.mkdir(parents=True, exist_ok=True)
+            grid = self.to_pyvista(factor=factor, **kwargs)
+            grid.save(str(filepath))

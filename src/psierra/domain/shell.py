@@ -12,6 +12,7 @@ from psierra.utility.indexing import compute_element_dofs
 from psierra.utility.assembly import (
     create_coo_sparsity_indices,
     assemble_sparse_matrix,
+    assemble_vector,
 )
 
 
@@ -64,6 +65,9 @@ class ShellDomain(Domain):
         )
         self._m_local_buffer = np.zeros(
             (n_elems, n_elem_dofs, n_elem_dofs), dtype=np.float64
+        )
+        self._f_local_buffer = np.zeros(
+            (n_elems, n_elem_dofs), dtype=np.float64
         )
 
     # =========================================================================
@@ -152,35 +156,98 @@ class ShellDomain(Domain):
             total_dofs=self._n_dofs,
         )
 
+    def assemble_internal_force_vector(self) -> np.ndarray:
+        """
+        Assembles the global internal nodal force vector f_int(u) from current element states.
+
+        Returns:
+        --------
+        f_int : np.ndarray of shape (n_dofs,)
+        """
+        n_elems = self.mesh.n_elements
+        nodes = self.mesh.nodes
+        elements = self.mesh.elements
+        u_reshaped = self.u.reshape(-1, self.element.dofs_per_node)
+
+        for e in range(n_elems):
+            elem_nodes = elements[e]
+            coords = nodes[elem_nodes]
+            u_elem = u_reshaped[elem_nodes]
+            _, f_int_elem = self.element.compute_nonlinear_force_and_tangent_stiffness(
+                coords, u_elem
+            )
+            self._f_local_buffer[e] = f_int_elem
+
+        return assemble_vector(
+            element_vectors=self._f_local_buffer,
+            element_dofs=self._element_dofs,
+            total_dofs=self._n_dofs,
+        )
+
+    def assemble_internal_forces(self) -> np.ndarray:
+        """Alias for assemble_internal_force_vector."""
+        return self.assemble_internal_force_vector()
+
+    def assemble_tangent_stiffness_matrix(self) -> spsp.csr_matrix:
+        """
+        Assembles the global tangent stiffness matrix K_tan(u) for nonlinear solvers.
+
+        Returns:
+        --------
+        K_tan : spsp.csr_matrix of shape (n_dofs, n_dofs)
+        """
+        n_elems = self.mesh.n_elements
+        nodes = self.mesh.nodes
+        elements = self.mesh.elements
+        u_reshaped = self.u.reshape(-1, self.element.dofs_per_node)
+
+        for e in range(n_elems):
+            elem_nodes = elements[e]
+            coords = nodes[elem_nodes]
+            u_elem = u_reshaped[elem_nodes]
+            k_tan_elem, _ = self.element.compute_nonlinear_force_and_tangent_stiffness(
+                coords, u_elem
+            )
+            self._k_local_buffer[e] = k_tan_elem
+
+        return assemble_sparse_matrix(
+            element_matrices=self._k_local_buffer,
+            rows=self._sparsity_rows,
+            cols=self._sparsity_cols,
+            total_dofs=self._n_dofs,
+        )
+
     # =========================================================================
     # Visualization & Export
     # =========================================================================
 
-    def to_pyvista(self, factor: float = 1.0) -> pv.UnstructuredGrid:
+    def to_pyvista(self, factor: float = 0.0) -> pv.UnstructuredGrid:
         """
-        Creates a deformed PyVista UnstructuredGrid representing the shell.
+        Creates a PyVista UnstructuredGrid representing the shell.
+
+        Parameters:
+        -----------
+        factor : float, default=0.0
+            Displacement magnification factor for coordinate warping.
+            When 0.0 (default), exports the initial reference mesh geometry, allowing
+            users to apply 'Warp By Vector' in ParaView to inspect both initial and
+            deformed states interactively.
         """
         deformed_poly = self.mesh.polydata.copy(deep=True)
         if factor != 0.0:
             deformed_poly.points = self.mesh.nodes + factor * self.displacement
         deformed_poly.point_data["Displacement"] = self.displacement
-        deformed_poly.point_data["Displacement X"] = self.displacement[:, 0]
-        deformed_poly.point_data["Displacement Y"] = self.displacement[:, 1]
-        deformed_poly.point_data["Displacement Z"] = self.displacement[:, 2]
-        deformed_poly.point_data["Displacement Magnitude"] = np.linalg.norm(self.displacement, axis=1)
         deformed_poly.point_data["Rotation"] = self.rotation
-        deformed_poly.point_data["Rotation X"] = self.rotation[:, 0]
-        deformed_poly.point_data["Rotation Y"] = self.rotation[:, 1]
-        deformed_poly.point_data["Rotation Z"] = self.rotation[:, 2]
-        deformed_poly.point_data["Rotation Magnitude"] = np.linalg.norm(self.rotation, axis=1)
 
         if isinstance(deformed_poly, pv.PolyData):
             return deformed_poly.cast_to_unstructured_grid()
         return deformed_poly
 
-    def save_state(self, filepath: Path, factor: float = 1.0, **kwargs) -> None:
+    def save_state(self, filepath: Path, factor: float = 0.0, **kwargs) -> None:
         """
-        Exports the deformed shell state to disk as a VTK UnstructuredGrid (.vtu).
+        Exports the shell state to disk as a VTK UnstructuredGrid (.vtu).
+        By default (factor=0.0), exports the initial reference geometry with attached
+        displacement and rotation vectors for interactive ParaView warping.
         """
         filepath = Path(filepath)
         if filepath.suffix != ".vtu":
