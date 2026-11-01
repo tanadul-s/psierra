@@ -260,11 +260,14 @@ class SurfaceMesh:
         self._polydata.transform(tf, inplace=True)
 
     def save(self, filepath: Path) -> None:
-        """Saves surface mesh to disk (.stl, .ply, .vtp), creating parent directories if needed."""
+        """Saves surface mesh to disk (.vtu, .stl, .ply), creating parent directories if needed."""
         if not isinstance(filepath, Path):
             filepath = Path(filepath)
         filepath.parent.mkdir(parents=True, exist_ok=True)
-        self._polydata.save(str(filepath))
+        if filepath.suffix == ".vtu" and isinstance(self._polydata, pv.PolyData):
+            self._polydata.cast_to_unstructured_grid().save(str(filepath))
+        else:
+            self._polydata.save(str(filepath))
 
     def __repr__(self) -> str:
         return (
