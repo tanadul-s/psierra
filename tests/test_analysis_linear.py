@@ -28,14 +28,18 @@ class TestLinearAnalysis:
 
         # Clamp face at Z = 0 (nodes with Z = 0)
         fixed_nodes = select_nodes_by_plane(mesh, plane="xy", bound="min")
-        clamp = DirichletConstraint(node_indices=fixed_nodes, components=(0, 1, 2), value=0.0)
+        clamp = DirichletConstraint(
+            node_indices=fixed_nodes, components=(0, 1, 2), value=0.0
+        )
         dirichlet = DirichletManager(mesh.n_dofs)
         dirichlet.add_constraint(clamp)
 
         # Apply upward tensile load F_z = +1000 N on top nodes (Z = 1)
         top_nodes = select_nodes_by_plane(mesh, plane="xy", bound="max")
         f_applied = 1000.0
-        load = NodalForce(node_indices=top_nodes, force_vector=[0.0, 0.0, f_applied / len(top_nodes)])
+        load = NodalForce(
+            node_indices=top_nodes, force_vector=[0.0, 0.0, f_applied / len(top_nodes)]
+        )
         f_ext = load.compute_force_vector(mesh.n_dofs)
 
         analysis = LinearStaticAnalysis(domain)
@@ -53,27 +57,31 @@ class TestLinearAnalysis:
         top_dofs_z = top_nodes * 3 + 2
         assert np.all(result.displacement[top_dofs_z] > 0.0)
 
-    def test_linear_static_beam_cantilever_benchmark(
-        self, beam_vtk_path: Path
-    ) -> None:
+    def test_linear_static_beam_cantilever_benchmark(self, beam_vtk_path: Path) -> None:
         if not beam_vtk_path.exists():
             pytest.skip("beam1.vtk not found")
 
         mesh = VolumetricMesh(beam_vtk_path)
         params = IsotropicElasticParameters()
-        params.set_from_youngs_poisson(youngs_modulus=21000.0, poissons_ratio=0.35, mass_density=1.0)
+        params.set_from_youngs_poisson(
+            youngs_modulus=21000.0, poissons_ratio=0.35, mass_density=1.0
+        )
         material = Hookean(params)
         element = Tet4Linear(material)
         domain = SolidDomain(mesh, material, element)
 
         root_nodes = select_nodes_by_plane(mesh, plane="xz", bound="min")
-        clamp = DirichletConstraint(node_indices=root_nodes, components=(0, 1, 2), value=0.0)
+        clamp = DirichletConstraint(
+            node_indices=root_nodes, components=(0, 1, 2), value=0.0
+        )
         dirichlet = DirichletManager(mesh.n_dofs)
         dirichlet.add_constraint(clamp)
 
         tip_nodes = select_nodes_by_plane(mesh, plane="xz", bound="max")
         total_fz = -1000.0
-        load = NodalForce(node_indices=tip_nodes, force_vector=[0.0, 0.0, total_fz / len(tip_nodes)])
+        load = NodalForce(
+            node_indices=tip_nodes, force_vector=[0.0, 0.0, total_fz / len(tip_nodes)]
+        )
         f_ext = load.compute_force_vector(mesh.n_dofs)
 
         analysis = LinearStaticAnalysis(domain)
@@ -125,13 +133,17 @@ class TestLinearAnalysis:
         dom10 = SolidDomain(mesh_tet10, material, Tet10Linear(material))
         root10 = select_nodes_by_plane(mesh_tet10, plane="xz", bound="min")
         dir10 = DirichletManager(mesh_tet10.n_dofs)
-        dir10.add_constraint(DirichletConstraint(root10, components=(0, 1, 2), value=0.0))
+        dir10.add_constraint(
+            DirichletConstraint(root10, components=(0, 1, 2), value=0.0)
+        )
 
         tip10 = select_nodes_by_plane(mesh_tet10, plane="xz", bound="max")
         load10 = NodalForce(tip10, force_vector=[0.0, 0.0, total_fz / len(tip10)])
         f10 = load10.compute_force_vector(mesh_tet10.n_dofs)
 
-        res10 = LinearStaticAnalysis(dom10).solve(dirichlet=dir10, f_ext=f10, verbose=False)
+        res10 = LinearStaticAnalysis(dom10).solve(
+            dirichlet=dir10, f_ext=f10, verbose=False
+        )
         tip_def10 = np.mean(res10.displacement[tip10 * 3 + 2])
 
         # Equilibrium checks for both
@@ -141,9 +153,11 @@ class TestLinearAnalysis:
         # Tet10 must be strictly more flexible than Tet4 in bending (alleviating shear locking)
         assert abs(tip_def10) > 1.5 * abs(tip_def4)
 
-
     def test_linear_dynamic_vibration_and_decay(
-        self, five_tet_cube_mesh: VolumetricMesh, hookean_material: Hookean, tmp_path: Path
+        self,
+        five_tet_cube_mesh: VolumetricMesh,
+        hookean_material: Hookean,
+        tmp_path: Path,
     ) -> None:
         mesh = five_tet_cube_mesh
         element = Tet4Linear(hookean_material)
@@ -151,7 +165,9 @@ class TestLinearAnalysis:
 
         fixed_nodes = select_nodes_by_plane(mesh, plane="xy", bound="min")
         dirichlet = DirichletManager(mesh.n_dofs)
-        dirichlet.add_constraint(DirichletConstraint(fixed_nodes, components=(0, 1, 2), value=0.0))
+        dirichlet.add_constraint(
+            DirichletConstraint(fixed_nodes, components=(0, 1, 2), value=0.0)
+        )
 
         # Initial perturbation load
         top_nodes = select_nodes_by_plane(mesh, plane="xy", bound="max")
@@ -173,4 +189,90 @@ class TestLinearAnalysis:
 
         assert isinstance(result, LinearDynamicResult)
         assert len(result.time) == 21
-        assert (tmp_path / "dynamic_out" / "output.pvd").exists()
+        assert (tmp_path / "dynamic_out" / "result.pvd").exists()
+
+    def test_linear_dynamic_steady_state_early_exit(
+        self,
+        five_tet_cube_mesh: VolumetricMesh,
+        hookean_material: Hookean,
+        tmp_path: Path,
+    ) -> None:
+        mesh = five_tet_cube_mesh
+        element = Tet4Linear(hookean_material)
+        domain = SolidDomain(mesh, hookean_material, element)
+
+        fixed_nodes = select_nodes_by_plane(mesh, plane="xy", bound="min")
+        dirichlet = DirichletManager(mesh.n_dofs)
+        dirichlet.add_constraint(
+            DirichletConstraint(fixed_nodes, components=(0, 1, 2), value=0.0)
+        )
+
+        top_nodes = select_nodes_by_plane(mesh, plane="xy", bound="max")
+        load = NodalForce(top_nodes, [50.0, 0.0, 0.0])
+        f_ext = load.compute_force_vector(mesh.n_dofs)
+
+        # High damping to rapidly reach static state
+        damping = RayleighDamping(alpha=30.0, beta=0.05)
+        analysis = LinearDynamicAnalysis(domain, damping=damping)
+
+        out_dir = tmp_path / "lin_steady_out"
+        result = analysis.solve(
+            dirichlet=dirichlet,
+            f_ext=f_ext,
+            dt=0.005,
+            n_steps=200,
+            steady_state_tol=1e-2,
+            consecutive_hold_steps=2,
+            save_interval=10,
+            save_directory=out_dir,
+            verbose=False,
+        )
+
+        assert isinstance(result, LinearDynamicResult)
+        assert result.converged is True
+        assert result.steady_state_converged is True
+        assert result.steady_state_step is not None
+        assert result.steps_completed < 200
+        assert result.steps_completed == result.steady_state_step
+
+        last_file = result.time_series_files[-1]
+        assert last_file.exists()
+        assert f"{result.steady_state_step:05d}" in last_file.name
+
+    def test_linear_static_save_file(
+        self,
+        five_tet_cube_mesh: VolumetricMesh,
+        hookean_material: Hookean,
+        tmp_path: Path,
+    ) -> None:
+        mesh = five_tet_cube_mesh
+        element = Tet4Linear(hookean_material)
+        domain = SolidDomain(mesh, hookean_material, element)
+
+        fixed_nodes = select_nodes_by_plane(mesh, plane="xy", bound="min")
+        dirichlet = DirichletManager(mesh.n_dofs)
+        dirichlet.add_constraint(
+            DirichletConstraint(
+                node_indices=fixed_nodes, components=(0, 1, 2), value=0.0
+            )
+        )
+
+        top_nodes = select_nodes_by_plane(mesh, plane="xy", bound="max")
+        load = NodalForce(
+            node_indices=top_nodes, force_vector=[0.0, 0.0, 100.0 / len(top_nodes)]
+        )
+        f_ext = load.compute_force_vector(mesh.n_dofs)
+
+        out_dir = tmp_path / "lin_static_out"
+        analysis = LinearStaticAnalysis(domain)
+        result = analysis.solve(
+            dirichlet=dirichlet,
+            f_ext=f_ext,
+            save_directory=out_dir,
+            output_name="cube_linear",
+            verbose=False,
+        )
+
+        assert result.saved_file is not None
+        assert result.saved_file.exists()
+        assert result.saved_file.name == "cube_linear.vtu"

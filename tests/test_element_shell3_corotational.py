@@ -22,7 +22,9 @@ def test_triangle_coords() -> np.ndarray:
 @pytest.fixture
 def hookean_material() -> Hookean:
     params = IsotropicElasticParameters()
-    params.set_from_youngs_poisson(youngs_modulus=210000.0, poissons_ratio=0.3, mass_density=7.85e-9)
+    params.set_from_youngs_poisson(
+        youngs_modulus=210000.0, poissons_ratio=0.3, mass_density=7.85e-9
+    )
     return Hookean(params)
 
 
@@ -44,7 +46,9 @@ def test_corotational_shell3_rigid_translation_invariance(
     u_rigid = np.zeros((3, 6), dtype=np.float64)
     u_rigid[:, :3] = [25.0, -15.0, 42.0]
 
-    K_tan, f_int = elem.compute_nonlinear_force_and_tangent_stiffness(test_triangle_coords, u_rigid)
+    K_tan, f_int = elem.compute_nonlinear_force_and_tangent_stiffness(
+        test_triangle_coords, u_rigid
+    )
 
     assert np.allclose(f_int, 0.0, atol=1e-8)
     assert np.allclose(K_tan, K_tan.T, atol=1e-8)
@@ -70,7 +74,9 @@ def test_corotational_shell3_rigid_rotation_invariance(
     for i in range(3):
         u_rigid[i, 3:] = rot_vec
 
-    K_tan, f_int = elem.compute_nonlinear_force_and_tangent_stiffness(test_triangle_coords, u_rigid)
+    K_tan, f_int = elem.compute_nonlinear_force_and_tangent_stiffness(
+        test_triangle_coords, u_rigid
+    )
 
     # 1. Spurious internal forces must be identically zero
     assert np.allclose(f_int, 0.0, atol=1e-7)
@@ -143,7 +149,9 @@ def test_corotational_shell3_extract_element_rotation(
     assert np.isclose(np.linalg.det(R_extracted), 1.0)
 
 
-def test_corotational_shell3_nonlinear_analysis_rotated_strip(hookean_material: Hookean) -> None:
+def test_corotational_shell3_nonlinear_analysis_rotated_strip(
+    hookean_material: Hookean,
+) -> None:
     import pyvista as pv
     from psierra.mesh import SurfaceMesh
     from psierra.domain import ShellDomain
@@ -188,7 +196,9 @@ def test_corotational_shell3_nonlinear_analysis_rotated_strip(hookean_material: 
     tip_nodes = np.array([node_map[(Nx, iy)] for iy in range(Ny + 1)])
 
     dm = DirichletManager(domain.n_dofs)
-    dm.add_constraint(DirichletConstraint(root_nodes, components=(0, 1, 2, 3, 4, 5), value=0.0))
+    dm.add_constraint(
+        DirichletConstraint(root_nodes, components=(0, 1, 2, 3, 4, 5), value=0.0)
+    )
 
     # Pull along rotated axis
     pull_dir = R_space @ np.array([1.0, 0.0, 0.0])
@@ -198,7 +208,9 @@ def test_corotational_shell3_nonlinear_analysis_rotated_strip(hookean_material: 
         f_ext[tn * 6 : tn * 6 + 3] = (F_total / len(tip_nodes)) * pull_dir
 
     solver = NonlinearStaticAnalysis(domain)
-    res = solver.solve(dm, f_ext, n_steps=3, max_iterations=15, tolerance=1e-4, verbose=False)
+    res = solver.solve(
+        dm, f_ext, n_steps=3, nr_iterations=15, nr_tol=1e-4, verbose=False
+    )
 
     assert res.converged
     assert res.steps_completed == 3
