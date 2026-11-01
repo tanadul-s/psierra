@@ -136,8 +136,8 @@ def main() -> None:
         dirichlet=dirichlet,
         f_ext=f_ext,
         n_steps=10,
-        max_iterations=20,
-        tolerance=1e-4,
+        nr_iterations=20,
+        nr_tol=1e-4,
         verbose=False,
     )
     disp_cr = dom_cr.displacement
@@ -157,8 +157,8 @@ def main() -> None:
         dirichlet=dirichlet,
         f_ext=f_ext,
         n_steps=10,
-        max_iterations=20,
-        tolerance=1e-4,
+        nr_iterations=20,
+        nr_tol=1e-4,
         verbose=False,
     )
     disp_tl = dom_tl.displacement
@@ -178,8 +178,8 @@ def main() -> None:
         dirichlet=dirichlet,
         f_ext=f_ext,
         n_steps=10,
-        max_iterations=20,
-        tolerance=1e-4,
+        nr_iterations=20,
+        nr_tol=1e-4,
         verbose=False,
     )
     disp_ul = dom_ul.displacement

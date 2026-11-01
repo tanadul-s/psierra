@@ -106,9 +106,15 @@ def main() -> None:
         dirichlet=dirichlet,
         f_ext=f_ext,
         dt=0.005,
-        n_steps=400,
-        max_iterations=15,
-        tolerance=1e-4,
+        n_steps=1000,
+        nr_iterations=15,
+        nr_tol=1e-4,
+        steady_state_tol=1e-4,
+        kinetic_energy_tol=1e-4,
+        consecutive_hold_steps=3,
+        include_stresses=True,
+        smooth_to_nodes=True,
+        save_interval=3,
         save_directory=output_dir,
     )
 
@@ -153,7 +159,7 @@ def main() -> None:
 
     console.print(summary_table)
     console.print(
-        f"[bold green]✓ Transient time-series PVD exported to:[/bold green] [cyan]{output_dir / 'output.pvd'}[/cyan]\n"
+        f"[bold green]✓ Transient time-series PVD exported to:[/bold green] [cyan]{output_dir / "result.pvd"}[/cyan]\n"
     )
 
 

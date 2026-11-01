@@ -150,8 +150,8 @@ def main() -> None:
         dirichlet=dm_corot,
         f_ext=f_ext,
         n_steps=n_steps,
-        max_iterations=15,
-        tolerance=1e-4,
+        nr_iterations=15,
+        nr_tol=1e-4,
         verbose=False,
     )
     tip_uy_corot = float(np.mean(res_corot.displacement[tip_nodes * 3 + 1]))

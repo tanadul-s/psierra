@@ -49,7 +49,9 @@ def main() -> None:
     )
 
     # 2. Configuring Material & Element Formulation
-    console.print("\n[bold yellow][2/6] Configuring Material & Element Formulation[/bold yellow]")
+    console.print(
+        "\n[bold yellow][2/6] Configuring Material & Element Formulation[/bold yellow]"
+    )
     params = IsotropicElasticParameters()
     params.set_from_youngs_poisson(
         youngs_modulus=21000.0,
@@ -58,16 +60,26 @@ def main() -> None:
     )
     material = NeoHookean(params)
     element = Tet4TotalLagrangian(material)
-    console.print(f"  • Constitutive Law : [cyan]{material.__class__.__name__}[/cyan] (Compressible Neo-Hookean)")
-    console.print(f"  • Element Type     : [cyan]{element.__class__.__name__}[/cyan] (Total Lagrangian Tetrahedron)")
-    console.print(f"  • Young's Modulus  : [green]{params.youngs_modulus:.1f}[/green] MPa | Poisson's Ratio: [green]{params.poissons_ratio:.2f}[/green]")
+    console.print(
+        f"  • Constitutive Law : [cyan]{material.__class__.__name__}[/cyan] (Compressible Neo-Hookean)"
+    )
+    console.print(
+        f"  • Element Type     : [cyan]{element.__class__.__name__}[/cyan] (Total Lagrangian Tetrahedron)"
+    )
+    console.print(
+        f"  • Young's Modulus  : [green]{params.youngs_modulus:.1f}[/green] MPa | Poisson's Ratio: [green]{params.poissons_ratio:.2f}[/green]"
+    )
 
     # 3. Setting Up Physical Domain
-    console.print("\n[bold yellow][3/6] Setting Up Physical Continuum Domain[/bold yellow]")
+    console.print(
+        "\n[bold yellow][3/6] Setting Up Physical Continuum Domain[/bold yellow]"
+    )
     domain = SolidDomain(mesh, material, element)
 
     # 4. Applying Boundary Conditions & External Loads
-    console.print("\n[bold yellow][4/6] Applying Boundary Conditions & External Loads[/bold yellow]")
+    console.print(
+        "\n[bold yellow][4/6] Applying Boundary Conditions & External Loads[/bold yellow]"
+    )
     root_nodes = select_nodes_by_bounds(mesh, bounds=(-61, 61, -31, 1, -61, 61))
     clamp = DirichletConstraint(root_nodes, components=(0, 1, 2), value=0.0)
     dirichlet = DirichletManager(domain.mesh.n_dofs)
@@ -78,7 +90,9 @@ def main() -> None:
     f_ext = gravity.compute_force_vector(M)
 
     total_weight = float(f_ext[2::3].sum())
-    console.print(f"  • Clamped Root     : [green]{len(root_nodes)}[/green] nodes ({len(clamp.dofs)} DOFs)")
+    console.print(
+        f"  • Clamped Root     : [green]{len(root_nodes)}[/green] nodes ({len(clamp.dofs)} DOFs)"
+    )
     console.print(f"  • Gravity Load F_z : [green]{total_weight:.2f}[/green] N")
 
     # 5. Executing Simulation Solver
@@ -88,12 +102,14 @@ def main() -> None:
         dirichlet=dirichlet,
         f_ext=f_ext,
         n_steps=10,
-        max_iterations=20,
-        tolerance=1e-4,
+        nr_iterations=20,
+        nr_tol=1e-4,
     )
 
     # 6. Verifying Results & Post-Processing
-    console.print("\n[bold yellow][6/6] Verifying Results & Post-Processing[/bold yellow]")
+    console.print(
+        "\n[bold yellow][6/6] Verifying Results & Post-Processing[/bold yellow]"
+    )
     disp = domain.displacement
     max_disp = float(np.linalg.norm(disp, axis=1).max())
     tip_z = float(disp[:, 2].min())
@@ -101,16 +117,30 @@ def main() -> None:
 
     status_style = "green" if result.converged else "red"
 
-    summary_table = Table(title="Simulation 06 Summary & Verification", border_style="cyan")
+    summary_table = Table(
+        title="Simulation 06 Summary & Verification", border_style="cyan"
+    )
     summary_table.add_column("Quantity", style="bold white")
     summary_table.add_column("Value", style="cyan")
     summary_table.add_column("Status / Unit", style="green")
 
-    summary_table.add_row("Convergence Status", f"{result.converged}", f"[bold {status_style}]{result.steps_completed}/10 Steps[/bold {status_style}]")
-    summary_table.add_row("Max Resultant Displacement", f"{max_disp:.2f} mm", "Peak Deflection")
-    summary_table.add_row("Downward Deflection (Z)", f"{tip_z:.2f} mm", "Bending Deflection")
-    summary_table.add_row("Axial Shortening (Y)", f"{tip_y:.2f} mm", "Geometric Inward Pull")
-    summary_table.add_row("Total External Load (F_z)", f"{total_weight:.2f} N", "Applied Load")
+    summary_table.add_row(
+        "Convergence Status",
+        f"{result.converged}",
+        f"[bold {status_style}]{result.steps_completed}/10 Steps[/bold {status_style}]",
+    )
+    summary_table.add_row(
+        "Max Resultant Displacement", f"{max_disp:.2f} mm", "Peak Deflection"
+    )
+    summary_table.add_row(
+        "Downward Deflection (Z)", f"{tip_z:.2f} mm", "Bending Deflection"
+    )
+    summary_table.add_row(
+        "Axial Shortening (Y)", f"{tip_y:.2f} mm", "Geometric Inward Pull"
+    )
+    summary_table.add_row(
+        "Total External Load (F_z)", f"{total_weight:.2f} N", "Applied Load"
+    )
 
     console.print(summary_table)
 
@@ -118,9 +148,10 @@ def main() -> None:
     output_dir.mkdir(parents=True, exist_ok=True)
     output_path = output_dir / "output.vtu"
     domain.save_state(filepath=output_path, include_stresses=True, smooth_to_nodes=True)
-    console.print(f"[bold green]✓ Output successfully exported to:[/bold green] [cyan]{output_path}[/cyan]\n")
+    console.print(
+        f"[bold green]✓ Output successfully exported to:[/bold green] [cyan]{output_path}[/cyan]\n"
+    )
 
 
 if __name__ == "__main__":
     main()
-
