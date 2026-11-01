@@ -98,9 +98,26 @@ def main() -> None:
     output_dir = Path("examples/05_simulation/sim09_output")
     output_dir.mkdir(parents=True, exist_ok=True)
 
-    # 1. Physical Parameters
-    console.print("\n[bold yellow][1/4] Configuring Plate Geometry & Material[/bold yellow]")
+    # 1. Loading Mesh Geometry
+    console.print("\n[bold yellow][1/6] Loading Mesh Geometry[/bold yellow]")
     L = 1000.0   # mm (1 meter square plate)
+    N_s3 = 10
+    N_s6 = 8
+    mesh_s3 = build_plate_mesh_linear(L, N=N_s3)
+    mesh_s6 = build_plate_mesh_quadratic(L, N=N_s6)
+
+    console.print(f"  • Plate Dimensions       : [green]{L:.0f} mm x {L:.0f} mm[/green]")
+    console.print(
+        f"  • Shell3 Surface Mesh    : [green]{mesh_s3.n_nodes}[/green] nodes | "
+        f"[green]{mesh_s3.n_elements}[/green] linear triangular elements"
+    )
+    console.print(
+        f"  • Shell6 Surface Mesh    : [green]{mesh_s6.n_nodes}[/green] nodes | "
+        f"[green]{mesh_s6.n_elements}[/green] quadratic triangular elements"
+    )
+
+    # 2. Material & Element Formulation
+    console.print("\n[bold yellow][2/6] Configuring Material & Element Formulation[/bold yellow]")
     t = 10.0     # mm thickness
     E = 70000.0  # MPa (Aluminum)
     nu = 0.3     # Poisson's ratio
@@ -110,26 +127,32 @@ def main() -> None:
     params = IsotropicElasticParameters()
     params.set_from_youngs_poisson(youngs_modulus=E, poissons_ratio=nu, mass_density=rho)
     material = Hookean(params)
+    elem_s3 = Shell3(material=material, thickness=t)
+    elem_s6 = Shell6(material=material, thickness=t)
 
     # Navier Analytical Solution for simply supported square plate:
     # w_center = 0.004062 * q * L^4 / D
     D = (E * t**3) / (12.0 * (1.0 - nu**2))
     w_analytical = 0.004062 * q_pressure * (L**4) / D
 
-    console.print(f"  • Plate Dimensions       : [green]{L:.0f} mm x {L:.0f} mm x {t:.1f} mm[/green]")
-    console.print(f"  • Flexural Rigidity D    : [green]{D:.2e}[/green] N·mm")
-    console.print(f"  • Uniform Transverse Load: [green]{q_pressure:.3f}[/green] MPa (-10 kPa)")
+    console.print(f"  • Material               : Aluminum ([green]E = {E:.0f} MPa[/green], [green]ν = {nu:.2f}[/green])")
+    console.print(f"  • Shell Thickness t      : [green]{t:.1f} mm[/green] (Flexural Rigidity D = [green]{D:.2e}[/green] N·mm)")
+    console.print(f"  • Thin Shell Formulation : [cyan]{elem_s3.__class__.__name__}[/cyan] (Discrete Kirchhoff Triangle)")
+    console.print(f"  • Thick Shell Formulation: [cyan]{elem_s6.__class__.__name__}[/cyan] (Reissner-Mindlin Quadratic)")
     console.print(f"  • Navier Analytical Sag  : [bold green]{w_analytical:.5f} mm[/bold green]")
 
-    # 2. Solving Shell3 (DKT) with ShellDomain & LinearStaticAnalysis
-    console.print("\n[bold yellow][2/4] Solving with Shell3 (3-Node DKT Thin Shell)[/bold yellow]")
-    N_s3 = 10
-    mesh_s3 = build_plate_mesh_linear(L, N=N_s3)
-    elem_s3 = Shell3(material=material, thickness=t)
+    # 3. Setting Up Physical Domains
+    console.print("\n[bold yellow][3/6] Setting Up Physical Domains[/bold yellow]")
     domain_s3 = ShellDomain(mesh=mesh_s3, material=material, element=elem_s3)
+    domain_s6 = ShellDomain(mesh=mesh_s6, material=material, element=elem_s6)
+    console.print(f"  • Shell3 Domain DOFs     : [green]{domain_s3.n_dofs}[/green] (6 DOFs/node)")
+    console.print(f"  • Shell6 Domain DOFs     : [green]{domain_s6.n_dofs}[/green] (6 DOFs/node)")
 
-    # Identify perimeter boundary nodes (simply supported: w = 0)
+    # 4. Applying Boundary Conditions & External Loads
+    console.print("\n[bold yellow][4/6] Applying Boundary Conditions & External Loads[/bold yellow]")
     tol = 1e-6
+
+    # Boundary conditions for Shell3
     nodes_s3 = mesh_s3.nodes
     bound_mask_s3 = (
         (np.abs(nodes_s3[:, 0] - (-L / 2)) < tol)
@@ -138,8 +161,6 @@ def main() -> None:
         | (np.abs(nodes_s3[:, 1] - (L / 2)) < tol)
     )
     bound_nodes_s3 = np.where(bound_mask_s3)[0]
-
-    # Pin corners in u, v to prevent rigid in-plane body modes
     corner_mask_s3 = (
         (np.abs(nodes_s3[:, 0]) > L / 2 - tol) & (np.abs(nodes_s3[:, 1]) > L / 2 - tol)
     )
@@ -149,30 +170,13 @@ def main() -> None:
     dm_s3.add_constraint(DirichletConstraint(bound_nodes_s3, components=(2,), value=0.0, dofs_per_node=6))
     dm_s3.add_constraint(DirichletConstraint(corner_nodes_s3, components=(0, 1), value=0.0, dofs_per_node=6))
 
-    # Tributary pressure load on w DOFs
     f_ext_s3 = np.zeros(domain_s3.n_dofs, dtype=np.float64)
     A_tri_s3 = 0.5 * (L / N_s3) * (L / N_s3)
     for conn in mesh_s3.elements:
         for nid in conn:
             f_ext_s3[nid * 6 + 2] += (q_pressure * A_tri_s3) / 3.0
 
-    analysis_s3 = LinearStaticAnalysis(domain_s3)
-    res_s3 = analysis_s3.solve(dirichlet=dm_s3, f_ext=f_ext_s3, verbose=False)
-
-    center_idx_s3 = np.argmin(np.linalg.norm(nodes_s3, axis=1))
-    w_s3 = float(res_s3.displacement[center_idx_s3 * 6 + 2])
-    domain_s3.save_state(output_dir / "plate_shell3_deformed.vtu")
-
-    console.print(f"  • Shell3 Central Sag     : [green]{w_s3:.5f} mm[/green]")
-    console.print(f"  • Analytical Match       : [bold green]{abs(w_s3 / w_analytical) * 100:.2f}%[/bold green]")
-
-    # 3. Solving Shell6 (Reissner-Mindlin Quadratic) with ShellDomain & LinearStaticAnalysis
-    console.print("\n[bold yellow][3/4] Solving with Shell6 (6-Node Quadratic Shell)[/bold yellow]")
-    N_s6 = 8
-    mesh_s6 = build_plate_mesh_quadratic(L, N=N_s6)
-    elem_s6 = Shell6(material=material, thickness=t)
-    domain_s6 = ShellDomain(mesh=mesh_s6, material=material, element=elem_s6)
-
+    # Boundary conditions for Shell6
     nodes_s6 = mesh_s6.nodes
     bound_mask_s6 = (
         (np.abs(nodes_s6[:, 0] - (-L / 2)) < tol)
@@ -181,7 +185,6 @@ def main() -> None:
         | (np.abs(nodes_s6[:, 1] - (L / 2)) < tol)
     )
     bound_nodes_s6 = np.where(bound_mask_s6)[0]
-
     corner_mask_s6 = (
         (np.abs(nodes_s6[:, 0]) > L / 2 - tol) & (np.abs(nodes_s6[:, 1]) > L / 2 - tol)
     )
@@ -197,19 +200,28 @@ def main() -> None:
         for nid in conn:
             f_ext_s6[nid * 6 + 2] += (q_pressure * A_tri_s6) / 6.0
 
-    analysis_s6 = LinearStaticAnalysis(domain_s6)
-    res_s6 = analysis_s6.solve(dirichlet=dm_s6, f_ext=f_ext_s6, verbose=False)
+    console.print(f"  • Simply Supported Edges : Transverse deflection w = 0 on all 4 boundaries")
+    console.print(f"  • Corner Pinning         : In-plane u = v = 0 at 4 corners (eliminates rigid body modes)")
+    console.print(f"  • Transverse Pressure    : [green]{q_pressure:.3f} MPa[/green] uniform downward load")
+
+    # 5. Executing Simulation Solvers
+    console.print("\n[bold yellow][5/6] Executing Simulation Solvers[/bold yellow]")
+    res_s3 = LinearStaticAnalysis(domain_s3).solve(dirichlet=dm_s3, f_ext=f_ext_s3, verbose=False)
+    res_s6 = LinearStaticAnalysis(domain_s6).solve(dirichlet=dm_s6, f_ext=f_ext_s6, verbose=False)
+
+    center_idx_s3 = np.argmin(np.linalg.norm(nodes_s3, axis=1))
+    w_s3 = float(res_s3.displacement[center_idx_s3 * 6 + 2])
+    domain_s3.save_state(output_dir / "plate_shell3_deformed.vtu")
 
     center_idx_s6 = np.argmin(np.linalg.norm(nodes_s6, axis=1))
     w_s6 = float(res_s6.displacement[center_idx_s6 * 6 + 2])
     domain_s6.save_state(output_dir / "plate_shell6_deformed.vtu")
 
-    console.print(f"  • Shell6 Central Sag     : [green]{w_s6:.5f} mm[/green]")
-    console.print(f"  • Analytical Match       : [bold green]{abs(w_s6 / w_analytical) * 100:.2f}%[/bold green]")
-    console.print(f"\n  • Saved VTU Results to [dim]{output_dir}[/dim]")
+    console.print(f"  • Shell3 Central Sag     : [green]{w_s3:.5f} mm[/green] ([bold green]{abs(w_s3 / w_analytical) * 100:.2f}%[/bold green] of analytical)")
+    console.print(f"  • Shell6 Central Sag     : [green]{w_s6:.5f} mm[/green] ([bold green]{abs(w_s6 / w_analytical) * 100:.2f}%[/bold green] of analytical)")
 
-    # 4. Summary Table
-    console.print("\n[bold yellow][4/4] Bending Verification Summary[/bold yellow]")
+    # 6. Verifying Results & Post-Processing
+    console.print("\n[bold yellow][6/6] Verifying Results & Post-Processing[/bold yellow]")
     table = Table(title="Simply Supported Square Plate Bending Benchmark")
     table.add_column("Domain / Formulation", style="cyan")
     table.add_column("Order", style="magenta")

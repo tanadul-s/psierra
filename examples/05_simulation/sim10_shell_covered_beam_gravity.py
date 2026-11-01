@@ -33,7 +33,7 @@ def main() -> None:
     output_dir.mkdir(parents=True, exist_ok=True)
 
     # 1. Loading Base Volumetric Mesh
-    console.print("\n[bold yellow][1/5] Loading Mesh Geometry[/bold yellow]")
+    console.print("\n[bold yellow][1/6] Loading Mesh Geometry[/bold yellow]")
     mesh_path = Path("data/beam1/mesh/beam1.vtk")
     if not mesh_path.exists():
         raise FileNotFoundError(f"Beam mesh file not found: {mesh_path}")
@@ -58,8 +58,8 @@ def main() -> None:
         f"  • Beam Span / Dimensions : X: [-60, 60] mm, Y: [-60, 60] mm, Z: [-30, 200] mm (Length = 230 mm)"
     )
 
-    # 2. Material Definitions & Domains
-    console.print("\n[bold yellow][2/5] Configuring Constitutive Materials & Domains[/bold yellow]")
+    # 2. Material & Element Formulations
+    console.print("\n[bold yellow][2/6] Configuring Material & Element Formulation[/bold yellow]")
     # Soft parenchymal continuum core (representative of soft brain/organ tissue)
     E_solid = 0.050       # MPa (50 kPa soft tissue)
     nu_solid = 0.40       # Poisson's ratio
@@ -69,8 +69,6 @@ def main() -> None:
     params_solid.set_from_youngs_poisson(E_solid, nu_solid, rho_solid)
     mat_solid = Hookean(params_solid)
     elem_solid = Tet4(mat_solid)
-    domain_regular = SolidDomain(mesh=mesh, material=mat_solid, element=elem_solid)
-    domain_core = SolidDomain(mesh=mesh, material=mat_solid, element=elem_solid)
 
     # Stiff membrane/shell reinforcement (representative of dura mater / fibrous fascia)
     E_shell = 10.0        # MPa (200x stiffer than parenchymal core)
@@ -82,17 +80,22 @@ def main() -> None:
     params_shell.set_from_youngs_poisson(E_shell, nu_shell, rho_shell)
     mat_shell = Hookean(params_shell)
     elem_shell = Shell3(mat_shell, thickness=t_shell)
-    shell_domain = ShellDomain(mesh=surf, material=mat_shell, element=elem_shell)
-
-    # Instantiate the coupled solid-shell domain
-    coupled_domain = CoupledSolidShellDomain(solid_domain=domain_core, shell_domain=shell_domain)
 
     console.print(f"  • Soft Solid Core  : E = [green]{E_solid * 1e3:.1f} kPa[/green] | ν = {nu_solid:.2f} | ρ = {rho_solid * 1e12:.0f} kg/m³")
     console.print(f"  • Exterior Shell   : E = [green]{E_shell:.1f} MPa[/green] (200x stiffer) | t = [green]{t_shell:.2f} mm[/green] | ν = {nu_shell:.2f}")
+
+    # 3. Setting Up Physical Domains
+    console.print("\n[bold yellow][3/6] Setting Up Physical Continuum Domains[/bold yellow]")
+    domain_regular = SolidDomain(mesh=mesh, material=mat_solid, element=elem_solid)
+    domain_core = SolidDomain(mesh=mesh, material=mat_solid, element=elem_solid)
+    shell_domain = ShellDomain(mesh=surf, material=mat_shell, element=elem_shell)
+    coupled_domain = CoupledSolidShellDomain(solid_domain=domain_core, shell_domain=shell_domain)
+
+    console.print(f"  • Regular Domain   : [green]{domain_regular.n_dofs}[/green] DOFs (SolidDomain)")
     console.print(f"  • Coupled Domain   : [green]{coupled_domain.n_dofs}[/green] total DOFs ({domain_core.n_dofs} solid + {shell_domain.mesh.n_nodes * 3} shell rotations)")
 
-    # 3. Assemble Gravity Body Force Vector
-    console.print("\n[bold yellow][3/5] Setting Boundary Conditions & Gravity Load[/bold yellow]")
+    # 4. Assemble Gravity Body Force Vector & Boundary Conditions
+    console.print("\n[bold yellow][4/6] Applying Boundary Conditions & External Loads[/bold yellow]")
     g_acc = 9810.0  # mm/s^2 (Standard Earth gravity 9.81 m/s^2 directed along -Y)
     f_grav_solid = np.zeros(domain_regular.n_dofs, dtype=np.float64)
     elem_vols = mesh.volumes
@@ -113,27 +116,14 @@ def main() -> None:
     console.print(f"  • Clamped Root Face : [green]{len(root_nodes)}[/green] nodes constrained at Z = min")
     console.print(f"  • Monitored Tip Face: [green]{len(tip_nodes)}[/green] nodes at Z = max (Cantilever tip)")
 
-    # 4. Model A: Regular Soft Beam Solve via SolidDomain + LinearStaticAnalysis
-    console.print("\n[bold yellow][4/5] Solving Finite Element Models[/bold yellow]")
-    console.print("  [cyan]• Model A: Regular Soft Beam (SolidDomain + LinearStaticAnalysis)...[/cyan]")
+    # Dirichlet boundary managers
     dm_regular = DirichletManager(domain_regular.n_dofs)
     dm_regular.add_constraint(DirichletConstraint(root_nodes, components=(0, 1, 2), value=0.0))
 
-    analysis_regular = LinearStaticAnalysis(domain_regular)
-    res_regular = analysis_regular.solve(dirichlet=dm_regular, f_ext=f_grav_solid, verbose=False)
-
-    tip_def_regular = float(np.mean(res_regular.displacement[tip_nodes * 3 + 1]))
-    energy_regular = res_regular.strain_energy
-    console.print(f"    - Maximum Tip Sag (Uy): [bold red]{tip_def_regular:.3f} mm[/bold red]")
-
-    # 5. Model B: Shell-Covered Beam Solve via CoupledSolidShellDomain + LinearStaticAnalysis
-    console.print("  [cyan]• Model B: Shell-Covered Beam (CoupledSolidShellDomain + LinearStaticAnalysis)...[/cyan]")
     dm_coupled = DirichletManager(coupled_domain.n_dofs)
-    # Clamp root translations for solid continuum
     dm_coupled.add_constraint(
         DirichletConstraint(root_nodes, components=(0, 1, 2), value=0.0, dofs_per_node=3)
     )
-    # Clamp root rotations for outer shell layer
     surf_root_mask = np.isin(surf.node_indices, root_nodes)
     surf_root_indices = np.where(surf_root_mask)[0]
     rot_dofs = [
@@ -141,10 +131,20 @@ def main() -> None:
     ]
     dm_coupled.prescribe_dofs(rot_dofs, value=0.0)
 
-    # Coupled external gravity load (applied to volumetric core)
     f_grav_coupled = np.zeros(coupled_domain.n_dofs, dtype=np.float64)
     f_grav_coupled[: domain_core.n_dofs] = f_grav_solid
 
+    # 5. Executing Solvers
+    console.print("\n[bold yellow][5/6] Executing Simulation Solvers[/bold yellow]")
+    console.print("  [cyan]• Model A: Regular Soft Beam (SolidDomain + LinearStaticAnalysis)...[/cyan]")
+    analysis_regular = LinearStaticAnalysis(domain_regular)
+    res_regular = analysis_regular.solve(dirichlet=dm_regular, f_ext=f_grav_solid, verbose=False)
+
+    tip_def_regular = float(np.mean(res_regular.displacement[tip_nodes * 3 + 1]))
+    energy_regular = res_regular.strain_energy
+    console.print(f"    - Maximum Tip Sag (Uy): [bold red]{tip_def_regular:.3f} mm[/bold red]")
+
+    console.print("  [cyan]• Model B: Shell-Covered Beam (CoupledSolidShellDomain + LinearStaticAnalysis)...[/cyan]")
     analysis_coupled = LinearStaticAnalysis(coupled_domain)
     res_coupled = analysis_coupled.solve(dirichlet=dm_coupled, f_ext=f_grav_coupled, verbose=False)
 
@@ -158,8 +158,8 @@ def main() -> None:
         f"({(1.0 - abs(tip_def_coupled / tip_def_regular)) * 100:.1f}% less sag)"
     )
 
-    # 6. Save Deformed Visualization Results
-    console.print("\n[bold yellow][5/5] Exporting Deformed Visualization Meshes[/bold yellow]")
+    # 6. Save Deformed Visualization Results & Summary
+    console.print("\n[bold yellow][6/6] Verifying Results & Post-Processing[/bold yellow]")
     domain_regular.save_state(output_dir / "beam_regular_deformed.vtu")
     coupled_domain.save_solid_state(output_dir / "beam_shell_covered_deformed.vtu")
     coupled_domain.save_shell_state(output_dir / "beam_outer_shell_deformed.vtu")
