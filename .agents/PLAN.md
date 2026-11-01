@@ -58,15 +58,20 @@ This document outlines the strategic milestones, component delivery roadmap, and
   - Exact analytical consistent mass matrix integration.
   - Total Lagrangian formulation with consistent tangent stiffness matrix ($k_{tan}$ matches finite difference to $< 10^{-9}$).
   - Full suite of 13 unit tests in `tests/test_element_tet10.py` and cantilever shear locking alleviation benchmark ($1.87\times$ flexibility over Tet4) in `tests/test_analysis_linear.py`.
-- [ ] **Triangular Structural Shell Elements (`Shell3` / `Shell6`) (Target: Next Step / After TL/UL)**:
+- [x] **Triangular Structural Shell Elements (`Shell3` / `Shell6`)**:
   - 3-node linear (`Shell3`) and 6-node quadratic (`Shell6`) triangular shell elements matching surface boundary faces of solid tetrahedral meshes (`Tet4`, `Tet10`).
   - `Shell6` provides 100% conforming quadratic interface with `Tet10` solid volume without geometric gap or faceting error.
   - Formulations:
-    - Discrete Kirchhoff Triangle (`DKT`): thin membranes (dura mater, falx cerebri, tentorium, arterial walls).
-    - Mixed Interpolation of Tensorial Components (`MITC`): moderately thick cranial calvarium (skull boundary) and articular cartilage where through-thickness transverse shear deformation is active.
+    - Discrete Kirchhoff Triangle (`DKT`): thin membranes (dura mater, falx cerebri, tentorium, arterial walls) implemented in `Shell3` with CST membrane and Hughes-Brezzi drilling stabilization.
+    - Reissner-Mindlin with Hughes-Brezzi drilling penalty: moderately thick structures (cranial skull/calvarium, cartilage) implemented in `Shell6` with LST quadratic membrane.
   - 6 DOFs per node ($u_x, u_y, u_z, \theta_x, \theta_y, \theta_z$) with drilling rotation stabilization for seamless 3D node-sharing coupling with solid continua (`Tet4`, `Tet10`).
-  - Essential for anatomical thin-walled structures and cranial confinement in brain shift simulation.
-  - Linear membrane-bending coupling, analytical thickness integration, and co-rotational / Total Lagrangian large-deflection formulations.
+  - Full suite of 14 tests in `tests/test_element_shell3.py` and `tests/test_element_shell6.py`:
+    - Exact stiffness matrix symmetry $K = K^T$.
+    - Exact 6 zero rigid-body modes ($< 10^{-8}$) and spectral gap ($> 10^8$) in arbitrary 3D space.
+    - Pure translation and infinitesimal rotation invariance ($u^T K u \approx 0$).
+    - $C^0$ interface conformity test between `Tet10` solid face and `Shell6` to machine precision ($10^{-14}$).
+    - Analytical Euler-Bernoulli cantilever plate bending benchmarks: `Shell3` captures $>93\%$ flexibility on 2 elements; `Shell6` demonstrates monotonic convergence ($75.5\% \to 94.2\% \to 99.0\%$).
+    - Mass conservation and positive definiteness of consistent mass matrices.
 - [ ] Kinematic formulations:
   - Total Lagrangian (TL) with Green-Lagrange strain $E$ and 2nd Piola-Kirchhoff stress $S$.
   - Updated Lagrangian (UL) with Almansi strain and Cauchy stress.
