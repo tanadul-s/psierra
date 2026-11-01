@@ -161,14 +161,12 @@ def main() -> None:
     # 6. Save Deformed Visualization Results & Summary
     console.print("\n[bold yellow][6/6] Verifying Results & Post-Processing[/bold yellow]")
     domain_regular.save_state(output_dir / "beam_regular_deformed.vtu")
-    coupled_domain.save_solid_state(output_dir / "beam_shell_covered_deformed.vtu")
-    coupled_domain.save_shell_state(output_dir / "beam_outer_shell_deformed.vtu")
-    coupled_domain.save_pvd(output_dir / "beam_shell_covered.pvd")
+    coupled_domain.save_state(output_dir / "beam_shell_covered.vtu")
 
     console.print(f"  • Saved [green]beam_regular_deformed.vtu[/green]")
-    console.print(f"  • Saved [green]beam_shell_covered_deformed.vtu[/green]")
-    console.print(f"  • Saved [green]beam_outer_shell_deformed.vtu[/green]")
-    console.print(f"  • Saved [green]beam_shell_covered.pvd[/green] (ParaView multi-domain collection)")
+    console.print(
+        f"  • Saved [green]beam_shell_covered.vtu[/green] (Unified coupled mesh: threshold 'Domain ID' in ParaView [0=Solid, 1=Shell])"
+    )
 
     # 7. Comparison Summary Table
     table = Table(title="Gravity-Induced Cantilever Bending: Regular vs Shell-Covered Beam")
