@@ -71,3 +71,66 @@ def get_tetrahedral_quadrature(points: int = 4) -> tuple[np.ndarray, np.ndarray]
         f"Unsupported tetrahedral quadrature points: {points}. Supported: 1, 4, 5."
     )
 
+
+def get_triangle_quadrature(points: int = 3) -> tuple[np.ndarray, np.ndarray]:
+    """
+    Returns symmetric numerical quadrature points and integration weights
+    for the master reference triangle:
+        Omega_ref = {(xi, eta) : xi >= 0, eta >= 0, xi + eta <= 1}
+    whose reference area is A_ref = 1/2:
+        int_{Omega_ref} f(xi, eta) dA_xi = sum_{q=1}^{N_qp} w_q * f(xi_q, eta_q)
+    such that sum_{q=1}^{N_qp} w_q = 1/2.
+
+    Parameters:
+    -----------
+    points : int, default=3
+        Number of quadrature integration points. Supported options:
+        - 1: 1-point centroid rule (degree 1 algebraic precision)
+        - 3: 3-point Hammer / Dunavant rule (degree 2 algebraic precision, exact for quadratic terms)
+        - 4: 4-point Hammer rule (degree 3 algebraic precision, exact for cubics)
+
+    Returns:
+    --------
+    qp : np.ndarray of shape (points, 2)
+        Quadrature point natural coordinates (xi, eta).
+    qw : np.ndarray of shape (points,)
+        Quadrature weights summing to 1/2.
+    """
+    if points == 1:
+        qp = np.array([[1.0 / 3.0, 1.0 / 3.0]], dtype=np.float64)
+        qw = np.array([0.5], dtype=np.float64)
+        return qp, qw
+
+    if points == 3:
+        # Standard symmetric 3-point rule (Degree 2 exact)
+        qp = np.array(
+            [
+                [1.0 / 6.0, 1.0 / 6.0],
+                [2.0 / 3.0, 1.0 / 6.0],
+                [1.0 / 6.0, 2.0 / 3.0],
+            ],
+            dtype=np.float64,
+        )
+        qw = np.array([1.0 / 6.0, 1.0 / 6.0, 1.0 / 6.0], dtype=np.float64)
+        return qp, qw
+
+    if points == 4:
+        # 4-point rule (Degree 3 exact)
+        qp = np.array(
+            [
+                [1.0 / 3.0, 1.0 / 3.0],
+                [0.2, 0.2],
+                [0.6, 0.2],
+                [0.2, 0.6],
+            ],
+            dtype=np.float64,
+        )
+        qw = np.array(
+            [-27.0 / 96.0, 25.0 / 96.0, 25.0 / 96.0, 25.0 / 96.0],
+            dtype=np.float64,
+        )
+        return qp, qw
+
+    raise ValueError(
+        f"Unsupported triangular quadrature points: {points}. Supported: 1, 3, 4."
+    )

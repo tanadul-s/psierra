@@ -1,6 +1,19 @@
 from psierra.element.base import Element
 from psierra.element.tet4 import Tet4
 from psierra.element.tet10 import Tet10
-from psierra.element.quadrature import get_tetrahedral_quadrature
+from psierra.element.shell3 import Shell3
+from psierra.element.shell6 import Shell6
+from psierra.element.quadrature import (
+    get_tetrahedral_quadrature,
+    get_triangle_quadrature,
+)
 
-__all__ = ["Element", "Tet4", "Tet10", "get_tetrahedral_quadrature"]
+__all__ = [
+    "Element",
+    "Tet4",
+    "Tet10",
+    "Shell3",
+    "Shell6",
+    "get_tetrahedral_quadrature",
+    "get_triangle_quadrature",
+]
