@@ -146,7 +146,7 @@ def main() -> None:
 
     output_dir = Path("examples/05_simulation/sim12_output")
     output_dir.mkdir(parents=True, exist_ok=True)
-    output_path = output_dir / "output.vtu"
+    output_path = output_dir / "result.vtu"
     domain.save_state(filepath=output_path, include_stresses=True, smooth_to_nodes=True)
     console.print(
         f"[bold green]✓ Output successfully exported to:[/bold green] [cyan]{output_path}[/cyan]\n"

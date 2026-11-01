@@ -246,7 +246,7 @@ All simulation examples are located in [`psierra/examples/05_simulation/`](../ex
 All simulation outputs can be visualized and animated directly in [ParaView](https://www.paraview.org/):
 
 1. **Static Solid & Shell Analyses (`sim01`, `sim02`, `sim04`, `sim06`, `sim08`, `sim09`, `sim11`)**:
-   - File $\to$ Open $\to$ `examples/05_simulation/simXX_output/output.vtu`.
+   - File $\to$ Open $\to$ `examples/05_simulation/simXX_output/result.vtu`.
    - Click **Apply**.
    - Under **Coloring**, choose `Displacement`, `Displacement Y`, or `Displacement Magnitude`.
    - Coordinates in `.vtu` exports are automatically deformed ($x = X + u$), rendering the physical deflected state immediately.
