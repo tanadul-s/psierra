@@ -157,21 +157,25 @@ def test_domain_to_pyvista_and_save_state(tmp_path: Path, beam_vtk_path: Path) -
     grid_warped = solid_domain.to_pyvista(factor=1.0)
     assert np.allclose(grid_warped.points[:, 1], vmesh.nodes[:, 1] - 5.0)
     assert "Displacement" in grid_warped.point_data
-    assert "Displacement X" in grid_warped.point_data
-    assert "Displacement Y" in grid_warped.point_data
-    assert "Displacement Z" in grid_warped.point_data
-    assert "Displacement Magnitude" in grid_warped.point_data
-    assert np.allclose(grid_warped.point_data["Displacement Y"], -5.0)
+    assert np.allclose(grid_warped.point_data["Displacement"][:, 1], -5.0)
 
     grid_unwarped = solid_domain.to_pyvista(factor=0.0)
     assert np.allclose(grid_unwarped.points, vmesh.nodes)
 
-    # Test SolidDomain save_state
+    # Test SolidDomain save_state (defaults to factor=0.0: reference initial geometry with displacement field)
     solid_file = tmp_path / "solid_deformed.vtu"
     solid_domain.save_state(solid_file)
     assert solid_file.exists()
     read_grid = pv.read(str(solid_file))
-    assert np.allclose(read_grid.points[:, 1], vmesh.nodes[:, 1] - 5.0)
+    assert np.allclose(read_grid.points, vmesh.nodes)
+    assert np.allclose(read_grid.point_data["Displacement"][:, 1], -5.0)
+    warped_from_vtu = read_grid.warp_by_vector("Displacement")
+    assert np.allclose(warped_from_vtu.points[:, 1], vmesh.nodes[:, 1] - 5.0)
+
+    # Test explicit factor=1.0 saving
+    solid_file_warped = tmp_path / "solid_prewarped.vtu"
+    solid_domain.save_state(solid_file_warped, factor=1.0)
+    assert np.allclose(pv.read(str(solid_file_warped)).points[:, 1], vmesh.nodes[:, 1] - 5.0)
 
     # Test ShellDomain to_pyvista & save_state
     params_shell = IsotropicElasticParameters()
@@ -187,19 +191,46 @@ def test_domain_to_pyvista_and_save_state(tmp_path: Path, beam_vtk_path: Path) -
     shell_warped = shell_domain.to_pyvista(factor=1.0)
     assert isinstance(shell_warped, pv.UnstructuredGrid)
     assert np.allclose(shell_warped.points[:, 1], smesh.nodes[:, 1] - 3.0)
-    assert "Displacement Y" in shell_warped.point_data
-    assert "Displacement Magnitude" in shell_warped.point_data
+    assert "Displacement" in shell_warped.point_data
     assert "Rotation" in shell_warped.point_data
+    assert np.allclose(shell_warped.point_data["Displacement"][:, 1], -3.0)
 
-    # ShellDomain must save as .vtu (no .vtp)
+    # ShellDomain must save as .vtu (no .vtp), defaults to factor=0.0
     shell_file = tmp_path / "shell_deformed.vtu"
     shell_domain.save_state(shell_file)
     assert shell_file.exists()
     read_shell = pv.read(str(shell_file))
-    assert np.allclose(read_shell.points[:, 1], smesh.nodes[:, 1] - 3.0)
+    assert np.allclose(read_shell.points, smesh.nodes)
+    assert np.allclose(read_shell.point_data["Displacement"][:, 1], -3.0)
+    shell_warped_from_vtu = read_shell.warp_by_vector("Displacement")
+    assert np.allclose(shell_warped_from_vtu.points[:, 1], smesh.nodes[:, 1] - 3.0)
 
-    # Test CoupledSolidShellDomain save_solid_state, save_shell_state, and save_pvd
+    # Test CoupledSolidShellDomain unified save_state (domain labeling for ParaView threshold)
     coupled_domain = CoupledSolidShellDomain(solid_domain, shell_domain)
+    coupled_unified_file = tmp_path / "coupled_unified.vtu"
+    coupled_domain.save_state(coupled_unified_file)
+    assert coupled_unified_file.exists()
+
+    read_unified = pv.read(str(coupled_unified_file))
+    assert read_unified.n_cells == vmesh.n_elements + smesh.n_elements
+    assert "Domain ID" in read_unified.cell_data
+    assert "Domain Name" in read_unified.cell_data
+    assert "Displacement" in read_unified.point_data
+    assert "Rotation" in read_unified.point_data
+
+    # Test thresholding in ParaView workflow
+    solid_thresh = read_unified.threshold((0, 0), scalars="Domain ID")
+    shell_thresh = read_unified.threshold((1, 1), scalars="Domain ID")
+    assert solid_thresh.n_cells == vmesh.n_elements
+    assert shell_thresh.n_cells == smesh.n_elements
+
+    # Test Coupled internal force and tangent stiffness assemblies
+    f_int_coupled = coupled_domain.assemble_internal_force_vector()
+    K_tan_coupled = coupled_domain.assemble_tangent_stiffness_matrix()
+    assert f_int_coupled.shape == (coupled_domain.n_dofs,)
+    assert K_tan_coupled.shape == (coupled_domain.n_dofs, coupled_domain.n_dofs)
+
+    # Test legacy CoupledSolidShellDomain save_solid_state, save_shell_state, and save_pvd
     coupled_solid_file = tmp_path / "coupled_solid.vtu"
     coupled_shell_file = tmp_path / "coupled_shell.vtu"
     coupled_pvd_file = tmp_path / "coupled.pvd"
