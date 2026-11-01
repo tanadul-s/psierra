@@ -1,4 +1,4 @@
-# 02. Finite Element Formulations: Linear & Total Lagrangian `Tet4`
+# 02. Solid Continua I: Linear Tetrahedral Elements (`Tet4`)
 
 This document details the isoparametric formulation, shape function gradients, element matrix derivations, and **physical meaning** of the 4-node tetrahedral solid element (`Tet4`) implemented in `pSierra`.
 
@@ -193,3 +193,9 @@ $$\boldsymbol{f}_{int} = \int_{\Omega_e} \boldsymbol{B}^T \boldsymbol{S}_{voigt}
 - **K.J. Bathe**, *Finite Element Procedures*, Chapter 5: Inelastic and Large Deformation Analysis.
 - **T. Belytschko et al.**, *Nonlinear Finite Elements for Continua and Structures*, Chapter 4: Continuum Elements.
 - **O.C. Zienkiewicz et al.**, *The Finite Element Method*, Chapter 6: Tetrahedral Elements.
+
+---
+
+### Next Step in the Pedagogical Path
+While `Tet4` provides the foundational building block for 3D continua, its constant-strain nature causes severe **artificial shear locking** under bending and **volumetric locking** in incompressible tissues. 
+- Proceed to **[03. Solid Continua II: Higher-Order Elements & Quadrature (`Tet10`)](03_solid_continua_quadratic_tet10_and_quadrature.md)** to explore quadratic serendipity shape functions, simplex numerical cubature, and locking alleviation.

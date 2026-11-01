@@ -1,4 +1,4 @@
-# 04. Structural Analysis Solvers & Computational Pipelines
+# 06. Structural Analysis Solvers & Computational Pipelines
 
 This document details the numerical algorithms, time integration schemes, equilibrium solvers, and their **underlying physical meanings** implemented in `pSierra`:
 1. **Linear Static Analysis** (Direct Sparse Factorization)
@@ -201,3 +201,9 @@ Opening `output.pvd` in ParaView provides an interactive animation time slider a
 - **N.M. Newmark**, *A Method of Computation for Structural Dynamics*, Journal of the Engineering Mechanics Division, ASCE, 85:67-94, 1959.
 - **K.J. Bathe**, *Finite Element Procedures*, Chapter 9: Dynamic Analysis and Time Integration.
 - **T. Belytschko et al.**, *Nonlinear Finite Elements for Continua and Structures*, Chapter 6: Nonlinear Dynamic Solutions.
+
+---
+
+### Next Step in the Pedagogical Path: The Grand Synthesis
+Now that the entire simulation pipeline is complete—from constitutive continuum laws and spatial element discretizations to monolithic multi-domain coupling and sparse numerical solvers—we put everything to the test across canonical benchmarks and biomechanical case studies!
+- Proceed to **[07. Simulation Tutorials, Analytical Verification & Benchmarks](07_simulation_tutorials_and_verification.md)**.

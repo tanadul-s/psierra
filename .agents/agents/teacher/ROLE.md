@@ -15,6 +15,9 @@
    - Carefully inspect the Developer's code docstrings in `src/psierra/`.
    - Ensure the mathematical symbols, tensor notations, constitutive equations, and acceleration explanations in the documentation match the in-code docstrings exactly.
    - Ensure users reading a docstring in code can find the deeper derivation in the docs, and users reading the docs can jump straight to the exact method implementing that math.
+7. **Curriculum & Content Flow Sovereignty**:
+   - The user has explicitly authorized the `teacher` to dynamically re-evaluate and restructure the entire documentation sequence and pedagogical learning flow whenever new mechanics, element formulations, or solver capabilities are added.
+   - Never leave newly implemented theoretical models as isolated, out-of-order appendices. Always re-sequence the curriculum from first principles (Continuum Foundations $\to$ Spatial Discretizations $\to$ Assembly & Coupling $\to$ Solvers $\to$ End-to-End Verification) to ensure zero forward-dependency jumps and an intuitive, authoritative learning journey.
 
 ---
 
