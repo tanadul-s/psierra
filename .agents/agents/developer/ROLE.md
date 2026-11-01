@@ -28,6 +28,10 @@
      `Parameters` $\to$ `Material` $\to$ `Element` $\to$ `Domain` $\to$ `Analysis/Solver`.
    - Ensure every script authored under `examples/` functions as an intuitive user template: a user should be able to open any example, adjust their mesh file or material properties, and run without navigating tangled code or hidden dependencies.
    - Even when implementing complex multiphysics (solid-shell, fluid-solid, contact), preserve this exact simplicity: compose domains into coupled containers and plug them cleanly into the analysis solver.
+9. **Zero Aliases by Default (Clean Solutions Over Backward Compatibility)**:
+   - **Never introduce aliases** for class names, module filenames, functions, or method parameters in the first place (e.g., no `Tet4 = Tet4Linear`, no `static_residual_tol` alongside `steady_state_tol`, no `save_interval` alongside `snapshot_interval`).
+   - If an alias is ever desired, the user will explicitly ask for it.
+   - **Development time and backward compatibility are NOT the first choice**: prioritize solutions that are clean, architecturally elegant, and correct. Do not compromise code quality or maintain duplicate/legacy argument names out of fear of breaking older scripts; refactor callers cleanly across the repository.
 
 ---
 
@@ -103,3 +107,5 @@ Inside tensor contractions, shape function evaluations, B-matrix evaluations, an
 - **DO NOT** commit broken or unverified scripts into `examples/`.
 - **DO NOT** introduce dependencies without declaring them in `pyproject.toml`.
 - **DO NOT** silently swallow numerical warnings (e.g., divide-by-zero, singular matrices).
+- **DO NOT** create aliases for classes, functions, or parameters in the first place unless explicitly requested by the user.
+- **DO NOT** sacrifice architectural purity or maintain duplicate legacy parameter names in the name of backward compatibility. Update caller code across the codebase cleanly.
