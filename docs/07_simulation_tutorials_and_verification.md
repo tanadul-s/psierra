@@ -181,6 +181,24 @@ All simulation examples are located in [`psierra/examples/05_simulation/`](../ex
 
 ---
 
+### 2.11 Simulation 11: Corotational vs Linear Self-Weight Gravity Bending
+- **Script**: [`sim11_corotational_cantilever_large_rotation.py`](../examples/05_simulation/sim11_corotational_cantilever_large_rotation.py)
+- **Physics**: Soft tissue cantilever beam ($230 \text{ mm}$ span) undergoing large self-weight gravity sag ($g = -9.81 \text{ m/s}^2$ downward along $-Y$), demonstrating the elimination of artificial volume expansion and the capture of curvature-induced axial shortening via `CorotationalTet4`.
+- **Constitutive Properties**: Soft parenchymal organ tissue ($E = 150.0 \text{ kPa}$, $\nu = 0.35$, $\rho = 1100 \text{ kg/m}^3$, total weight $10.057 \text{ N}$).
+- **Models Compared**:
+  - Model A (Linear Hookean): `Tet4` with `LinearStaticAnalysis` (small-strain assumption).
+  - Model B (Corotational Hookean): `CorotationalTet4` with `NonlinearStaticAnalysis` (polar decomposition rigid rotation tracking).
+
+**Verification Results & Physical Meaning**:
+- **Transverse Tip Sag ($U_y$)**: $-55.49 \text{ mm}$ (Linear) vs $-53.09 \text{ mm}$ (Corotational).
+- **Axial Tip Shortening ($U_z$)**:
+  - Linear Static: **$-0.028 \text{ mm}$** (no shortening; tip-to-root chord length expands artificially to $236.57 \text{ mm}$, producing $+6.57 \text{ mm}$ unphysical elongation!).
+  - Corotational: **$-7.30 \text{ mm}$** (tip curls inward/backward, preserving the true inextensible $228.94 \text{ mm}$ chord length and constant volume).
+- **Newton-Raphson Convergence**: 10/10 load steps converged in an average of 3 iterations per step with zero element inversion.
+- **Physical Meaning**: Demonstrates that `CorotationalTet4` provides robust large-rotation non-linear capability at near-linear computational cost without the risk of numerical instability.
+
+---
+
 ## 3. Summary Comparison Table
 
 | Simulation | Formulation | Element Type | Load Condition | Max Disp ($u_{max}$) | Convergence / Physical Observation |
@@ -195,6 +213,7 @@ All simulation examples are located in [`psierra/examples/05_simulation/`](../ex
 | **`sim08`** | Linear Static | `Tet4` vs `Tet10` | Tip Shear Load ($-1000 \text{ N}$) | $0.088 \text{ mm}$ (`Tet10`) | $1.87\times$ flexibility recovery over `Tet4`; shear locking alleviated |
 | **`sim09`** | Linear Static | `Shell3` vs `Shell6` | Uniform Pressure ($-10 \text{ kPa}$) | $-6.299 \text{ mm}$ (`Shell3`) | $99.40\%$ match to Navier analytical series (Kirchhoff plate) |
 | **`sim10`** | Linear Static | `CoupledSolidShellDomain` | Self-Weight Gravity ($-1.0g$) | $-24.25 \text{ mm}$ (Coupled) | $5.93\times$ sag reduction ($83.1\%$ less sag) via $0.5\text{ mm}$ stiff membrane |
+| **`sim11`** | Non-linear Static | `CorotationalTet4` | Self-Weight Gravity ($-1.0g$) | $55.49 \text{ mm}$ | True arc-length preservation; axial tip curl ($U_z = -7.30 \text{ mm}$) |
 
 ---
 
@@ -202,7 +221,7 @@ All simulation examples are located in [`psierra/examples/05_simulation/`](../ex
 
 All simulation outputs can be visualized and animated directly in [ParaView](https://www.paraview.org/):
 
-1. **Static Solid & Shell Analyses (`sim01`, `sim02`, `sim04`, `sim06`, `sim08`, `sim09`)**:
+1. **Static Solid & Shell Analyses (`sim01`, `sim02`, `sim04`, `sim06`, `sim08`, `sim09`, `sim11`)**:
    - File $\to$ Open $\to$ `examples/05_simulation/simXX_output/output.vtu`.
    - Click **Apply**.
    - Under **Coloring**, choose `Displacement`, `Displacement Y`, or `Displacement Magnitude`.

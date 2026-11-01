@@ -173,7 +173,48 @@ $$\boldsymbol{f}_{int} = \int_{\Omega_e} \boldsymbol{B}^T \boldsymbol{S}_{voigt}
 
 ---
 
-## 6. Code Implementation Map
+## 6. The Corotational Formulation (`CorotationalTet4`)
+
+While the **Total Lagrangian** formulation integrates non-linear Green-Lagrange strains $\boldsymbol{E}$ and Second Piola-Kirchhoff stresses $\boldsymbol{S}$, `pSierra` also provides an alternative, high-performance kinematic engine for geometric non-linearities: **The Corotational (CR) Formulation** implemented in [`CorotationalTet4`](../src/psierra/element/corotational_tet4.py).
+
+```mermaid
+flowchart LR
+    X["Reference Geometry X"] -->|Finite Rigid Rotation R| p["Unrotated Local Frame p"]
+    p -->|Small Strain Hookean K0| fl["Local Elastic Force f_l = K_0 u_l"]
+    fl -->|Rotate to Global Frame R| fint["Global Force f_int = R f_l"]
+```
+
+### 6.1 Physical Motivation: Elimination of Artificial Volume Ballooning
+In classical infinitesimal linear elasticity ($\boldsymbol{K}_0 \boldsymbol{u} = \boldsymbol{f}$), rotations are approximated as $\boldsymbol{\varepsilon} = \frac{1}{2}(\nabla \boldsymbol{u} + \nabla \boldsymbol{u}^T)$. When an element undergoes a finite rigid-body rotation $\theta$, linear elasticity evaluates a spurious, non-zero strain:
+$$\varepsilon_{xx} = \cos\theta - 1 \ne 0$$
+This causes rotating linear elements to artificially expand and "balloon" in volume, generating massive unphysical restoring forces (hundreds of Newtons for a simple rotation!).
+
+The corotational formulation resolves this by **decoupling rigid-body rotation from purely deformational distortion**:
+1. **Constant Deformation Gradient**: Because displacement in `Tet4` is linear, $\boldsymbol{F} = \boldsymbol{x}^T \boldsymbol{H} \in \mathbb{R}^{3 \times 3}$ is strictly constant across the entire tetrahedron.
+2. **Polar Decomposition via SVD**: We decompose $\boldsymbol{F}$ into a pure rotation $\boldsymbol{R} \in \mathrm{SO}(3)$ and right stretch $\boldsymbol{U}$:
+   $$\boldsymbol{F} = \boldsymbol{R} \boldsymbol{U}, \quad \text{where } \boldsymbol{F} = \boldsymbol{W} \boldsymbol{\Sigma} \boldsymbol{V}^T \implies \boldsymbol{R} = \boldsymbol{W} \boldsymbol{V}^T$$
+3. **Local Deformational Displacements**: We rotate the deformed vertices back into the element's local frame:
+   $$\boldsymbol{p}_i = \boldsymbol{R}^T \boldsymbol{x}_i \implies \boldsymbol{u}_{l, i} = \boldsymbol{p}_i - \boldsymbol{X}_i$$
+   Under a pure rigid-body rotation ($\boldsymbol{x}_i = \boldsymbol{R} \boldsymbol{X}_i$), $\boldsymbol{p}_i = \boldsymbol{X}_i$, yielding identically **zero local displacement** ($\boldsymbol{u}_l = \boldsymbol{0}$) and **zero artificial force**!
+4. **Local and Global Force Assembly**:
+   $$\boldsymbol{f}_l = \boldsymbol{K}_0 \boldsymbol{u}_l \in \mathbb{R}^{12}, \quad \boldsymbol{f}_{int} = \boldsymbol{\mathcal{R}} \boldsymbol{f}_l \in \mathbb{R}^{12}$$
+   where $\boldsymbol{\mathcal{R}} = \operatorname{diag}(\boldsymbol{R}, \boldsymbol{R}, \boldsymbol{R}, \boldsymbol{R}) \in \mathbb{R}^{12 \times 12}$.
+5. **Warped Tangent Stiffness Matrix**:
+   $$\boldsymbol{K}_{tan} = \boldsymbol{\mathcal{R}} \boldsymbol{K}_0 \boldsymbol{\mathcal{R}}^T \in \mathbb{R}^{12 \times 12}$$
+   Because $\boldsymbol{\mathcal{R}}$ is an orthonormal coordinate transformation, $\boldsymbol{K}_{tan}$ is **unconditionally symmetric and positive semi-definite**, guaranteeing robust, descent-stable convergence in Newton-Raphson solvers.
+
+### 6.2 Comparison: Linear vs. Corotational vs. Total Lagrangian
+
+| Feature | Linear Hookean (`Tet4`) | Corotational Hookean (`CorotationalTet4`) | Total Lagrangian (`Tet4` + `NeoHookean`) |
+|---|---|---|---|
+| **Rigid Rotation Invariance** | ❌ Fails (artificial dilation) | ✅ **Exact machine zero** ($< 10^{-11}$ N) | ✅ Exact machine zero |
+| **Local Strains Handled** | Infinitesimal ($< 5\%$) | Moderate ($\le 15\%$) | Arbitrary Large Strains ($> 100\%$) |
+| **Computational Speed** | Single linear solve | Very fast (reuses reference $\boldsymbol{K}_0$) | Tensor quadrature per iteration |
+| **Inversion Vulnerability** | None | Line search handles $\det(\boldsymbol{F}) \le 0$ | Highly sensitive to negative $\det(\boldsymbol{F})$ |
+
+---
+
+## 7. Code Implementation Map
 
 | Mathematical Quantity | Formula | Source File | Method |
 |---|---|---|---|
@@ -183,13 +224,18 @@ $$\boldsymbol{f}_{int} = \int_{\Omega_e} \boldsymbol{B}^T \boldsymbol{S}_{voigt}
 | Geometric Matrix $\boldsymbol{G}$ | $\boldsymbol{G} \in \mathbb{R}^{9 \times 12}$ | [`tet4.py`](../src/psierra/element/tet4.py) | `Tet4.compute_geometric_matrix()` |
 | Linear Stiffness $\boldsymbol{k}_e$ | $(\boldsymbol{B}_L^T \boldsymbol{C} \boldsymbol{B}_L) V_e$ | [`tet4.py`](../src/psierra/element/tet4.py) | `Tet4.compute_linear_stiffness_matrix()` |
 | Consistent Mass $\boldsymbol{m}_e$ | $\frac{\rho V_e}{20} [\dots]$ | [`tet4.py`](../src/psierra/element/tet4.py) | `Tet4.compute_mass_matrix()` |
-| Tangent Stiffness $\boldsymbol{k}_{tan}$ | $\boldsymbol{k}_{mat} + \boldsymbol{k}_{geo}$ | [`tet4.py`](../src/psierra/element/tet4.py) | `Tet4.compute_nonlinear_force_and_tangent_stiffness()` |
-| Internal Force $\boldsymbol{f}_{int}$ | $(\boldsymbol{B}^T \boldsymbol{S}_{voigt}) V_e$ | [`tet4.py`](../src/psierra/element/tet4.py) | `Tet4.compute_nonlinear_force_and_tangent_stiffness()` |
+| TL Tangent Stiffness $\boldsymbol{k}_{tan}$ | $\boldsymbol{k}_{mat} + \boldsymbol{k}_{geo}$ | [`tet4.py`](../src/psierra/element/tet4.py) | `Tet4.compute_nonlinear_force_and_tangent_stiffness()` |
+| TL Internal Force $\boldsymbol{f}_{int}$ | $(\boldsymbol{B}^T \boldsymbol{S}_{voigt}) V_e$ | [`tet4.py`](../src/psierra/element/tet4.py) | `Tet4.compute_nonlinear_force_and_tangent_stiffness()` |
+| Polar Decomposition | $\boldsymbol{F} = \boldsymbol{R} \boldsymbol{U}$ | [`corotational_tet4.py`](../src/psierra/element/corotational_tet4.py) | `CorotationalTet4.compute_polar_decomposition()` |
+| Corotational $\boldsymbol{f}_{int}, \boldsymbol{K}_{tan}$ | $\boldsymbol{\mathcal{R}} \boldsymbol{K}_0 \boldsymbol{u}_l, \boldsymbol{\mathcal{R}} \boldsymbol{K}_0 \boldsymbol{\mathcal{R}}^T$ | [`corotational_tet4.py`](../src/psierra/element/corotational_tet4.py) | `CorotationalTet4.compute_nonlinear_force_and_tangent_stiffness()` |
+| Corotational Cauchy Stress | $\boldsymbol{\sigma} = \boldsymbol{R} \boldsymbol{\sigma}_l \boldsymbol{R}^T$ | [`corotational_tet4.py`](../src/psierra/element/corotational_tet4.py) | `CorotationalTet4.compute_corotational_stress()` |
 
 ---
 
-## 7. References & Further Reading
+## 8. References & Further Reading
 
+- **C.A. Felippa**, *A Systematic Approach to the Element-Independent Corotational Formulation*, Computer Methods in Applied Mechanics and Engineering, 2000.
+- **M. Müller et al.**, *Point Based Animation of Deformable Objects*, Eurographics/ACM SIGGRAPH, 2004.
 - **K.J. Bathe**, *Finite Element Procedures*, Chapter 5: Inelastic and Large Deformation Analysis.
 - **T. Belytschko et al.**, *Nonlinear Finite Elements for Continua and Structures*, Chapter 4: Continuum Elements.
 - **O.C. Zienkiewicz et al.**, *The Finite Element Method*, Chapter 6: Tetrahedral Elements.

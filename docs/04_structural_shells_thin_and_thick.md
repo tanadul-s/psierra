@@ -161,18 +161,32 @@ $$\boldsymbol{m}_{e} = \int_A \boldsymbol{N}^T \begin{bmatrix} \rho t \boldsymbo
 
 ---
 
-## 7. Code Implementation Map
+## 7. Geometric Nonlinearity: Corotational 3-Node Shell (`CorotationalShell3`)
+
+When a structural shell experiences finite rotations or out-of-plane buckling, small-strain linear formulations artificially dilate because the rigid rotation is misconstrued as strain. The **Corotational Shell** decomposes the motion into an element-attached rigid frame rotation $\boldsymbol{R} \in \mathrm{SO}(3)$ and a local deformational displacement vector $\boldsymbol{d}_l$:
+
+$$\boldsymbol{d}_l = \begin{bmatrix} \boldsymbol{u}_l \\ \boldsymbol{\theta}_l \end{bmatrix}, \quad \boldsymbol{f}_l = \boldsymbol{K}_{0, loc} \boldsymbol{d}_l, \quad \boldsymbol{f}_{int} = \boldsymbol{T}_{def}^T \boldsymbol{f}_l, \quad \boldsymbol{K}_{tan} = \boldsymbol{T}_{def}^T \boldsymbol{K}_{0, loc} \boldsymbol{T}_{def}$$
+
+### 7.1 Kinematic Properties of `CorotationalShell3`
+1. **Rigid Body Invariance**: Under arbitrary 3D finite rigid translations and finite rotations, $\boldsymbol{d}_l \equiv \boldsymbol{0}$, yielding exactly zero internal forces ($\|\boldsymbol{f}_{int}\| < 10^{-8}\text{ N}$).
+2. **Proper Nullspace**: The warped tangent matrix $\boldsymbol{K}_{tan}$ possesses exactly 6 zero eigenvalues corresponding to the 6 physical rigid-body modes of a 3D shell.
+3. **Unconditional Symmetry**: $\boldsymbol{K}_{tan} = \boldsymbol{K}_{tan}^T$ is unconditionally symmetric and positive semi-definite, guaranteeing robustness with standard linear solvers and quadratic Newton-Raphson convergence.
+
+---
+
+## 8. Code Implementation Map
 
 | Component | Source File | Method / Class |
 | :--- | :--- | :--- |
 | **3-Node Flat Shell (`Shell3`)** | [`psierra/element/shell3.py`](../src/psierra/element/shell3.py) | `Shell3.compute_linear_stiffness_matrix()`, `Shell3.compute_mass_matrix()` |
+| **Corotational 3-Node Shell (`CorotationalShell3`)** | [`psierra/element/corotational_shell3.py`](../src/psierra/element/corotational_shell3.py) | `CorotationalShell3.compute_nonlinear_force_and_tangent_stiffness()` |
 | **6-Node Quadratic Shell (`Shell6`)** | [`psierra/element/shell6.py`](../src/psierra/element/shell6.py) | `Shell6.compute_linear_stiffness_matrix()`, `Shell6.compute_mass_matrix()` |
 | **Simplex Triangle Quadrature** | [`psierra/element/quadrature.py`](../src/psierra/element/quadrature.py) | `TriangleQuadrature` (1-pt centroid, 3-pt Dunavant, 4-pt Hammer) |
-| **Shell Domain Representation** | [`psierra/domain/shell.py`](../src/psierra/domain/shell.py) | `ShellDomain.assemble_stiffness_matrix()`, `ShellDomain.to_pyvista()` |
+| **Shell Domain Representation** | [`psierra/domain/shell.py`](../src/psierra/domain/shell.py) | `ShellDomain.assemble_stiffness_matrix()`, `ShellDomain.assemble_tangent_stiffness_matrix()`, `ShellDomain.to_pyvista()` |
 
 ---
 
-## 8. References & Further Reading
+## 9. References & Further Reading
 
 - **J.L. Batoz, K.J. Bathe, & L.W. Ho**, *A Study of Three-Node Triangular Plate Bending Elements*, International Journal for Numerical Methods in Engineering, 15:1771-1812, 1980.
 - **T.J.R. Hughes & F. Brezzi**, *On Drilling Degrees of Freedom*, Computer Methods in Applied Mechanics and Engineering, 72:105-121, 1989.

@@ -55,7 +55,7 @@ flowchart TD
 - Principle of Virtual Displacements (weak form).
 - Implementation map: [`Hookean`](../src/psierra/material/hookean.py) and [`NeoHookean`](../src/psierra/material/neohookean.py).
 
-### 2. [Solid Continua I: Linear Tetrahedral Elements (`Tet4`)](02_solid_continua_linear_tet4.md)
+### 2. [Solid Continua I: Linear Tetrahedral Elements (`Tet4`, `CorotationalTet4`)](02_solid_continua_linear_tet4.md)
 - Variational principle of virtual work and isoparametric mapping.
 - 4-node constant-strain tetrahedron (`Tet4`): volume evaluation, linear shape functions $N_a(\boldsymbol{X})$, and gradient matrix $\boldsymbol{H}$.
 - Small-strain formulation: linear strain-displacement matrix $\boldsymbol{B}_L$, element stiffness $\boldsymbol{k}_e = (\boldsymbol{B}_L^T \boldsymbol{C} \boldsymbol{B}_L) V_e$, and consistent mass matrix $\boldsymbol{m}_e$.
@@ -64,7 +64,11 @@ flowchart TD
   - Material tangent stiffness $\boldsymbol{k}_{mat} = (\boldsymbol{B}^T \boldsymbol{C} \boldsymbol{B}) V_e$.
   - Geometric initial-stress stiffness $\boldsymbol{k}_{geo} = (\boldsymbol{G}^T \hat{\boldsymbol{S}} \boldsymbol{G}) V_e$.
   - Internal force vector $\boldsymbol{f}_{int} = (\boldsymbol{B}^T \boldsymbol{S}_{voigt}) V_e$.
-- Implementation map: [`Tet4`](../src/psierra/element/tet4.py).
+- **Corotational Formulation (`CorotationalTet4`)**:
+  - Elimination of artificial volume expansion (ballooning) under large rigid-body rotations.
+  - SVD polar decomposition $\boldsymbol{F} = \boldsymbol{R} \boldsymbol{U}$, unrotated local displacement $\boldsymbol{u}_l = \boldsymbol{R}^T \boldsymbol{x} - \boldsymbol{X}$.
+  - Warped tangent stiffness $\boldsymbol{K}_{tan} = \boldsymbol{\mathcal{R}} \boldsymbol{K}_0 \boldsymbol{\mathcal{R}}^T$ with unconditional symmetry and positive semi-definiteness.
+- Implementation map: [`Tet4`](../src/psierra/element/tet4.py), [`CorotationalTet4`](../src/psierra/element/corotational_tet4.py).
 
 ### 3. [Solid Continua II: Higher-Order Elements & Simplex Quadrature (`Tet10`)](03_solid_continua_quadratic_tet10_and_quadrature.md)
 - Mechanics of artificial shear locking and volumetric locking in linear simplex elements.
@@ -74,7 +78,7 @@ flowchart TD
 - Exact analytical consistent mass matrix integration using Eisenhower/Hammer closed-form volume formulas.
 - Implementation map: [`Tet10`](../src/psierra/element/tet10.py), [`TetrahedronQuadrature`](../src/psierra/element/quadrature.py).
 
-### 4. [Structural Continua: Thin & Moderately Thick Shell Elements (`Shell3`, `Shell6`)](04_structural_shells_thin_and_thick.md)
+### 4. [Structural Continua: Thin & Moderately Thick Shell Elements (`Shell3`, `CorotationalShell3`, `Shell6`)](04_structural_shells_thin_and_thick.md)
 - Biomechanical dimensional reduction ($3D \to 2D$) for thin anatomical membranes (dura mater, pericardium, organ capsules).
 - 6 degrees of freedom per node $[u, v, w, \theta_x, \theta_y, \theta_z]$ and local surface coordinate triad $(\boldsymbol{t}_1, \boldsymbol{t}_2, \boldsymbol{n})$.
 - Membrane action: Constant Strain Triangle (CST) and Linear Strain Triangle (LST).
@@ -82,7 +86,10 @@ flowchart TD
   - Discrete Kirchhoff Triangle (`DKT` in `Shell3`): thin-plate bending with discrete Kirchhoff constraints, free of shear locking.
   - Reissner-Mindlin plate bending (`Shell6`): shear deformable formulation with shear correction factor $\kappa = 5/6$.
 - Hughes-Brezzi artificial drilling DOF stabilization ($\alpha_{drill} G t A$).
-- Implementation map: [`Shell3`](../src/psierra/element/shell3.py), [`Shell6`](../src/psierra/element/shell6.py), [`ShellDomain`](../src/psierra/domain/shell.py).
+- **Corotational Formulation (`CorotationalShell3`)**:
+  - Filters out finite rigid-body rotations via local corotating frame $\boldsymbol{R} \in \mathrm{SO}(3)$.
+  - Eliminates geometric distortion, preserving 6 zero eigenvalues for rigid body modes and unconditional tangent symmetry.
+- Implementation map: [`Shell3`](../src/psierra/element/shell3.py), [`CorotationalShell3`](../src/psierra/element/corotational_shell3.py), [`Shell6`](../src/psierra/element/shell6.py), [`ShellDomain`](../src/psierra/domain/shell.py).
 
 ### 5. [System Assembly, Boundary Conditions & Monolithic Domain Coupling](05_system_assembly_boundaries_and_domain_coupling.md)
 - Triplet Coordinate (COO) assembly strategy for global stiffness $\boldsymbol{K}$ and mass $\boldsymbol{M}$.
@@ -91,7 +98,9 @@ flowchart TD
   - Static condensation of non-homogeneous Dirichlet supports: $\boldsymbol{K}_{ff}\boldsymbol{u}_f = \boldsymbol{f}_f - \boldsymbol{K}_{fp}\boldsymbol{u}_p$.
   - Support reaction force recovery: $\boldsymbol{R} = \boldsymbol{K}\boldsymbol{u} - \boldsymbol{f}_{ext}$.
 - Body force integration: consistent mass-matrix based gravity $\boldsymbol{f}_{grav} = \boldsymbol{M}\boldsymbol{g}$.
-- **Monolithic kinematic solid-shell coupling** (`CoupledSolidShellDomain`): exact $C^0$ interface displacement continuity, unified sparsity assembly, and multi-field visualization.
+- **Monolithic kinematic solid-shell coupling** (`CoupledSolidShellDomain`):
+  - Exact $C^0$ interface displacement continuity.
+  - Unified multi-domain `.vtu` state export with `Domain ID` labeling (`0=Solid`, `1=Shell`), enabling instant ParaView Threshold filtering without separate files.
 - Implementation map: [`Domain`](../src/psierra/domain/base.py), [`SolidDomain`](../src/psierra/domain/solid.py), [`ShellDomain`](../src/psierra/domain/shell.py), [`CoupledSolidShellDomain`](../src/psierra/domain/coupled.py), [`DirichletManager`](../src/psierra/boundary/dirichlet.py).
 
 ### 6. [Structural Analysis Solvers & Computational Pipelines](06_solvers_and_analysis_pipelines.md)
@@ -104,8 +113,8 @@ flowchart TD
 
 ### 7. [Simulation Tutorials, Analytical Verification & Benchmarks](07_simulation_tutorials_and_verification.md)
 - Verification against Euler-Bernoulli & Timoshenko beam theory.
-- Detailed walkthroughs of all 10 simulation examples (`sim01` through `sim10`).
-- Verification tables: static equilibrium balance, energy conservation, dynamic oscillation, hyperelastic large deformation, shear locking alleviation, Navier plate bending, and coupled gravity sag mitigation.
+- Detailed walkthroughs of all 11 simulation examples (`sim01` through `sim11`).
+- Verification tables: static equilibrium balance, energy conservation, dynamic oscillation, hyperelastic large deformation, shear locking alleviation, Navier plate bending, coupled gravity sag mitigation, and corotational large bending.
 - Post-processing and ParaView visualization instructions for `.vtu` and `.pvd` workflows.
 
 ---

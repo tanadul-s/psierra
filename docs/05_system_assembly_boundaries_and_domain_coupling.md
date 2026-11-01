@@ -159,11 +159,23 @@ This guarantees:
 - Symmetric, positive-definite global tangent stiffness matrices.
 - Direct solution using standard sparse direct SuperLU factorization via `LinearStaticAnalysis`.
 
-### 4.3 Multi-Field Visualization & State Export
-The `CoupledSolidShellDomain` provides symmetrical field exporters:
-- `save_solid_state("beam_solid.vtu")`: Exports the 3D solid continuum core.
-- `save_shell_state("beam_shell.vtu")`: Exports the 2D surface shell skin.
-- `save_pvd("beam_coupled.pvd")`: Exports both `.vtu` components and writes a master ParaView Data collection linking them together.
+### 4.3 Unified Domain Labeling & ParaView Thresholding
+Instead of forcing users to export and manage separate solid and shell `.vtu` files, `CoupledSolidShellDomain` exports a **single unified `.vtu` mesh** containing both heterogeneous element types (`VTK_TETRA` and `VTK_TRIANGLE`):
+- `save_state("beam_coupled.vtu")`: Default unified exporter.
+- **Domain Labeling in Cell Data**:
+  - `Domain ID = 0`: Solid continuum elements.
+  - `Domain ID = 1`: Shell skin elements.
+  - `Domain Name`: `"Solid"` or `"Shell"`.
+- **ParaView Workflow**:
+  - Open `beam_coupled.vtu`.
+  - Apply the **Threshold** filter on `Domain ID`:
+    - Range $[0, 0]$: Inspect the solid interior continuum.
+    - Range $[1, 1]$: Inspect the outer shell membrane.
+  - Apply **Warp By Vector** on `"Displacement"` to deform both domains simultaneously.
+- **Legacy Multi-File Exporters** (preserved for backward compatibility):
+  - `save_solid_state("beam_solid.vtu")`
+  - `save_shell_state("beam_shell.vtu")`
+  - `save_pvd("beam_coupled.pvd")`
 
 ---
 
