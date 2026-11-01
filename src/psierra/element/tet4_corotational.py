@@ -1,11 +1,11 @@
 from __future__ import annotations
 import numpy as np
 
-from psierra.element.tet4 import Tet4
+from psierra.element.tet4_base import Tet4Base
 from psierra.material.base import Material
 
 
-class CorotationalTet4(Tet4):
+class Tet4Corotational(Tet4Base):
     """
     Corotational 4-Node Linear Tetrahedral Solid Element.
 
@@ -130,7 +130,7 @@ class CorotationalTet4(Tet4):
         F = x.T @ H
         J = np.linalg.det(F)
         if J <= 0.0:
-            raise ValueError(f"Element inversion detected in CorotationalTet4: det(F) = {J:.4e} <= 0.")
+            raise ValueError(f"Element inversion detected in Tet4Corotational: det(F) = {J:.4e} <= 0.")
 
         # Extract pure rigid rotation R in SO(3)
         R, _ = self.compute_polar_decomposition(F)

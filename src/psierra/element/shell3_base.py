@@ -6,9 +6,9 @@ from psierra.element.quadrature import get_triangle_quadrature
 from psierra.material.base import Material
 
 
-class Shell3(Element):
+class Shell3Base(Element):
     """
-    3-Node Flat Triangular Shell Element (DKT Bending + CST Membrane + Drilling).
+    Base class for 3-Node Flat Triangular Shell Elements.
 
     Couples in-plane membrane stretching, out-of-plane DKT (Discrete Kirchhoff Triangle)
     plate bending, and Hughes-Brezzi stabilized drilling rotations.
@@ -412,23 +412,4 @@ class Shell3(Element):
             M_local[i * 6 + 3 : i * 6 + 6, i * 6 + 3 : i * 6 + 6] = rot_inertia * I3
 
         return M_local
-
-    # =========================================================================
-    # Nonlinear Force & Tangent Stiffness (Small-Strain Linearized Default)
-    # =========================================================================
-
-    def compute_nonlinear_force_and_tangent_stiffness(
-        self,
-        node_coords: np.ndarray,
-        u_nodes: np.ndarray,
-    ) -> tuple[np.ndarray, np.ndarray]:
-        """
-        Computes the small-strain linearized tangent stiffness matrix K_tan (18x18)
-        and internal force vector f_int (18,) for Shell3.
-        For finite 3D rigid rotations, prefer CorotationalShell3.
-        """
-        K = self.compute_linear_stiffness_matrix(node_coords)
-        u_vec = np.asarray(u_nodes, dtype=np.float64).ravel()
-        f_int = K @ u_vec
-        return K, f_int
 

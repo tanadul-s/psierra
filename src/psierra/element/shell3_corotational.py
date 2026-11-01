@@ -2,11 +2,11 @@ from __future__ import annotations
 import numpy as np
 from scipy.spatial.transform import Rotation
 
-from psierra.element.shell3 import Shell3
+from psierra.element.shell3_base import Shell3Base
 from psierra.material.base import Material
 
 
-class CorotationalShell3(Shell3):
+class Shell3Corotational(Shell3Base):
     """
     Corotational 3-Node Flat Triangular Shell Element (DKT Bending + CST Membrane + Drilling).
 
@@ -198,3 +198,4 @@ class CorotationalShell3(Shell3):
         K_tan = 0.5 * (K_tan + K_tan.T)
 
         return K_tan, f_int
+

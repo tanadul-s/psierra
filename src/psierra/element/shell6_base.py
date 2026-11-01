@@ -6,9 +6,9 @@ from psierra.element.quadrature import get_triangle_quadrature
 from psierra.material.base import Material
 
 
-class Shell6(Element):
+class Shell6Base(Element):
     """
-    6-Node Conforming Quadratic Triangular Shell Element.
+    Base class for 6-Node Conforming Quadratic Triangular Shell Elements.
 
     Conforms directly to quadratic tetrahedral solid elements (Tet10) boundary faces,
     guaranteeing C^0 displacement continuity across the solid-shell interface without
