@@ -133,3 +133,83 @@ def test_coupled_solid_shell_domain(beam_vtk_path: Path) -> None:
     assert res.strain_energy > 0.0
     # Tip deflection along Y should be negative
     assert np.mean(res.displacement[tip_nodes * 3 + 1]) < 0.0
+
+
+def test_domain_to_pyvista_and_save_state(tmp_path: Path, beam_vtk_path: Path) -> None:
+    if not beam_vtk_path.exists():
+        pytest.skip(f"Beam mesh file not found: {beam_vtk_path}")
+
+    vmesh = VolumetricMesh(beam_vtk_path)
+    smesh = vmesh.surface
+
+    params_solid = IsotropicElasticParameters()
+    params_solid.set_from_youngs_poisson(youngs_modulus=50000.0, poissons_ratio=0.4, mass_density=1e-9)
+    mat_solid = Hookean(params_solid)
+    elem_solid = Tet4(mat_solid)
+    solid_domain = SolidDomain(vmesh, mat_solid, elem_solid)
+
+    # Set mock displacement on solid
+    mock_u = np.zeros(solid_domain.n_dofs, dtype=np.float64)
+    mock_u[1::3] = -5.0  # -5 mm along Y
+    solid_domain.update_state(u=mock_u)
+
+    # Test SolidDomain to_pyvista
+    grid_warped = solid_domain.to_pyvista(factor=1.0)
+    assert np.allclose(grid_warped.points[:, 1], vmesh.nodes[:, 1] - 5.0)
+    assert "Displacement" in grid_warped.point_data
+    assert "Displacement X" in grid_warped.point_data
+    assert "Displacement Y" in grid_warped.point_data
+    assert "Displacement Z" in grid_warped.point_data
+    assert "Displacement Magnitude" in grid_warped.point_data
+    assert np.allclose(grid_warped.point_data["Displacement Y"], -5.0)
+
+    grid_unwarped = solid_domain.to_pyvista(factor=0.0)
+    assert np.allclose(grid_unwarped.points, vmesh.nodes)
+
+    # Test SolidDomain save_state
+    solid_file = tmp_path / "solid_deformed.vtu"
+    solid_domain.save_state(solid_file)
+    assert solid_file.exists()
+    read_grid = pv.read(str(solid_file))
+    assert np.allclose(read_grid.points[:, 1], vmesh.nodes[:, 1] - 5.0)
+
+    # Test ShellDomain to_pyvista & save_state
+    params_shell = IsotropicElasticParameters()
+    params_shell.set_from_youngs_poisson(youngs_modulus=10.0e6, poissons_ratio=0.3, mass_density=1.1e-9)
+    mat_shell = Hookean(params_shell)
+    elem_shell = Shell3(mat_shell, thickness=0.5)
+    shell_domain = ShellDomain(smesh, mat_shell, elem_shell)
+
+    mock_u_shell = np.zeros(shell_domain.n_dofs, dtype=np.float64)
+    mock_u_shell[1::6] = -3.0  # -3 mm along Y
+    shell_domain.update_state(u=mock_u_shell)
+
+    shell_warped = shell_domain.to_pyvista(factor=1.0)
+    assert isinstance(shell_warped, pv.UnstructuredGrid)
+    assert np.allclose(shell_warped.points[:, 1], smesh.nodes[:, 1] - 3.0)
+    assert "Displacement Y" in shell_warped.point_data
+    assert "Displacement Magnitude" in shell_warped.point_data
+    assert "Rotation" in shell_warped.point_data
+
+    # ShellDomain must save as .vtu (no .vtp)
+    shell_file = tmp_path / "shell_deformed.vtu"
+    shell_domain.save_state(shell_file)
+    assert shell_file.exists()
+    read_shell = pv.read(str(shell_file))
+    assert np.allclose(read_shell.points[:, 1], smesh.nodes[:, 1] - 3.0)
+
+    # Test CoupledSolidShellDomain save_solid_state, save_shell_state, and save_pvd
+    coupled_domain = CoupledSolidShellDomain(solid_domain, shell_domain)
+    coupled_solid_file = tmp_path / "coupled_solid.vtu"
+    coupled_shell_file = tmp_path / "coupled_shell.vtu"
+    coupled_pvd_file = tmp_path / "coupled.pvd"
+
+    coupled_domain.save_solid_state(coupled_solid_file)
+    coupled_domain.save_shell_state(coupled_shell_file)
+    coupled_domain.save_pvd(coupled_pvd_file)
+
+    assert coupled_solid_file.exists()
+    assert coupled_shell_file.exists()
+    assert coupled_pvd_file.exists()
+    assert "coupled_solid.vtu" in coupled_pvd_file.read_text()
+    assert "coupled_shell.vtu" in coupled_pvd_file.read_text()
