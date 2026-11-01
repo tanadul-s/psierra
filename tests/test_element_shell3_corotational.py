@@ -4,7 +4,7 @@ import pytest
 from scipy.spatial.transform import Rotation
 
 from psierra.material import IsotropicElasticParameters, Hookean
-from psierra.element import Shell3, CorotationalShell3
+from psierra.element import Shell3Linear, Shell3Corotational
 
 
 @pytest.fixture
@@ -27,7 +27,7 @@ def hookean_material() -> Hookean:
 
 
 def test_corotational_shell3_initialization(hookean_material: Hookean) -> None:
-    elem = CorotationalShell3(hookean_material, thickness=1.5, drilling_factor=1e-3)
+    elem = Shell3Corotational(hookean_material, thickness=1.5, drilling_factor=1e-3)
     assert elem.thickness == 1.5
     assert elem.drilling_factor == 1e-3
     assert elem.nodes_per_element == 3
@@ -38,7 +38,7 @@ def test_corotational_shell3_initialization(hookean_material: Hookean) -> None:
 def test_corotational_shell3_rigid_translation_invariance(
     hookean_material: Hookean, test_triangle_coords: np.ndarray
 ) -> None:
-    elem = CorotationalShell3(hookean_material, thickness=1.0)
+    elem = Shell3Corotational(hookean_material, thickness=1.0)
 
     # Pure 3D rigid translation
     u_rigid = np.zeros((3, 6), dtype=np.float64)
@@ -53,7 +53,7 @@ def test_corotational_shell3_rigid_translation_invariance(
 def test_corotational_shell3_rigid_rotation_invariance(
     hookean_material: Hookean, test_triangle_coords: np.ndarray
 ) -> None:
-    elem = CorotationalShell3(hookean_material, thickness=1.0)
+    elem = Shell3Corotational(hookean_material, thickness=1.0)
 
     # Large finite 3D rigid rotation (35 degrees around axis [1, 2, -1])
     rot_axis = np.array([1.0, 2.0, -1.0])
@@ -89,8 +89,8 @@ def test_corotational_shell3_rigid_rotation_invariance(
 def test_corotational_shell3_small_strain_consistency(
     hookean_material: Hookean, test_triangle_coords: np.ndarray
 ) -> None:
-    elem_corot = CorotationalShell3(hookean_material, thickness=1.0)
-    elem_linear = Shell3(hookean_material, thickness=1.0)
+    elem_corot = Shell3Corotational(hookean_material, thickness=1.0)
+    elem_linear = Shell3Linear(hookean_material, thickness=1.0)
 
     K_0 = elem_linear.compute_linear_stiffness_matrix(test_triangle_coords)
 
@@ -124,7 +124,7 @@ def test_corotational_shell3_small_strain_consistency(
 def test_corotational_shell3_extract_element_rotation(
     hookean_material: Hookean, test_triangle_coords: np.ndarray
 ) -> None:
-    elem = CorotationalShell3(hookean_material, thickness=1.0)
+    elem = Shell3Corotational(hookean_material, thickness=1.0)
 
     rot_vec = np.array([0.2, -0.4, 0.3])
     R_expected = Rotation.from_rotvec(rot_vec).as_matrix()
@@ -181,7 +181,7 @@ def test_corotational_shell3_nonlinear_analysis_rotated_strip(hookean_material: 
     poly = pv.PolyData(pts_rot, np.array(faces, dtype=np.int64))
     smesh = SurfaceMesh(poly)
 
-    elem = CorotationalShell3(hookean_material, thickness=1.0)
+    elem = Shell3Corotational(hookean_material, thickness=1.0)
     domain = ShellDomain(smesh, hookean_material, elem)
 
     root_nodes = np.array([node_map[(0, iy)] for iy in range(Ny + 1)])

@@ -2,7 +2,9 @@ from __future__ import annotations
 import numpy as np
 import pytest
 
-from psierra.element.tet10 import Tet10
+from psierra.element.tet10_base import Tet10Base
+from psierra.element.tet10_linear import Tet10Linear
+from psierra.element.tet10_total_lagrangian import Tet10TotalLagrangian
 from psierra.element.quadrature import get_tetrahedral_quadrature
 from psierra.material.hookean import Hookean
 from psierra.material.neohookean import NeoHookean
@@ -14,7 +16,7 @@ from psierra.analysis.linear_static import LinearStaticAnalysis, LinearStaticRes
 
 
 class TestTet10Element:
-    """Rigorous physical and mathematical verification of 10-node quadratic tetrahedral element."""
+    """Rigorous physical and mathematical verification of 10-node quadratic tetrahedral elements."""
 
     def test_shape_functions_kronecker_delta(self) -> None:
         """Evaluates shape functions at reference nodes to verify Kronecker delta N_i(xi_j) = delta_ij."""
@@ -35,7 +37,7 @@ class TestTet10Element:
         )
 
         for i in range(10):
-            N_vals = Tet10.evaluate_shape_functions(*ref_nodes[i])
+            N_vals = Tet10Base.evaluate_shape_functions(*ref_nodes[i])
             expected = np.zeros(10, dtype=np.float64)
             expected[i] = 1.0
             assert np.allclose(N_vals, expected, atol=1e-15), (
@@ -50,7 +52,7 @@ class TestTet10Element:
             r = np.random.dirichlet([1.0, 1.0, 1.0, 1.0])
             xi, eta, zeta = r[1], r[2], r[3]
 
-            N_vals = Tet10.evaluate_shape_functions(xi, eta, zeta)
+            N_vals = Tet10Base.evaluate_shape_functions(xi, eta, zeta)
             assert np.isclose(np.sum(N_vals), 1.0, atol=1e-14)
 
     def test_shape_gradients_finite_difference(self) -> None:
@@ -62,16 +64,16 @@ class TestTet10Element:
             r = np.random.dirichlet([1.0, 1.0, 1.0, 1.0])
             xi, eta, zeta = r[1], r[2], r[3]
 
-            grad_ana = Tet10.evaluate_shape_gradients_ref(xi, eta, zeta)
+            grad_ana = Tet10Base.evaluate_shape_gradients_ref(xi, eta, zeta)
             # Sum of gradients must be exactly zero (derivative of 1)
             assert np.allclose(np.sum(grad_ana, axis=0), 0.0, atol=1e-13)
 
             # Central finite differences in xi, eta, zeta
             for dim, delta in enumerate([[eps, 0.0, 0.0], [0.0, eps, 0.0], [0.0, 0.0, eps]]):
-                N_plus = Tet10.evaluate_shape_functions(
+                N_plus = Tet10Base.evaluate_shape_functions(
                     xi + delta[0], eta + delta[1], zeta + delta[2]
                 )
-                N_minus = Tet10.evaluate_shape_functions(
+                N_minus = Tet10Base.evaluate_shape_functions(
                     xi - delta[0], eta - delta[1], zeta - delta[2]
                 )
                 grad_fd = (N_plus - N_minus) / (2.0 * eps)
@@ -103,7 +105,7 @@ class TestTet10Element:
     def test_volume_and_gradients(
         self, hookean_material: Hookean, regular_tet10_coords: np.ndarray
     ) -> None:
-        tet = Tet10(hookean_material)
+        tet = Tet10Linear(hookean_material)
         V, H = tet.compute_volume_and_gradients(regular_tet10_coords)
 
         # Unit tetrahedron volume: 1/6
@@ -127,14 +129,14 @@ class TestTet10Element:
     def test_inverted_element_raises(
         self, hookean_material: Hookean, inverted_tet10_coords: np.ndarray
     ) -> None:
-        tet = Tet10(hookean_material)
+        tet = Tet10Linear(hookean_material)
         with pytest.raises(ValueError, match="Jacobian determinant detected"):
             tet.compute_volume_and_gradients(inverted_tet10_coords)
 
     def test_mass_matrix_properties(
         self, hookean_material: Hookean, regular_tet10_coords: np.ndarray
     ) -> None:
-        tet = Tet10(hookean_material)
+        tet = Tet10Linear(hookean_material)
         V, _ = tet.compute_volume_and_gradients(regular_tet10_coords)
         M_e = tet.compute_mass_matrix(V)
 
@@ -157,7 +159,7 @@ class TestTet10Element:
     def test_linear_stiffness_matrix_rigid_body_modes(
         self, hookean_material: Hookean, regular_tet10_coords: np.ndarray
     ) -> None:
-        tet = Tet10(hookean_material)
+        tet = Tet10Linear(hookean_material)
         K_e = tet.compute_linear_stiffness_matrix(regular_tet10_coords)
 
         assert K_e.shape == (30, 30)
@@ -175,8 +177,9 @@ class TestTet10Element:
     def test_pure_translation_invariance(
         self, hookean_material: Hookean, regular_tet10_coords: np.ndarray
     ) -> None:
-        tet = Tet10(hookean_material)
-        K_e = tet.compute_linear_stiffness_matrix(regular_tet10_coords)
+        tet_lin = Tet10Linear(hookean_material)
+        tet_tl = Tet10TotalLagrangian(hookean_material)
+        K_e = tet_lin.compute_linear_stiffness_matrix(regular_tet10_coords)
 
         t = np.array([15.2, -42.8, 8.4], dtype=np.float64)
         u_rigid = np.tile(t, 10)
@@ -190,19 +193,27 @@ class TestTet10Element:
 
         # Non-linear internal force must also be zero relative to ||K||*||u||
         u_nodes = np.tile(t, (10, 1))
-        _, f_int = tet.compute_nonlinear_force_and_tangent_stiffness(
+        _, f_int_lin = tet_lin.compute_nonlinear_force_and_tangent_stiffness(
             regular_tet10_coords, u_nodes
         )
-        rel_error_nl = np.linalg.norm(f_int) / (
+        rel_error_lin = np.linalg.norm(f_int_lin) / (
             np.linalg.norm(K_e) * np.linalg.norm(u_rigid)
         )
-        assert rel_error_nl < 1e-12
+        assert rel_error_lin < 1e-12
+
+        _, f_int_tl = tet_tl.compute_nonlinear_force_and_tangent_stiffness(
+            regular_tet10_coords, u_nodes
+        )
+        rel_error_tl = np.linalg.norm(f_int_tl) / (
+            np.linalg.norm(K_e) * np.linalg.norm(u_rigid)
+        )
+        assert rel_error_tl < 1e-12
 
     def test_pure_rotation_invariance_nonlinear(
         self, neohookean_material: NeoHookean, regular_tet10_coords: np.ndarray
     ) -> None:
         """Under large finite rigid body rotation, Green-Lagrange strain and f_int must be zero."""
-        tet = Tet10(neohookean_material)
+        tet = Tet10TotalLagrangian(neohookean_material)
 
         # Finite rotation matrix (30 deg about axis [1, 1, 1])
         theta = np.deg2rad(30.0)
@@ -238,7 +249,7 @@ class TestTet10Element:
         an exact constant strain state across all quadrature points (to < 1e-14)
         and matching linear and Total Lagrangian internal forces in the small-strain limit.
         """
-        tet = Tet10(hookean_material)
+        tet = Tet10TotalLagrangian(hookean_material)
 
         # Constant linear strain tensor
         eps_0 = np.array(
@@ -287,7 +298,6 @@ class TestTet10Element:
         )
         assert rel_diff < 1e-5
 
-
     def test_nonlinear_tangent_consistency(
         self, neohookean_material: NeoHookean, regular_tet10_coords: np.ndarray
     ) -> None:
@@ -296,7 +306,7 @@ class TestTet10Element:
         exact directional derivative of internal forces f_int via finite difference:
             d f_int / d u == k_tan
         """
-        tet = Tet10(neohookean_material)
+        tet = Tet10TotalLagrangian(neohookean_material)
 
         np.random.seed(42)
         u_nodes = 0.01 * np.random.randn(10, 3)
@@ -335,10 +345,10 @@ class TestTet10Element:
     ) -> None:
         """
         End-to-end integration test:
-        Constructs a SolidDomain using Tet10, applies Dirichlet constraints and nodal loads,
+        Constructs a SolidDomain using Tet10Linear, applies Dirichlet constraints and nodal loads,
         solves for displacements, and verifies static equilibrium.
         """
-        element = Tet10(hookean_material)
+        element = Tet10Linear(hookean_material)
         domain = SolidDomain(
             mesh=single_element_tet10_mesh,
             material=hookean_material,
@@ -376,4 +386,3 @@ class TestTet10Element:
         # Global Equilibrium: Sum of support reactions (R_z) + external applied forces (F_z) must equal zero
         net_equilibrium_error = np.abs(np.sum(result.reactions[2::3]) + f_applied)
         assert np.isclose(net_equilibrium_error, 0.0, atol=1e-8)
-

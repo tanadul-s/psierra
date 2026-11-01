@@ -2,18 +2,19 @@ from __future__ import annotations
 import numpy as np
 import pytest
 
-from psierra.element.tet4 import Tet4
+from psierra.element.tet4_linear import Tet4Linear
+from psierra.element.tet4_total_lagrangian import Tet4TotalLagrangian
 from psierra.material.hookean import Hookean
 from psierra.material.neohookean import NeoHookean
 
 
 class TestTet4Element:
-    """Rigorous physical and mathematical verification of 4-node tetrahedral element."""
+    """Rigorous physical and mathematical verification of 4-node tetrahedral elements."""
 
     def test_volume_and_gradients(
         self, hookean_material: Hookean, regular_tet_coords: np.ndarray
     ) -> None:
-        tet = Tet4(hookean_material)
+        tet = Tet4Linear(hookean_material)
         V, H = tet.compute_volume_and_gradients(regular_tet_coords)
 
         # Standard unit right tet has volume 1/6
@@ -26,14 +27,14 @@ class TestTet4Element:
     def test_inverted_element_raises(
         self, hookean_material: Hookean, inverted_tet_coords: np.ndarray
     ) -> None:
-        tet = Tet4(hookean_material)
+        tet = Tet4Linear(hookean_material)
         with pytest.raises(ValueError, match="volume detected"):
             tet.compute_volume_and_gradients(inverted_tet_coords)
 
     def test_mass_matrix_properties(
         self, hookean_material: Hookean, regular_tet_coords: np.ndarray
     ) -> None:
-        tet = Tet4(hookean_material)
+        tet = Tet4Linear(hookean_material)
         V, _ = tet.compute_volume_and_gradients(regular_tet_coords)
         M_e = tet.compute_mass_matrix(V)
 
@@ -54,7 +55,7 @@ class TestTet4Element:
     def test_linear_stiffness_matrix_rigid_body_modes(
         self, hookean_material: Hookean, regular_tet_coords: np.ndarray
     ) -> None:
-        tet = Tet4(hookean_material)
+        tet = Tet4Linear(hookean_material)
         K_e = tet.compute_linear_stiffness_matrix(regular_tet_coords)
 
         assert K_e.shape == (12, 12)
@@ -74,8 +75,9 @@ class TestTet4Element:
     def test_pure_translation_invariance(
         self, hookean_material: Hookean, regular_tet_coords: np.ndarray
     ) -> None:
-        tet = Tet4(hookean_material)
-        K_e = tet.compute_linear_stiffness_matrix(regular_tet_coords)
+        tet_lin = Tet4Linear(hookean_material)
+        tet_tl = Tet4TotalLagrangian(hookean_material)
+        K_e = tet_lin.compute_linear_stiffness_matrix(regular_tet_coords)
 
         # Arbitrary rigid translation vector [tx, ty, tz]
         t = np.array([12.5, -34.2, 5.8], dtype=np.float64)
@@ -86,16 +88,20 @@ class TestTet4Element:
         rel_error = np.linalg.norm(f_reaction) / (np.linalg.norm(K_e) * np.linalg.norm(u_rigid))
         assert rel_error < 1e-12
 
-        # Non-linear internal force must also be zero
+        # Non-linear internal force must also be zero for both linear and Total Lagrangian
         u_nodes = np.tile(t, (4, 1))
-        _, f_int = tet.compute_nonlinear_force_and_tangent_stiffness(regular_tet_coords, u_nodes)
-        assert np.allclose(f_int, 0.0, atol=1e-10)
+        _, f_int_lin = tet_lin.compute_nonlinear_force_and_tangent_stiffness(regular_tet_coords, u_nodes)
+        rel_error_lin = np.linalg.norm(f_int_lin) / (np.linalg.norm(K_e) * np.linalg.norm(u_rigid))
+        assert rel_error_lin < 1e-12
+
+        _, f_int_tl = tet_tl.compute_nonlinear_force_and_tangent_stiffness(regular_tet_coords, u_nodes)
+        assert np.allclose(f_int_tl, 0.0, atol=1e-10)
 
     def test_pure_rotation_invariance_nonlinear(
         self, neohookean_material: NeoHookean, regular_tet_coords: np.ndarray
     ) -> None:
         """Under large finite rigid body rotation, Green-Lagrange strain and f_int must be zero."""
-        tet = Tet4(neohookean_material)
+        tet = Tet4TotalLagrangian(neohookean_material)
 
         # Finite rotation matrix (30 deg about axis [1, 1, 1])
         theta = np.deg2rad(30.0)
@@ -128,7 +134,7 @@ class TestTet4Element:
         """
         from psierra.utility.tensor import tensor_to_voigt_strain
 
-        tet = Tet4(hookean_material)
+        tet = Tet4Linear(hookean_material)
         _, H = tet.compute_volume_and_gradients(regular_tet_coords)
         B = tet.compute_linear_B_matrix(H)
 

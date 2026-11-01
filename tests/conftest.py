@@ -5,7 +5,7 @@ import pytest
 import pyvista as pv
 
 from psierra.material import IsotropicElasticParameters, Hookean, NeoHookean
-from psierra.element import Tet4
+from psierra.element import Tet4Linear
 from psierra.mesh import VolumetricMesh, SurfaceMesh
 from psierra.domain import SolidDomain
 

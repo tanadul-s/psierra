@@ -4,7 +4,7 @@ import numpy as np
 import pytest
 
 from psierra.domain.solid import SolidDomain
-from psierra.element.tet4 import Tet4
+from psierra.element import Tet4TotalLagrangian
 from psierra.material.neohookean import NeoHookean
 from psierra.mesh.volumetric import VolumetricMesh
 from psierra.boundary.dirichlet import DirichletConstraint, DirichletManager
@@ -28,7 +28,7 @@ class TestNonlinearAnalysis:
         self, five_tet_cube_mesh: VolumetricMesh, neohookean_material: NeoHookean
     ) -> None:
         mesh = five_tet_cube_mesh
-        element = Tet4(neohookean_material)
+        element = Tet4TotalLagrangian(neohookean_material)
         domain = SolidDomain(mesh, neohookean_material, element)
 
         # Clamp bottom face (Z = 0)
@@ -68,7 +68,7 @@ class TestNonlinearAnalysis:
         self, five_tet_cube_mesh: VolumetricMesh, neohookean_material: NeoHookean, tmp_path: Path
     ) -> None:
         mesh = five_tet_cube_mesh
-        element = Tet4(neohookean_material)
+        element = Tet4TotalLagrangian(neohookean_material)
         domain = SolidDomain(mesh, neohookean_material, element)
 
         fixed_nodes = select_nodes_by_plane(mesh, plane="xy", bound="min")

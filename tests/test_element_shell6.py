@@ -2,8 +2,7 @@ from __future__ import annotations
 import numpy as np
 import pytest
 
-from psierra.element.shell6 import Shell6
-from psierra.element.tet10 import Tet10
+from psierra.element import Shell6Linear, Tet10Linear
 from psierra.material.hookean import Hookean
 from psierra.material.parameters import IsotropicElasticParameters
 
@@ -67,7 +66,7 @@ def arbitrary_3d_shell6_coords() -> np.ndarray:
 
 def test_shell6_initialization(linear_elastic_material: Hookean) -> None:
     thickness = 0.003
-    elem = Shell6(
+    elem = Shell6Linear(
         material=linear_elastic_material,
         thickness=thickness,
         drilling_factor=1e-3,
@@ -84,10 +83,10 @@ def test_shell6_initialization(linear_elastic_material: Hookean) -> None:
     assert elem.thickness == pytest.approx(0.001)
 
     with pytest.raises(ValueError, match="strictly positive"):
-        Shell6(material=linear_elastic_material, thickness=-0.002)
+        Shell6Linear(material=linear_elastic_material, thickness=-0.002)
 
     with pytest.raises(ValueError, match="strictly positive"):
-        Shell6(material=linear_elastic_material, thickness=0.0)
+        Shell6Linear(material=linear_elastic_material, thickness=0.0)
 
 
 def test_shell6_shape_functions() -> None:
@@ -103,7 +102,7 @@ def test_shell6_shape_functions() -> None:
 
     # Kronecker delta property: N_i(node_j) == delta_ij
     for j, (xi, eta) in enumerate(node_pts):
-        N = Shell6.evaluate_shape_functions(xi, eta)
+        N = Shell6Linear.evaluate_shape_functions(xi, eta)
         expected = np.zeros(6)
         expected[j] = 1.0
         assert np.allclose(N, expected, atol=1e-14)
@@ -111,10 +110,10 @@ def test_shell6_shape_functions() -> None:
     # Partition of unity and gradient sum at sample interior points
     test_pts = [(0.1, 0.2), (0.3, 0.4), (0.2, 0.6), (1.0 / 3.0, 1.0 / 3.0)]
     for xi, eta in test_pts:
-        N = Shell6.evaluate_shape_functions(xi, eta)
+        N = Shell6Linear.evaluate_shape_functions(xi, eta)
         assert np.isclose(np.sum(N), 1.0, atol=1e-14)
 
-        dxi, deta = Shell6.evaluate_shape_gradients_ref(xi, eta)
+        dxi, deta = Shell6Linear.evaluate_shape_gradients_ref(xi, eta)
         assert np.isclose(np.sum(dxi), 0.0, atol=1e-14)
         assert np.isclose(np.sum(deta), 0.0, atol=1e-14)
 
@@ -123,7 +122,7 @@ def test_shell6_stiffness_symmetry_and_rank(
     linear_elastic_material: Hookean,
     arbitrary_3d_shell6_coords: np.ndarray,
 ) -> None:
-    elem = Shell6(material=linear_elastic_material, thickness=0.004)
+    elem = Shell6Linear(material=linear_elastic_material, thickness=0.004)
     K = elem.compute_linear_stiffness_matrix(arbitrary_3d_shell6_coords)
 
     assert K.shape == (36, 36)
@@ -147,7 +146,7 @@ def test_shell6_rigid_body_modes(
     linear_elastic_material: Hookean,
     arbitrary_3d_shell6_coords: np.ndarray,
 ) -> None:
-    elem = Shell6(material=linear_elastic_material, thickness=0.002)
+    elem = Shell6Linear(material=linear_elastic_material, thickness=0.002)
     K = elem.compute_linear_stiffness_matrix(arbitrary_3d_shell6_coords)
 
     # 1. Pure rigid translation along arbitrary directions
@@ -218,7 +217,7 @@ def test_shell6_conforming_coupling_with_tet10(
     shell_nodes = tet_nodes[face_node_indices]
 
     # Create Shell6 element
-    shell = Shell6(material=linear_elastic_material, thickness=0.001)
+    shell = Shell6Linear(material=linear_elastic_material, thickness=0.001)
 
     # Prescribe arbitrary quadratic nodal displacements at the 6 shared boundary nodes
     np.random.seed(42)
@@ -234,13 +233,13 @@ def test_shell6_conforming_coupling_with_tet10(
 
     for xi, eta in sample_coords:
         # 1. Evaluate displacement via Shell6 shape functions:
-        N_shell = Shell6.evaluate_shape_functions(xi, eta)
+        N_shell = Shell6Linear.evaluate_shape_functions(xi, eta)
         u_shell = N_shell @ nodal_disp_face
 
         # 2. Evaluate displacement via Tet10 shape functions on face (zeta = 0):
         # Master tetrahedron coordinates: (xi, eta, zeta=0)
         zeta = 0.0
-        N_tet = Tet10.evaluate_shape_functions(xi, eta, zeta)
+        N_tet = Tet10Linear.evaluate_shape_functions(xi, eta, zeta)
 
         # Full 10-node Tet displacement array (zero on non-face nodes)
         nodal_disp_tet = np.zeros((10, 3), dtype=np.float64)
@@ -272,7 +271,7 @@ def test_shell6_cantilever_plate_bending() -> None:
     L = 1.0
     b = 0.1
     t = 0.01
-    elem = Shell6(material=mat, thickness=t)
+    elem = Shell6Linear(material=mat, thickness=t)
 
     def solve_cantilever(Nx: int) -> float:
         nx_pts = 2 * Nx + 1
@@ -350,13 +349,13 @@ def test_shell6_mass_matrix(
     arbitrary_3d_shell6_coords: np.ndarray,
 ) -> None:
     thickness = 0.002
-    elem = Shell6(material=linear_elastic_material, thickness=thickness)
+    elem = Shell6Linear(material=linear_elastic_material, thickness=thickness)
     M = elem.compute_mass_matrix(node_coords=arbitrary_3d_shell6_coords)
 
     assert M.shape == (36, 36)
     assert np.allclose(M, M.T, atol=1e-12)
 
-    _, _, area = Shell6.compute_local_coordinate_system(arbitrary_3d_shell6_coords)
+    _, _, area = Shell6Linear.compute_local_coordinate_system(arbitrary_3d_shell6_coords)
     expected_total_mass = linear_elastic_material.mass_density * thickness * area
 
     # Total translational mass in X direction

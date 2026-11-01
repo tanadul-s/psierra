@@ -4,7 +4,7 @@ import pytest
 from scipy.spatial.transform import Rotation
 
 from psierra.material import IsotropicElasticParameters, Hookean
-from psierra.element import Tet4, CorotationalTet4
+from psierra.element import Tet4Linear, Tet4Corotational
 
 
 @pytest.fixture
@@ -33,15 +33,15 @@ def hookean_material() -> Hookean:
     return Hookean(params)
 
 
-class TestCorotationalTet4:
-    """Comprehensive test suite for CorotationalTet4 finite element."""
+class TestTet4Corotational:
+    """Comprehensive test suite for Tet4Corotational finite element."""
 
     def test_polar_decomposition_properties(self) -> None:
         """Verifies mathematical properties of SVD polar decomposition."""
         # 1. Pure rotation
         rot = Rotation.from_euler("zyx", [35.0, 45.0, -60.0], degrees=True)
         R_true = rot.as_matrix()
-        R_calc, U_calc = CorotationalTet4.compute_polar_decomposition(R_true)
+        R_calc, U_calc = Tet4Corotational.compute_polar_decomposition(R_true)
 
         np.testing.assert_allclose(R_calc, R_true, atol=1e-12)
         np.testing.assert_allclose(U_calc, np.identity(3), atol=1e-12)
@@ -53,7 +53,7 @@ class TestCorotationalTet4:
             dtype=np.float64,
         )
         F = R_true @ U_true
-        R_calc, U_calc = CorotationalTet4.compute_polar_decomposition(F)
+        R_calc, U_calc = Tet4Corotational.compute_polar_decomposition(F)
 
         np.testing.assert_allclose(R_calc, R_true, atol=1e-12)
         np.testing.assert_allclose(U_calc, U_true, atol=1e-12)
@@ -63,7 +63,7 @@ class TestCorotationalTet4:
         self, unit_tet_coords: np.ndarray, hookean_material: Hookean
     ) -> None:
         """Verifies exact zero internal force under finite 3D rigid body translation."""
-        elem = CorotationalTet4(hookean_material)
+        elem = Tet4Corotational(hookean_material)
         t_vec = np.array([12.5, -45.0, 88.2], dtype=np.float64)
         u_nodes = np.tile(t_vec, (4, 1))
 
@@ -81,8 +81,8 @@ class TestCorotationalTet4:
         Verifies that finite rigid body rotations produce zero internal force,
         eliminating the artificial volume inflation of small-strain linear elasticity.
         """
-        elem_corot = CorotationalTet4(hookean_material)
-        elem_linear = Tet4(hookean_material)
+        elem_corot = Tet4Corotational(hookean_material)
+        elem_linear = Tet4Linear(hookean_material)
 
         # Test multiple finite rotation angles around arbitrary 3D axis
         for angle_deg in [15.0, 45.0, 90.0, 135.0]:
@@ -106,7 +106,7 @@ class TestCorotationalTet4:
             # Corotational internal forces MUST be machine zero under pure rotation
             np.testing.assert_allclose(
                 f_int_corot, np.zeros(12), atol=1e-11,
-                err_msg=f"Corotational Tet4 produced non-zero force at {angle_deg} deg",
+                err_msg=f"Tet4Corotational produced non-zero force at {angle_deg} deg",
             )
 
             # Contrast with Linear Hookean (which produces massive unphysical forces)
@@ -123,7 +123,7 @@ class TestCorotationalTet4:
         Verifies frame indifference (objectivity): rotating a strained element
         results in identically rotated internal force vectors.
         """
-        elem = CorotationalTet4(hookean_material)
+        elem = Tet4Corotational(hookean_material)
 
         # Apply a pure stretch along X
         u_stretch = np.zeros_like(unit_tet_coords)
@@ -153,7 +153,7 @@ class TestCorotationalTet4:
         self, unit_tet_coords: np.ndarray, hookean_material: Hookean
     ) -> None:
         """Verifies that warped tangent stiffness is symmetric with 6 zero eigenvalues."""
-        elem = CorotationalTet4(hookean_material)
+        elem = Tet4Corotational(hookean_material)
 
         # Arbitrary rotation and stretch
         rot = Rotation.from_euler("xyz", [20.0, -35.0, 50.0], degrees=True)
@@ -179,13 +179,13 @@ class TestCorotationalTet4:
         self, unit_tet_coords: np.ndarray, hookean_material: Hookean
     ) -> None:
         """Verifies that an inverted element (det(F) <= 0) raises ValueError."""
-        elem = CorotationalTet4(hookean_material)
+        elem = Tet4Corotational(hookean_material)
 
         # Mirror Node 3 across the XY plane (inverts tetrahedron)
         u_invert = np.zeros_like(unit_tet_coords)
         u_invert[3, 2] = -2.0  # Moves Z from +1.0 to -1.0
 
-        with pytest.raises(ValueError, match="Element inversion detected in CorotationalTet4"):
+        with pytest.raises(ValueError, match="Element inversion detected in Tet4Corotational"):
             elem.compute_nonlinear_force_and_tangent_stiffness(
                 unit_tet_coords, u_invert
             )
@@ -194,7 +194,7 @@ class TestCorotationalTet4:
         self, unit_tet_coords: np.ndarray, hookean_material: Hookean
     ) -> None:
         """Verifies Cauchy stress and engineering strain calculation."""
-        elem = CorotationalTet4(hookean_material)
+        elem = Tet4Corotational(hookean_material)
 
         # 1. Pure rigid rotation produces zero stress and strain
         rot = Rotation.from_euler("y", 45.0, degrees=True)
@@ -215,4 +215,3 @@ class TestCorotationalTet4:
         sigma, eps, _ = elem.compute_corotational_stress(unit_tet_coords, u_stretch)
         assert np.isclose(eps[0, 0], 0.01, atol=1e-12)
         assert sigma[0, 0] > 0.0  # Tensile stress in X direction
-

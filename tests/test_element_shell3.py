@@ -2,7 +2,7 @@ from __future__ import annotations
 import numpy as np
 import pytest
 
-from psierra.element.shell3 import Shell3
+from psierra.element.shell3_linear import Shell3Linear
 from psierra.material.hookean import Hookean
 from psierra.material.parameters import IsotropicElasticParameters
 
@@ -47,7 +47,7 @@ def arbitrary_3d_triangle_coords() -> np.ndarray:
 
 def test_shell3_initialization(linear_elastic_material: Hookean) -> None:
     thickness = 0.002
-    elem = Shell3(material=linear_elastic_material, thickness=thickness, drilling_factor=1e-3)
+    elem = Shell3Linear(material=linear_elastic_material, thickness=thickness, drilling_factor=1e-3)
     assert elem.thickness == pytest.approx(0.002)
     assert elem.drilling_factor == pytest.approx(1e-3)
     assert elem.nodes_per_element == 3
@@ -59,14 +59,14 @@ def test_shell3_initialization(linear_elastic_material: Hookean) -> None:
     assert elem.thickness == pytest.approx(0.001)
 
     with pytest.raises(ValueError, match="strictly positive"):
-        Shell3(material=linear_elastic_material, thickness=-0.001)
+        Shell3Linear(material=linear_elastic_material, thickness=-0.001)
 
     with pytest.raises(ValueError, match="strictly positive"):
-        Shell3(material=linear_elastic_material, thickness=0.0)
+        Shell3Linear(material=linear_elastic_material, thickness=0.0)
 
 
 def test_shell3_local_coordinate_system(flat_triangle_coords: np.ndarray) -> None:
-    Lambda, X_loc, area = Shell3.compute_local_coordinate_system(flat_triangle_coords)
+    Lambda, X_loc, area = Shell3Linear.compute_local_coordinate_system(flat_triangle_coords)
     assert area == pytest.approx(0.5)
     # Check orthonormality of Lambda
     assert np.allclose(Lambda @ Lambda.T, np.eye(3), atol=1e-12)
@@ -83,14 +83,14 @@ def test_shell3_local_coordinate_system(flat_triangle_coords: np.ndarray) -> Non
         [[0.0, 0.0, 0.0], [1.0, 1.0, 1.0], [2.0, 2.0, 2.0]], dtype=np.float64
     )
     with pytest.raises(ValueError, match="Collinear or degenerate"):
-        Shell3.compute_local_coordinate_system(collinear_coords)
+        Shell3Linear.compute_local_coordinate_system(collinear_coords)
 
 
 def test_shell3_stiffness_symmetry_and_rank(
     linear_elastic_material: Hookean,
     arbitrary_3d_triangle_coords: np.ndarray,
 ) -> None:
-    elem = Shell3(material=linear_elastic_material, thickness=0.005)
+    elem = Shell3Linear(material=linear_elastic_material, thickness=0.005)
     K = elem.compute_linear_stiffness_matrix(arbitrary_3d_triangle_coords)
 
     assert K.shape == (18, 18)
@@ -118,7 +118,7 @@ def test_shell3_rigid_body_modes(
     Verifies that applying pure rigid body translation or pure rigid body rotation
     yields zero strain energy: u^T * K * u ~ 0.
     """
-    elem = Shell3(material=linear_elastic_material, thickness=0.002)
+    elem = Shell3Linear(material=linear_elastic_material, thickness=0.002)
     K = elem.compute_linear_stiffness_matrix(arbitrary_3d_triangle_coords)
 
     # 1. Pure rigid translation: [tx, ty, tz, 0, 0, 0] repeated for 3 nodes
@@ -156,7 +156,7 @@ def test_shell3_membrane_tension(linear_elastic_material: Hookean) -> None:
     """
     Uniform in-plane tension test on a right-triangle shell element in XY plane.
     """
-    elem = Shell3(material=linear_elastic_material, thickness=0.001)
+    elem = Shell3Linear(material=linear_elastic_material, thickness=0.001)
     coords = np.array([[0.0, 0.0, 0.0], [1.0, 0.0, 0.0], [0.0, 1.0, 0.0]], dtype=np.float64)
     K = elem.compute_linear_stiffness_matrix(coords)
 
@@ -183,14 +183,14 @@ def test_shell3_mass_matrix(
     arbitrary_3d_triangle_coords: np.ndarray,
 ) -> None:
     thickness = 0.002
-    elem = Shell3(material=linear_elastic_material, thickness=thickness)
+    elem = Shell3Linear(material=linear_elastic_material, thickness=thickness)
     M = elem.compute_mass_matrix(node_coords=arbitrary_3d_triangle_coords)
 
     assert M.shape == (18, 18)
     assert np.allclose(M, M.T, atol=1e-12)
 
     # Check total translational mass
-    _, _, area = Shell3.compute_local_coordinate_system(arbitrary_3d_triangle_coords)
+    _, _, area = Shell3Linear.compute_local_coordinate_system(arbitrary_3d_triangle_coords)
     expected_total_mass = linear_elastic_material.mass_density * thickness * area
 
     # The sum of translational masses along X, Y, Z for rigid body translation
@@ -216,7 +216,7 @@ def test_shell3_cantilever_plate_bending() -> None:
     L = 1.0
     b = 0.1
     t = 0.01
-    elem = Shell3(material=mat, thickness=t)
+    elem = Shell3Linear(material=mat, thickness=t)
 
     # 4 nodes defining a rectangle split into 2 triangles
     nodes = np.array(
@@ -262,4 +262,3 @@ def test_shell3_cantilever_plate_bending() -> None:
     # With only 2 elements, deflection should be within 10% of analytical solution (>90%)
     assert tip_w / w_analytical > 0.90
     assert tip_w / w_analytical < 1.05
-

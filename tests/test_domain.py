@@ -7,8 +7,7 @@ import pyvista as pv
 from psierra.domain.solid import SolidDomain
 from psierra.domain.shell import ShellDomain
 from psierra.domain.coupled import CoupledSolidShellDomain
-from psierra.element.tet4 import Tet4
-from psierra.element.shell3 import Shell3
+from psierra.element import Tet4Linear, Shell3Linear
 from psierra.material.hookean import Hookean
 from psierra.material.parameters import IsotropicElasticParameters
 from psierra.mesh.volumetric import VolumetricMesh
@@ -38,7 +37,7 @@ def test_shell_domain(plate_surface_mesh: SurfaceMesh) -> None:
     params = IsotropicElasticParameters()
     params.set_from_youngs_poisson(youngs_modulus=1e7, poissons_ratio=0.3, mass_density=1000.0)
     mat = Hookean(params)
-    elem = Shell3(mat, thickness=0.01)
+    elem = Shell3Linear(mat, thickness=0.01)
 
     domain = ShellDomain(mesh=plate_surface_mesh, material=mat, element=elem)
     assert domain.n_dofs == 4 * 6  # 4 nodes * 6 DOFs = 24 DOFs
@@ -85,13 +84,13 @@ def test_coupled_solid_shell_domain(beam_vtk_path: Path) -> None:
     params_solid = IsotropicElasticParameters()
     params_solid.set_from_youngs_poisson(youngs_modulus=50000.0, poissons_ratio=0.4, mass_density=1e-9)
     mat_solid = Hookean(params_solid)
-    elem_solid = Tet4(mat_solid)
+    elem_solid = Tet4Linear(mat_solid)
     solid_domain = SolidDomain(vmesh, mat_solid, elem_solid)
 
     params_shell = IsotropicElasticParameters()
     params_shell.set_from_youngs_poisson(youngs_modulus=10.0e6, poissons_ratio=0.3, mass_density=1.1e-9)
     mat_shell = Hookean(params_shell)
-    elem_shell = Shell3(mat_shell, thickness=0.5)
+    elem_shell = Shell3Linear(mat_shell, thickness=0.5)
     shell_domain = ShellDomain(smesh, mat_shell, elem_shell)
 
     coupled_domain = CoupledSolidShellDomain(solid_domain, shell_domain)
@@ -145,7 +144,7 @@ def test_domain_to_pyvista_and_save_state(tmp_path: Path, beam_vtk_path: Path) -
     params_solid = IsotropicElasticParameters()
     params_solid.set_from_youngs_poisson(youngs_modulus=50000.0, poissons_ratio=0.4, mass_density=1e-9)
     mat_solid = Hookean(params_solid)
-    elem_solid = Tet4(mat_solid)
+    elem_solid = Tet4Linear(mat_solid)
     solid_domain = SolidDomain(vmesh, mat_solid, elem_solid)
 
     # Set mock displacement on solid
@@ -181,7 +180,7 @@ def test_domain_to_pyvista_and_save_state(tmp_path: Path, beam_vtk_path: Path) -
     params_shell = IsotropicElasticParameters()
     params_shell.set_from_youngs_poisson(youngs_modulus=10.0e6, poissons_ratio=0.3, mass_density=1.1e-9)
     mat_shell = Hookean(params_shell)
-    elem_shell = Shell3(mat_shell, thickness=0.5)
+    elem_shell = Shell3Linear(mat_shell, thickness=0.5)
     shell_domain = ShellDomain(smesh, mat_shell, elem_shell)
 
     mock_u_shell = np.zeros(shell_domain.n_dofs, dtype=np.float64)

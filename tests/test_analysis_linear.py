@@ -4,8 +4,7 @@ import numpy as np
 import pytest
 
 from psierra.domain.solid import SolidDomain
-from psierra.element.tet4 import Tet4
-from psierra.element.tet10 import Tet10
+from psierra.element import Tet4Linear, Tet10Linear
 from psierra.material.hookean import Hookean
 from psierra.material.parameters import IsotropicElasticParameters
 from psierra.mesh.volumetric import VolumetricMesh
@@ -24,7 +23,7 @@ class TestLinearAnalysis:
         self, five_tet_cube_mesh: VolumetricMesh, hookean_material: Hookean
     ) -> None:
         mesh = five_tet_cube_mesh
-        element = Tet4(hookean_material)
+        element = Tet4Linear(hookean_material)
         domain = SolidDomain(mesh, hookean_material, element)
 
         # Clamp face at Z = 0 (nodes with Z = 0)
@@ -64,7 +63,7 @@ class TestLinearAnalysis:
         params = IsotropicElasticParameters()
         params.set_from_youngs_poisson(youngs_modulus=21000.0, poissons_ratio=0.35, mass_density=1.0)
         material = Hookean(params)
-        element = Tet4(material)
+        element = Tet4Linear(material)
         domain = SolidDomain(mesh, material, element)
 
         root_nodes = select_nodes_by_plane(mesh, plane="xz", bound="min")
@@ -109,7 +108,7 @@ class TestLinearAnalysis:
         material = Hookean(params)
 
         # 1. Tet4 solve
-        dom4 = SolidDomain(mesh_tet4, material, Tet4(material))
+        dom4 = SolidDomain(mesh_tet4, material, Tet4Linear(material))
         root4 = select_nodes_by_plane(mesh_tet4, plane="xz", bound="min")
         dir4 = DirichletManager(mesh_tet4.n_dofs)
         dir4.add_constraint(DirichletConstraint(root4, components=(0, 1, 2), value=0.0))
@@ -123,7 +122,7 @@ class TestLinearAnalysis:
         tip_def4 = np.mean(res4.displacement[tip4 * 3 + 2])
 
         # 2. Tet10 solve
-        dom10 = SolidDomain(mesh_tet10, material, Tet10(material))
+        dom10 = SolidDomain(mesh_tet10, material, Tet10Linear(material))
         root10 = select_nodes_by_plane(mesh_tet10, plane="xz", bound="min")
         dir10 = DirichletManager(mesh_tet10.n_dofs)
         dir10.add_constraint(DirichletConstraint(root10, components=(0, 1, 2), value=0.0))
@@ -147,7 +146,7 @@ class TestLinearAnalysis:
         self, five_tet_cube_mesh: VolumetricMesh, hookean_material: Hookean, tmp_path: Path
     ) -> None:
         mesh = five_tet_cube_mesh
-        element = Tet4(hookean_material)
+        element = Tet4Linear(hookean_material)
         domain = SolidDomain(mesh, hookean_material, element)
 
         fixed_nodes = select_nodes_by_plane(mesh, plane="xy", bound="min")
