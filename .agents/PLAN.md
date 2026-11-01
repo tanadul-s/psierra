@@ -58,12 +58,15 @@ This document outlines the strategic milestones, component delivery roadmap, and
   - Exact analytical consistent mass matrix integration.
   - Total Lagrangian formulation with consistent tangent stiffness matrix ($k_{tan}$ matches finite difference to $< 10^{-9}$).
   - Full suite of 13 unit tests in `tests/test_element_tet10.py` and cantilever shear locking alleviation benchmark ($1.87\times$ flexibility over Tet4) in `tests/test_analysis_linear.py`.
-- [ ] Hexahedral elements (`Hex8`, `Hex20`) for structured mesh domains.
-- [ ] **Structural Thin-Walled Shell Elements (`Shell3` / `Shell4`) (Target: Next Step / After TL/UL)**:
-  - Triangular and quadrilateral flat/curved shell elements using Discrete Kirchhoff Triangle (`DKT`) or Mixed Interpolation of Tensorial Components (`MITC3` / `MITC4` Reissner-Mindlin) formulations.
-  - 6 DOFs per node ($u_x, u_y, u_z, \theta_x, \theta_y, \theta_z$) with drilling DOF stabilization for seamless 3D coupling with solid continua (`Tet4`, `Tet10`).
-  - Crucial for anatomical membranes (cranial dura mater, falx cerebri, tentorium, pericardium, fascia, skin, aortic walls) and thin-walled CAD structures.
-  - Linear membrane-bending coupling, composite laminate/thickness integration, and co-rotational / Total Lagrangian large-deflection formulations.
+- [ ] **Triangular Structural Shell Elements (`Shell3` / `Shell6`) (Target: Next Step / After TL/UL)**:
+  - 3-node linear (`Shell3`) and 6-node quadratic (`Shell6`) triangular shell elements matching surface boundary faces of solid tetrahedral meshes (`Tet4`, `Tet10`).
+  - `Shell6` provides 100% conforming quadratic interface with `Tet10` solid volume without geometric gap or faceting error.
+  - Formulations:
+    - Discrete Kirchhoff Triangle (`DKT`): thin membranes (dura mater, falx cerebri, tentorium, arterial walls).
+    - Mixed Interpolation of Tensorial Components (`MITC`): moderately thick cranial calvarium (skull boundary) and articular cartilage where through-thickness transverse shear deformation is active.
+  - 6 DOFs per node ($u_x, u_y, u_z, \theta_x, \theta_y, \theta_z$) with drilling rotation stabilization for seamless 3D node-sharing coupling with solid continua (`Tet4`, `Tet10`).
+  - Essential for anatomical thin-walled structures and cranial confinement in brain shift simulation.
+  - Linear membrane-bending coupling, analytical thickness integration, and co-rotational / Total Lagrangian large-deflection formulations.
 - [ ] Kinematic formulations:
   - Total Lagrangian (TL) with Green-Lagrange strain $E$ and 2nd Piola-Kirchhoff stress $S$.
   - Updated Lagrangian (UL) with Almansi strain and Cauchy stress.
@@ -82,6 +85,7 @@ This document outlines the strategic milestones, component delivery roadmap, and
 - [ ] **Surface Extraction & Proximity Detection**:
   - Boundary surface facet extraction from 3D tetrahedral/hexahedral meshes.
   - Fast collision detection with Bounding Volume Hierarchy (BVH) / Axis-Aligned Bounding Boxes (AABB).
+  - Ray-tracing approach (Möller-Trumbore ray-triangle intersection) for high-speed signed distance, penetration depth ($g_n < 0$), and gap determination along surface normals.
   - Point-to-surface and surface-to-surface proximity / penetration distance calculations.
 - [ ] **Contact Formulations**:
   - Penalty method for normal contact constraints.
@@ -142,3 +146,15 @@ This document outlines the strategic milestones, component delivery roadmap, and
 - [ ] Multiphysics coupling:
   - Vibro-acoustics simulation.
   - Fluid-Structure Interaction (FSI) coupling interfaces.
+
+---
+
+## Extension & Secondary Roadmap: Structured Hexahedral Mechanics (Hex8, Hex20)
+
+*Objective*: Advanced structured hexahedral discretizations for prismatic and mapped CAD domains where structured block meshing is applicable.
+
+- [ ] Hexahedral volume meshing infrastructure (structured sweeping, transfinite interpolation, polycube mapping).
+- [ ] Linear 8-node brick element (`Hex8`) with B-bar / Selective Reduced Integration (SRI) to prevent volumetric locking.
+- [ ] Quadratic 20-node serendipity brick element (`Hex20`) with 27-point / 14-point Gauss quadrature.
+- [ ] Quadrilateral shell element (`Shell4` / MITC4) for structured quadrilateral surface patches.
+
