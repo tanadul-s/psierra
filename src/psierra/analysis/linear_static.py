@@ -109,7 +109,7 @@ class LinearStaticAnalysis(Analysis):
         # 6. Compute Elastic Strain Energy
         strain_energy = 0.5 * float(u_full @ (K @ u_full))
 
-        # 7. Update SolidDomain State
+        # 7. Update Domain State
         self.domain.update_state(u=u_full)
 
         if verbose:

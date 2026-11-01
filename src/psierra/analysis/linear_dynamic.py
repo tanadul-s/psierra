@@ -6,7 +6,7 @@ import scipy.sparse as spsp
 import scipy.sparse.linalg as spla
 from rich import print
 
-from psierra.domain.solid import SolidDomain
+from psierra.domain.base import Domain
 from psierra.boundary.dirichlet import DirichletManager, DirichletConstraint
 from psierra.damping.rayleigh import RayleighDamping
 from psierra.analysis.base import Analysis
@@ -31,7 +31,7 @@ class LinearDynamicAnalysis(Analysis):
 
     def __init__(
         self,
-        domain: SolidDomain,
+        domain: Domain,
         damping: RayleighDamping | None = None,
         gamma: float = 0.5,
         beta: float = 0.25,
@@ -39,8 +39,8 @@ class LinearDynamicAnalysis(Analysis):
         """
         Parameters:
         -----------
-        domain : SolidDomain
-            Physical continuum body.
+        domain : Domain
+            Physical continuum or coupled body.
         damping : RayleighDamping, optional
             Rayleigh damping model (defaults to undamped C = 0).
         gamma : float, default=0.5
@@ -95,7 +95,7 @@ class LinearDynamicAnalysis(Analysis):
         """
         # Ensure DirichletManager
         if isinstance(dirichlet, list):
-            manager = DirichletManager(self.domain.mesh.n_dofs)
+            manager = DirichletManager(self.domain.n_dofs)
             for c in dirichlet:
                 manager.add_constraint(c)
         else:
@@ -154,9 +154,9 @@ class LinearDynamicAnalysis(Analysis):
         a_f = spla.spsolve(M_ff_csc, r0)
 
         # Full vectors for output
-        u_full = np.zeros(self.domain.mesh.n_dofs, dtype=np.float64)
-        v_full = np.zeros(self.domain.mesh.n_dofs, dtype=np.float64)
-        a_full = np.zeros(self.domain.mesh.n_dofs, dtype=np.float64)
+        u_full = np.zeros(self.domain.n_dofs, dtype=np.float64)
+        v_full = np.zeros(self.domain.n_dofs, dtype=np.float64)
+        a_full = np.zeros(self.domain.n_dofs, dtype=np.float64)
 
         if len(p_dofs) > 0:
             u_full[p_dofs] = u_p
@@ -185,7 +185,7 @@ class LinearDynamicAnalysis(Analysis):
 
         if verbose:
             print("[bold cyan]Linear Dynamic Analysis (Implicit Newmark-beta)[/bold cyan]")
-            print(f"Total DOFs: {self.domain.mesh.n_dofs} | Free DOFs: {len(free_dofs)} | Total Steps: {n_steps} | dt = {dt:.4e} s\n")
+            print(f"Total DOFs: {self.domain.n_dofs} | Free DOFs: {len(free_dofs)} | Total Steps: {n_steps} | dt = {dt:.4e} s\n")
 
         # 7. Time Integration Steps
         for step in range(1, n_steps + 1):

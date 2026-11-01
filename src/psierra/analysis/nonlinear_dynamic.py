@@ -5,7 +5,7 @@ import numpy as np
 import scipy.sparse as spsp
 from rich import print
 
-from psierra.domain.solid import SolidDomain
+from psierra.domain.base import Domain
 from psierra.boundary.dirichlet import DirichletManager, DirichletConstraint
 from psierra.damping.rayleigh import RayleighDamping
 from psierra.solver.base import SparseLinearSolver
@@ -35,7 +35,7 @@ class NonlinearDynamicAnalysis(Analysis):
 
     def __init__(
         self,
-        domain: SolidDomain,
+        domain: Domain,
         damping: RayleighDamping | None = None,
         linear_solver: SparseLinearSolver | None = None,
         gamma: float = 0.5,
@@ -97,7 +97,7 @@ class NonlinearDynamicAnalysis(Analysis):
         """
         # Ensure DirichletManager
         if isinstance(dirichlet, list):
-            manager = DirichletManager(self.domain.mesh.n_dofs)
+            manager = DirichletManager(self.domain.n_dofs)
             for c in dirichlet:
                 manager.add_constraint(c)
         else:
@@ -151,9 +151,9 @@ class NonlinearDynamicAnalysis(Analysis):
         a_f = self.linear_solver.solve(M_ff.tocsc(), r0)
 
         # Full vectors for output
-        u_full = np.zeros(self.domain.mesh.n_dofs, dtype=np.float64)
-        v_full = np.zeros(self.domain.mesh.n_dofs, dtype=np.float64)
-        a_full = np.zeros(self.domain.mesh.n_dofs, dtype=np.float64)
+        u_full = np.zeros(self.domain.n_dofs, dtype=np.float64)
+        v_full = np.zeros(self.domain.n_dofs, dtype=np.float64)
+        a_full = np.zeros(self.domain.n_dofs, dtype=np.float64)
 
         if len(p_dofs) > 0:
             u_full[p_dofs] = u_p
@@ -184,7 +184,7 @@ class NonlinearDynamicAnalysis(Analysis):
         if verbose:
             print("[bold cyan]Nonlinear Dynamic Analysis (Implicit Newmark-beta)[/bold cyan]")
             print(
-                f"Total DOFs: {self.domain.mesh.n_dofs} | Free DOFs: {len(free_dofs)} | Total Steps: {n_steps} | dt = {dt:.4e} s | Tol = {tolerance:.1e}\n"
+                f"Total DOFs: {self.domain.n_dofs} | Free DOFs: {len(free_dofs)} | Total Steps: {n_steps} | dt = {dt:.4e} s | Tol = {tolerance:.1e}\n"
             )
 
         # 5. Dynamic Time Stepping Loop

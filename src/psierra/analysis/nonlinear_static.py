@@ -3,7 +3,7 @@ from dataclasses import dataclass, field
 import numpy as np
 from rich import print
 
-from psierra.domain.solid import SolidDomain
+from psierra.domain.base import Domain
 from psierra.boundary.dirichlet import DirichletManager, DirichletConstraint
 from psierra.solver.sparse_linear_solver import SparseLinearSolver, DirectSolver
 from psierra.analysis.base import Analysis
@@ -28,7 +28,7 @@ class NonlinearStaticAnalysis(Analysis):
 
     def __init__(
         self,
-        domain: SolidDomain,
+        domain: Domain,
         linear_solver: SparseLinearSolver | None = None,
     ) -> None:
         self.domain = domain
@@ -69,7 +69,7 @@ class NonlinearStaticAnalysis(Analysis):
         """
         # Ensure DirichletManager
         if isinstance(dirichlet, list):
-            manager = DirichletManager(self.domain.mesh.n_dofs)
+            manager = DirichletManager(self.domain.n_dofs)
             for c in dirichlet:
                 manager.add_constraint(c)
         else:
@@ -90,7 +90,7 @@ class NonlinearStaticAnalysis(Analysis):
         if f_ref_norm < 1e-12:
             f_ref_norm = 1.0  # Avoid division by zero for unforced problems
 
-        u_current = np.zeros(self.domain.mesh.n_dofs, dtype=np.float64)
+        u_current = np.zeros(self.domain.n_dofs, dtype=np.float64)
         iteration_history: list[int] = []
 
         if verbose:
