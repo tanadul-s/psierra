@@ -2,7 +2,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 import numpy as np
 
-from psierra.domain.solid import SolidDomain
+from psierra.domain.base import Domain
 from psierra.boundary.dirichlet import DirichletManager, DirichletConstraint
 from psierra.solver.sparse_linear_solver import SparseLinearSolver, DirectSolver
 from psierra.analysis.base import Analysis
@@ -28,7 +28,7 @@ class LinearStaticAnalysis(Analysis):
 
     def __init__(
         self,
-        domain: SolidDomain,
+        domain: Domain,
         linear_solver: SparseLinearSolver | None = None,
     ) -> None:
         self.domain = domain
@@ -60,7 +60,7 @@ class LinearStaticAnalysis(Analysis):
         """
         # Ensure DirichletManager
         if isinstance(dirichlet, list):
-            manager = DirichletManager(self.domain.mesh.n_dofs)
+            manager = DirichletManager(self.domain.n_dofs)
             for c in dirichlet:
                 manager.add_constraint(c)
         else:
@@ -77,7 +77,7 @@ class LinearStaticAnalysis(Analysis):
 
         if verbose:
             print("[bold cyan]Linear Static Analysis (Direct Sparse Factorization)[/bold cyan]")
-            print(f"Total DOFs: {self.domain.mesh.n_dofs} | Free DOFs: {len(free_dofs)} | Constrained DOFs: {len(p_dofs)}\n")
+            print(f"Total DOFs: {self.domain.n_dofs} | Free DOFs: {len(free_dofs)} | Constrained DOFs: {len(p_dofs)}\n")
 
         # 1. Assemble Global Stiffness Matrix K
         K = self.domain.assemble_stiffness_matrix()
@@ -97,7 +97,7 @@ class LinearStaticAnalysis(Analysis):
         u_f = self.linear_solver.solve(K_ff, rhs)
 
         # 4. Reconstruct Full Displacement Vector U
-        u_full = np.zeros(self.domain.mesh.n_dofs, dtype=np.float64)
+        u_full = np.zeros(self.domain.n_dofs, dtype=np.float64)
         u_full[free_dofs] = u_f
         if len(p_dofs) > 0:
             u_full[p_dofs] = u_p
