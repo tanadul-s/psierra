@@ -1,5 +1,6 @@
 from __future__ import annotations
 from dataclasses import dataclass
+from pathlib import Path
 import numpy as np
 
 from psierra.domain.base import Domain
@@ -18,6 +19,7 @@ class LinearStaticResult:
     strain_energy: float  # Elastic strain energy (0.5 * u^T K u)
     free_dofs: np.ndarray  # Unconstrained global DOF indices
     prescribed_dofs: np.ndarray  # Constrained global DOF indices
+    saved_file: Path | None = None  # Saved .vtu file path if exported
 
 
 class LinearStaticAnalysis(Analysis):
@@ -40,6 +42,10 @@ class LinearStaticAnalysis(Analysis):
         self,
         dirichlet: DirichletManager | list[DirichletConstraint],
         f_ext: np.ndarray,
+        include_stresses: bool = False,
+        smooth_to_nodes: bool = False,
+        save_directory: Path | str | None = None,
+        output_name: str = "result",
         verbose: bool = True,
     ) -> LinearStaticResult:
         """
@@ -51,6 +57,14 @@ class LinearStaticAnalysis(Analysis):
             Essential boundary conditions.
         f_ext : np.ndarray of shape (n_dofs,)
             Total external load vector (point forces + body gravity loads).
+        include_stresses : bool, default=False
+            If True, calculates von Mises & principal stresses if saved.
+        smooth_to_nodes : bool, default=False
+            If True, smooths element stresses to mesh nodes.
+        save_directory : Path or str, optional
+            Directory to save output .vtu file.
+        output_name : str, default="result"
+            Filename prefix for exported .vtu file.
         verbose : bool, default=True
             Whether to print solver progress.
 
@@ -75,9 +89,17 @@ class LinearStaticAnalysis(Analysis):
                 "All degrees of freedom are constrained. Nothing to solve."
             )
 
+        save_dir = Path(save_directory) if save_directory is not None else None
+        if save_dir is not None:
+            save_dir.mkdir(parents=True, exist_ok=True)
+
         if verbose:
-            print("[bold cyan]Linear Static Analysis (Direct Sparse Factorization)[/bold cyan]")
-            print(f"Total DOFs: {self.domain.n_dofs} | Free DOFs: {len(free_dofs)} | Constrained DOFs: {len(p_dofs)}\n")
+            print(
+                "[bold cyan]Linear Static Analysis (Direct Sparse Factorization)[/bold cyan]"
+            )
+            print(
+                f"Total DOFs: {self.domain.n_dofs} | Free DOFs: {len(free_dofs)} | Constrained DOFs: {len(p_dofs)}\n"
+            )
 
         # 1. Assemble Global Stiffness Matrix K
         K = self.domain.assemble_stiffness_matrix()
@@ -112,8 +134,20 @@ class LinearStaticAnalysis(Analysis):
         # 7. Update Domain State
         self.domain.update_state(u=u_full)
 
+        # 8. Save State if directory specified
+        saved_file: Path | None = None
+        if save_dir is not None:
+            saved_file = save_dir / f"{output_name}.vtu"
+            self.domain.save_state(
+                saved_file,
+                include_stresses=include_stresses,
+                smooth_to_nodes=smooth_to_nodes,
+            )
+
         if verbose:
-            print("[bold green]✓ Linear Static Analysis converged successfully.[/bold green]\n")
+            print(
+                "[bold green]✓ Linear Static Analysis converged successfully.[/bold green]\n"
+            )
 
         return LinearStaticResult(
             displacement=u_full,
@@ -121,4 +155,5 @@ class LinearStaticAnalysis(Analysis):
             strain_energy=strain_energy,
             free_dofs=free_dofs,
             prescribed_dofs=p_dofs,
+            saved_file=saved_file,
         )

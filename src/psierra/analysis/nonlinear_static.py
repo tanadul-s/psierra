@@ -1,5 +1,6 @@
 from __future__ import annotations
 from dataclasses import dataclass, field
+from pathlib import Path
 import numpy as np
 from rich import print
 
@@ -7,6 +8,7 @@ from psierra.domain.base import Domain
 from psierra.boundary.dirichlet import DirichletManager, DirichletConstraint
 from psierra.solver.sparse_linear_solver import SparseLinearSolver, DirectSolver
 from psierra.analysis.base import Analysis
+from psierra.exchange import PvdCollectionWriter
 
 
 @dataclass
@@ -18,6 +20,9 @@ class NonlinearStaticResult:
     converged: bool  # Whether the solve succeeded
     steps_completed: int  # Number of successful load steps
     iteration_history: list[int] = field(default_factory=list)  # Iterations per step
+    time_series_files: list[Path] = field(
+        default_factory=list
+    )  # Exported .vtu file paths
 
 
 class NonlinearStaticAnalysis(Analysis):
@@ -41,8 +46,13 @@ class NonlinearStaticAnalysis(Analysis):
         dirichlet: DirichletManager | list[DirichletConstraint],
         f_ext: np.ndarray,
         n_steps: int = 10,
-        max_iterations: int = 25,
-        tolerance: float = 1e-4,
+        nr_iterations: int = 25,
+        nr_tol: float = 1e-4,
+        include_stresses: bool = False,
+        smooth_to_nodes: bool = False,
+        save_directory: Path | str | None = None,
+        output_name: str = "result",
+        save_interval: int = 1,
         verbose: bool = True,
     ) -> NonlinearStaticResult:
         """
@@ -56,10 +66,20 @@ class NonlinearStaticAnalysis(Analysis):
             Total external load vector to be reached at lambda = 1.0.
         n_steps : int, default=10
             Number of incremental load steps.
-        max_iterations : int, default=25
+        nr_iterations : int, default=25
             Maximum Newton-Raphson iterations per load step.
-        tolerance : float, default=1e-4
+        nr_tol : float, default=1e-4
             Relative Euclidean residual convergence tolerance ||R|| / ||F_ext||.
+        include_stresses : bool, default=False
+            If True, calculates von Mises & principal stresses at each saved step.
+        smooth_to_nodes : bool, default=False
+            If True, smooths element stresses to mesh nodes.
+        save_directory : Path or str, optional
+            Directory to stream Paraview (.vtu) snapshots and master .pvd collection.
+        output_name : str, default="result"
+            Master filename prefix for exported .pvd collection (result.pvd).
+        save_interval : int, default=1
+            Number of steps between saved step_*.vtu frame files.
         verbose : bool, default=True
             Print step-by-step residual and convergence reports.
 
@@ -84,6 +104,13 @@ class NonlinearStaticAnalysis(Analysis):
                 "All degrees of freedom are constrained. Nothing to solve."
             )
 
+        save_dir = Path(save_directory) if save_directory is not None else None
+        if save_dir is not None:
+            save_dir.mkdir(parents=True, exist_ok=True)
+
+        if save_interval < 1:
+            raise ValueError(f"save_interval must be >= 1, got {save_interval}")
+
         # Baseline reference scale for convergence check
         f_ext_free = f_ext[free_dofs]
         f_ref_norm = np.linalg.norm(f_ext_free)
@@ -92,10 +119,33 @@ class NonlinearStaticAnalysis(Analysis):
 
         u_current = np.zeros(self.domain.n_dofs, dtype=np.float64)
         iteration_history: list[int] = []
+        exported_files: list[Path] = []
+        pvd_writer = (
+            PvdCollectionWriter(save_dir / f"{output_name}.pvd")
+            if save_dir is not None
+            else None
+        )
+
+        # Save Step 0 (Initial state at lambda = 0.0)
+        if save_dir is not None and pvd_writer is not None:
+            vtu_name = "step_00000.vtu"
+            vtu_path = save_dir / vtu_name
+            self.domain.update_state(u=u_current)
+            self.domain.save_state(
+                vtu_path,
+                include_stresses=include_stresses,
+                smooth_to_nodes=smooth_to_nodes,
+            )
+            pvd_writer.add_timestep(0.0, vtu_name)
+            exported_files.append(vtu_path)
 
         if verbose:
-            print("[bold cyan]Nonlinear Static Analysis (Incremental Newton-Raphson)[/bold cyan]")
-            print(f"Total DOFs: {len(u_current)} | Free DOFs: {len(free_dofs)} | Load Steps: {n_steps} | Max Iter/Step: {max_iterations} | Tol: {tolerance:.1e}\n")
+            print(
+                "[bold cyan]Nonlinear Static Analysis (Incremental Newton-Raphson)[/bold cyan]"
+            )
+            print(
+                f"Total DOFs: {len(u_current)} | Free DOFs: {len(free_dofs)} | Load Steps: {n_steps} | Max Iter/Step: {nr_iterations} | Tol: {nr_tol:.1e}\n"
+            )
 
         for step in range(1, n_steps + 1):
             load_factor = step / n_steps
@@ -107,11 +157,13 @@ class NonlinearStaticAnalysis(Analysis):
                 u_current[p_dofs] = load_factor * u_p
 
             if verbose:
-                print(f"[bold cyan]--- Step {step:2d}/{n_steps} (Load Factor lambda = {load_factor:.2f}) ---[/bold cyan]")
+                print(
+                    f"[bold cyan]--- Step {step:2d}/{n_steps} (Load Factor lambda = {load_factor:.2f}) ---[/bold cyan]"
+                )
 
             converged_step = False
 
-            for iteration in range(1, max_iterations + 1):
+            for iteration in range(1, nr_iterations + 1):
                 # 1. Update state in domain with current displacement guess
                 self.domain.update_state(u=u_current)
 
@@ -125,14 +177,18 @@ class NonlinearStaticAnalysis(Analysis):
                 rel_residual = residual_norm / f_ref_norm
 
                 if verbose:
-                    print(f"  Iter {iteration:2d} | ||R|| = {residual_norm:.4e} | Rel = {rel_residual:.4e}")
+                    print(
+                        f"  Iter {iteration:2d} | ||R|| = {residual_norm:.4e} | Rel = {rel_residual:.4e}"
+                    )
 
                 # Check Convergence
-                if rel_residual < tolerance:
+                if rel_residual < nr_tol:
                     converged_step = True
                     iteration_history.append(iteration)
                     if verbose:
-                        print(f"  [bold green]✓ Step {step} converged in {iteration} iteration(s)![/bold green]\n")
+                        print(
+                            f"  [bold green]✓ Step {step} converged in {iteration} iteration(s)![/bold green]\n"
+                        )
                     break
 
                 # 4. Partition Tangent Stiffness to Free DOFs
@@ -170,8 +226,12 @@ class NonlinearStaticAnalysis(Analysis):
 
             if not converged_step:
                 if verbose:
-                    print(f"[bold red]✗ Step {step} failed to converge after {max_iterations} iterations![/bold red]")
+                    print(
+                        f"[bold red]✗ Step {step} failed to converge after {nr_iterations} iterations![/bold red]"
+                    )
                 self.domain.update_state(u=u_current)
+                if save_dir is not None and pvd_writer is not None:
+                    pvd_writer.write()
                 reactions = self.domain.assemble_internal_forces() - f_step
                 return NonlinearStaticResult(
                     displacement=u_current,
@@ -179,15 +239,37 @@ class NonlinearStaticAnalysis(Analysis):
                     converged=False,
                     steps_completed=step - 1,
                     iteration_history=iteration_history,
+                    time_series_files=exported_files,
                 )
+
+            # Save frame if directory specified and matching save_interval or final step
+            if (
+                save_dir is not None
+                and pvd_writer is not None
+                and (step % save_interval == 0 or step == n_steps)
+            ):
+                vtu_name = f"step_{step:05d}.vtu"
+                vtu_path = save_dir / vtu_name
+                self.domain.save_state(
+                    vtu_path,
+                    include_stresses=include_stresses,
+                    smooth_to_nodes=smooth_to_nodes,
+                )
+                pvd_writer.add_timestep(float(load_factor), vtu_name)
+                exported_files.append(vtu_path)
 
         # Simulation successfully completed all steps
         self.domain.update_state(u=u_current)
         f_int_final = self.domain.assemble_internal_forces()
         reactions = f_int_final - f_ext
 
+        if save_dir is not None and pvd_writer is not None:
+            pvd_writer.write()
+
         if verbose:
-            print(f"[bold green]✓ Nonlinear Static Analysis converged successfully ({n_steps}/{n_steps} steps).[/bold green]\n")
+            print(
+                f"[bold green]✓ Nonlinear Static Analysis converged successfully ({n_steps}/{n_steps} steps).[/bold green]\n"
+            )
 
         return NonlinearStaticResult(
             displacement=u_current,
@@ -195,5 +277,5 @@ class NonlinearStaticAnalysis(Analysis):
             converged=True,
             steps_completed=n_steps,
             iteration_history=iteration_history,
+            time_series_files=exported_files,
         )
-

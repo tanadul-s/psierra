@@ -17,10 +17,14 @@ from psierra.exchange import PvdCollectionWriter
 class LinearDynamicResult:
     """Container for linear dynamic time-history results."""
 
-    time: np.ndarray  # Time points (n_steps,)
+    time: np.ndarray  # Time points (n_steps + 1,)
     time_series_files: list[Path] = field(
         default_factory=list
     )  # Exported .vtu file paths
+    converged: bool = True  # True if dynamic integration completed
+    steps_completed: int = 0  # Number of completed steps
+    steady_state_converged: bool = False  # True if early equilibrium stopping occurred
+    steady_state_step: int | None = None  # Step index where steady state was reached
 
 
 class LinearDynamicAnalysis(Analysis):
@@ -62,9 +66,11 @@ class LinearDynamicAnalysis(Analysis):
         include_stresses: bool = False,
         smooth_to_nodes: bool = False,
         save_directory: Path | str | None = None,
-        output_dir: Path | str | None = None,
-        output_name: str = "step",
+        output_name: str = "result",
         save_interval: int = 1,
+        steady_state_tol: float | None = None,
+        kinetic_energy_tol: float | None = None,
+        consecutive_hold_steps: int = 3,
         verbose: bool = True,
     ) -> LinearDynamicResult:
         """
@@ -79,13 +85,26 @@ class LinearDynamicAnalysis(Analysis):
         dt : float
             Time step size in seconds.
         n_steps : int
-            Total number of time steps to compute.
+            Maximum number of time steps to compute.
         include_stresses : bool, default=False
             If True, calculates von Mises & principal stresses at each saved step.
-        output_dir : Path or str, optional
+        smooth_to_nodes : bool, default=False
+            If True, smooths element stresses to mesh nodes.
+        save_directory : Path or str, optional
             Directory to stream Paraview (.vtu) snapshots and master .pvd collection.
-        output_name : str, default="step"
-            Filename prefix for each exported .vtu frame.
+        output_name : str, default="result"
+            Master filename prefix for exported .pvd collection (result.pvd).
+        save_interval : int, default=1
+            Number of steps between saved step_*.vtu frame files.
+        steady_state_tol : float, optional
+            Relative static residual tolerance ||F_ext - K*u|| / ||F_ext||.
+            When specified, stops the dynamic solver early once equilibrium is reached.
+            If None (default), steady-state checking is ignored.
+        kinetic_energy_tol : float, optional
+            Relative kinetic energy decay ratio E_k / max(E_k). If provided with
+            steady_state_tol, both criteria must be satisfied simultaneously.
+        consecutive_hold_steps : int, default=3
+            Number of consecutive steps that steady-state criteria must hold before stopping.
         verbose : bool, default=True
             Print step progress to terminal.
 
@@ -110,10 +129,17 @@ class LinearDynamicAnalysis(Analysis):
                 "All degrees of freedom are constrained. Nothing to solve."
             )
 
-        target_dir = save_directory if save_directory is not None else output_dir
-        save_dir = Path(target_dir) if target_dir is not None else None
+        save_dir = Path(save_directory) if save_directory is not None else None
         if save_dir is not None:
             save_dir.mkdir(parents=True, exist_ok=True)
+
+        if save_interval < 1:
+            raise ValueError(f"save_interval must be >= 1, got {save_interval}")
+
+        hold_counter = 0
+        steady_state_converged = False
+        steady_state_step: int | None = None
+        max_kinetic_energy = 0.0
 
         # 1. Newmark-beta Integration Constants
         gamma = self.gamma
@@ -136,6 +162,9 @@ class LinearDynamicAnalysis(Analysis):
         C_ff = C[free_dofs, :][:, free_dofs]
 
         f_ext_f = f_ext[free_dofs]
+        f_ref_norm = np.linalg.norm(f_ext_f)
+        if f_ref_norm < 1e-12:
+            f_ref_norm = 1.0
 
         # 4. Form Effective Tangent Matrix K_eff (Constant!)
         # K_eff = K_ff + a0 * M_ff + a1 * C_ff
@@ -165,14 +194,14 @@ class LinearDynamicAnalysis(Analysis):
         time_points = np.linspace(0, n_steps * dt, n_steps + 1)
         exported_files: list[Path] = []
         pvd_writer = (
-            PvdCollectionWriter(save_dir / "output.pvd")
+            PvdCollectionWriter(save_dir / f"{output_name}.pvd")
             if save_dir is not None
             else None
         )
 
         # Save Initial State (Step 0)
         if save_dir is not None and pvd_writer is not None:
-            vtu_name = f"{output_name}_00000.vtu"
+            vtu_name = "step_00000.vtu"
             vtu_path = save_dir / vtu_name
             self.domain.update_state(u=u_full, v=v_full, a=a_full)
             self.domain.save_state(
@@ -184,8 +213,12 @@ class LinearDynamicAnalysis(Analysis):
             exported_files.append(vtu_path)
 
         if verbose:
-            print("[bold cyan]Linear Dynamic Analysis (Implicit Newmark-beta)[/bold cyan]")
-            print(f"Total DOFs: {self.domain.n_dofs} | Free DOFs: {len(free_dofs)} | Total Steps: {n_steps} | dt = {dt:.4e} s\n")
+            print(
+                "[bold cyan]Linear Dynamic Analysis (Implicit Newmark-beta)[/bold cyan]"
+            )
+            print(
+                f"Total DOFs: {self.domain.n_dofs} | Free DOFs: {len(free_dofs)} | Total Steps: {n_steps} | dt = {dt:.4e} s\n"
+            )
 
         # 7. Time Integration Steps
         for step in range(1, n_steps + 1):
@@ -216,12 +249,13 @@ class LinearDynamicAnalysis(Analysis):
             self.domain.update_state(u=u_full, v=v_full, a=a_full)
 
             # Save frame if directory specified and matching save_interval
+            saved_current_step = False
             if (
                 save_dir is not None
                 and pvd_writer is not None
                 and (step % save_interval == 0 or step == n_steps)
             ):
-                vtu_name = f"{output_name}_{step:05d}.vtu"
+                vtu_name = f"step_{step:05d}.vtu"
                 vtu_path = save_dir / vtu_name
                 self.domain.save_state(
                     vtu_path,
@@ -230,6 +264,7 @@ class LinearDynamicAnalysis(Analysis):
                 )
                 pvd_writer.add_timestep(t_current, vtu_name)
                 exported_files.append(vtu_path)
+                saved_current_step = True
 
             if verbose and (step % max(1, n_steps // 10) == 0 or step == n_steps):
                 max_d = np.linalg.norm(self.domain.displacement, axis=1).max()
@@ -237,12 +272,72 @@ class LinearDynamicAnalysis(Analysis):
                     f"  Step {step:5d}/{n_steps} (t = {t_current:.4f} s) | Max Disp = {max_d:.3f} mm"
                 )
 
+            # Steady-state equilibrium check (dynamic relaxation / steady state)
+            if steady_state_tol is not None:
+                r_static = f_ext_f - K_ff @ u_f
+                rel_res_static = float(np.linalg.norm(r_static) / f_ref_norm)
+
+                ke_current = 0.5 * float(v_f @ (M_ff @ v_f))
+                max_kinetic_energy = max(max_kinetic_energy, ke_current)
+
+                is_equilibrated = rel_res_static <= steady_state_tol
+                if kinetic_energy_tol is not None:
+                    rel_ke = (
+                        ke_current / max_kinetic_energy
+                        if max_kinetic_energy > 1e-14
+                        else 0.0
+                    )
+                    is_equilibrated = is_equilibrated and (rel_ke <= kinetic_energy_tol)
+
+                if is_equilibrated:
+                    hold_counter += 1
+                else:
+                    hold_counter = 0
+
+                if hold_counter >= consecutive_hold_steps:
+                    steady_state_converged = True
+                    steady_state_step = step
+
+                    # Ensure the final snapshot is saved upon reaching steady state
+                    if (
+                        save_dir is not None
+                        and pvd_writer is not None
+                        and not saved_current_step
+                    ):
+                        vtu_name = f"step_{step:05d}.vtu"
+                        vtu_path = save_dir / vtu_name
+                        self.domain.save_state(
+                            vtu_path,
+                            include_stresses=include_stresses,
+                            smooth_to_nodes=smooth_to_nodes,
+                        )
+                        pvd_writer.add_timestep(t_current, vtu_name)
+                        exported_files.append(vtu_path)
+
+                    if verbose:
+                        print(
+                            f"\n[bold green]✓ Steady-state static equilibrium reached at step {step} "
+                            f"(t = {t_current:.4f} s, Static RelRes = {rel_res_static:.2e})![/bold green]"
+                        )
+                    break
+
         # 8. Write Master .pvd Animation File for ParaView
         if save_dir is not None and pvd_writer is not None:
             pvd_writer.write()
 
-        if verbose:
-            print(f"[bold green]✓ Linear Dynamic Analysis completed successfully ({n_steps}/{n_steps} steps).[/bold green]\n")
+        steps_done = steady_state_step if steady_state_converged else n_steps
+        time_out = time_points[: steps_done + 1]
 
-        return LinearDynamicResult(time=time_points, time_series_files=exported_files)
+        if verbose and not steady_state_converged:
+            print(
+                f"[bold green]✓ Linear Dynamic Analysis completed successfully ({n_steps}/{n_steps} steps).[/bold green]\n"
+            )
 
+        return LinearDynamicResult(
+            time=time_out,
+            time_series_files=exported_files,
+            converged=True,
+            steps_completed=steps_done,
+            steady_state_converged=steady_state_converged,
+            steady_state_step=steady_state_step,
+        )
