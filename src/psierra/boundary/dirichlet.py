@@ -59,6 +59,27 @@ class DirichletConstraint(DirichletBoundaryCondition):
                 )
 
 
+class DOFConstraint(DirichletBoundaryCondition):
+    """
+    Represents prescribed boundary conditions directly on global DOF indices.
+    """
+
+    def __init__(
+        self,
+        dofs: Sequence[int] | np.ndarray,
+        values: float | np.ndarray = 0.0,
+    ) -> None:
+        self.dofs = np.asarray(dofs, dtype=np.int64)
+        if np.isscalar(values):
+            self.values = np.full(len(self.dofs), fill_value=values, dtype=np.float64)
+        else:
+            self.values = np.asarray(values, dtype=np.float64)
+            if len(self.values) != len(self.dofs):
+                raise ValueError(
+                    f"Length of values ({len(self.values)}) does not match number of DOFs ({len(self.dofs)})."
+                )
+
+
 class DirichletManager:
     """
     Manages and partitions multiple Dirichlet constraints for a global system.
@@ -66,13 +87,21 @@ class DirichletManager:
 
     def __init__(self, total_dofs: int) -> None:
         self.total_dofs = total_dofs
-        self._constraints: list[DirichletConstraint] = []
+        self._constraints: list[DirichletBoundaryCondition] = []
 
-    def add_constraint(self, constraint: DirichletConstraint) -> None:
+    def add_constraint(self, constraint: DirichletBoundaryCondition) -> None:
         """Adds a Dirichlet constraint to the manager."""
         self._constraints.append(constraint)
 
-    def remove_constraint(self, constraint: DirichletConstraint) -> None:
+    def prescribe_dofs(
+        self,
+        dofs: Sequence[int] | np.ndarray,
+        value: float | np.ndarray = 0.0,
+    ) -> None:
+        """Convenience method to directly constrain specific global DOF indices."""
+        self.add_constraint(DOFConstraint(dofs, value))
+
+    def remove_constraint(self, constraint: DirichletBoundaryCondition) -> None:
         """Removes a Dirichlet constraint from the manager."""
         self._constraints.remove(constraint)
 

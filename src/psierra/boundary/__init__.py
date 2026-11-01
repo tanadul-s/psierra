@@ -9,6 +9,7 @@ from psierra.boundary.selector import (
 )
 from psierra.boundary.dirichlet import (
     DirichletConstraint,
+    DOFConstraint,
     DirichletManager,
 )
 from psierra.boundary.load import (
@@ -23,6 +24,7 @@ __all__ = [
     "select_nodes_by_plane",
     "select_nodes_by_bounds",
     "DirichletConstraint",
+    "DOFConstraint",
     "DirichletManager",
     "NodalForce",
     "GravityLoad",
