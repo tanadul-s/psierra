@@ -8,6 +8,7 @@ from psierra.mesh.volumetric import VolumetricMesh
 from psierra.mesh.surface import SurfaceMesh
 from psierra.material.base import Material
 from psierra.element.base import Element
+from psierra.domain.base import Domain
 from psierra.utility.indexing import compute_element_dofs
 from psierra.utility.assembly import (
     create_coo_sparsity_indices,
@@ -16,7 +17,7 @@ from psierra.utility.assembly import (
 )
 
 
-class SolidDomain:
+class SolidDomain(Domain):
     """
     Continuum Solid Body in psierra.
 
@@ -65,6 +66,11 @@ class SolidDomain:
     # =========================================================================
     # Kinematic Properties (Zero-Copy Views)
     # =========================================================================
+
+    @property
+    def n_dofs(self) -> int:
+        """Total degrees of freedom in the domain (3 * N_nodes)."""
+        return self.mesh.n_dofs
 
     @property
     def displacement(self) -> np.ndarray:
