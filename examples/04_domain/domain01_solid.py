@@ -7,7 +7,7 @@ from rich.traceback import install
 from scipy.spatial.transform import Rotation
 
 from psierra.material import IsotropicElasticParameters, Hookean
-from psierra.element import Tet4
+from psierra.element import Tet4Linear
 from psierra.domain import SolidDomain
 from psierra.mesh import VolumetricMesh
 
@@ -27,7 +27,7 @@ def main():
         youngs_modulus=68.0e9, poissons_ratio=0.33, mass_density=2700
     )
     material = Hookean(params)
-    element = Tet4(material)
+    element = Tet4Linear(material)
 
     # 3. Setup domain
     domain = SolidDomain(vmesh, material, element)

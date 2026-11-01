@@ -8,7 +8,7 @@ from rich.table import Table
 from rich.traceback import install
 
 from psierra.material import IsotropicElasticParameters, Hookean
-from psierra.element import Tet4, Shell3
+from psierra.element import Tet4Linear, Shell3Linear
 from psierra.mesh import VolumetricMesh
 from psierra.domain import SolidDomain, ShellDomain, CoupledSolidShellDomain
 from psierra.boundary import select_nodes_by_plane, DirichletConstraint, DirichletManager
@@ -68,7 +68,7 @@ def main() -> None:
     params_solid = IsotropicElasticParameters()
     params_solid.set_from_youngs_poisson(E_solid, nu_solid, rho_solid)
     mat_solid = Hookean(params_solid)
-    elem_solid = Tet4(mat_solid)
+    elem_solid = Tet4Linear(mat_solid)
 
     # Stiff membrane/shell reinforcement (representative of dura mater / fibrous fascia)
     E_shell = 10.0        # MPa (200x stiffer than parenchymal core)
@@ -79,7 +79,7 @@ def main() -> None:
     params_shell = IsotropicElasticParameters()
     params_shell.set_from_youngs_poisson(E_shell, nu_shell, rho_shell)
     mat_shell = Hookean(params_shell)
-    elem_shell = Shell3(mat_shell, thickness=t_shell)
+    elem_shell = Shell3Linear(mat_shell, thickness=t_shell)
 
     console.print(f"  • Soft Solid Core  : E = [green]{E_solid * 1e3:.1f} kPa[/green] | ν = {nu_solid:.2f} | ρ = {rho_solid * 1e12:.0f} kg/m³")
     console.print(f"  • Exterior Shell   : E = [green]{E_shell:.1f} MPa[/green] (200x stiffer) | t = [green]{t_shell:.2f} mm[/green] | ν = {nu_shell:.2f}")

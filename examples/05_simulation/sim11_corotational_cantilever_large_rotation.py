@@ -7,7 +7,7 @@ from rich.table import Table
 from rich.traceback import install
 
 from psierra.material import IsotropicElasticParameters, Hookean
-from psierra.element import Tet4, CorotationalTet4
+from psierra.element import Tet4Linear, Tet4Corotational
 from psierra.mesh import VolumetricMesh
 from psierra.domain import SolidDomain
 from psierra.boundary import (
@@ -69,8 +69,8 @@ def main() -> None:
     )
     material = Hookean(params)
 
-    elem_linear = Tet4(material)
-    elem_corot = CorotationalTet4(material)
+    elem_linear = Tet4Linear(material)
+    elem_corot = Tet4Corotational(material)
 
     console.print(
         f"  • Young's Modulus E     : [green]{E_modulus:.1f} MPa[/green] | Poisson's Ratio ν: [green]{nu_ratio:.2f}[/green]"

@@ -7,7 +7,7 @@ from rich.traceback import install
 from scipy.spatial.transform import Rotation
 
 from psierra.material import IsotropicElasticParameters, NeoHookean
-from psierra.element import Tet4
+from psierra.element import Tet4TotalLagrangian
 from psierra.mesh import VolumetricMesh
 from psierra.domain import SolidDomain
 from psierra.boundary.selector import select_nodes_by_bounds
@@ -57,7 +57,7 @@ def main() -> None:
         mass_density=1100e-6,
     )
     material = NeoHookean(params)
-    element = Tet4(material)
+    element = Tet4TotalLagrangian(material)
     console.print(f"  • Constitutive Law : [cyan]{material.__class__.__name__}[/cyan] (Compressible Neo-Hookean)")
     console.print(f"  • Element Type     : [cyan]{element.__class__.__name__}[/cyan] (Total Lagrangian Tetrahedron)")
     console.print(f"  • Young's Modulus  : [green]{params.youngs_modulus:.1f}[/green] MPa | Poisson's Ratio: [green]{params.poissons_ratio:.2f}[/green]")

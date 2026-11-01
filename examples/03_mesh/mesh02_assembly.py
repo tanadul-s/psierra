@@ -6,7 +6,7 @@ from rich.traceback import install
 from scipy.spatial.transform import Rotation
 
 from psierra.material import IsotropicElasticParameters, Hookean
-from psierra.element import Tet4
+from psierra.element import Tet4Linear
 from psierra.mesh import VolumetricMesh
 from psierra.utility.indexing import compute_element_dofs
 from psierra.utility.assembly import create_coo_sparsity_indices, assemble_sparse_matrix
@@ -26,7 +26,7 @@ def main():
         youngs_modulus=68.0e9, poissons_ratio=0.33, mass_density=2700
     )
     material = Hookean(params)
-    element = Tet4(material)
+    element = Tet4Linear(material)
 
     element_dofs = compute_element_dofs(vmesh.elements)
     rows, cols = create_coo_sparsity_indices(element_dofs)

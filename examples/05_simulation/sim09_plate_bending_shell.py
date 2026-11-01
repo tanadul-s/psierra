@@ -8,7 +8,7 @@ from rich.table import Table
 from rich.traceback import install
 
 from psierra.material import IsotropicElasticParameters, Hookean
-from psierra.element import Shell3, Shell6
+from psierra.element import Shell3Linear, Shell6Linear
 from psierra.mesh import SurfaceMesh
 from psierra.domain import ShellDomain
 from psierra.boundary import DirichletConstraint, DirichletManager
@@ -127,8 +127,8 @@ def main() -> None:
     params = IsotropicElasticParameters()
     params.set_from_youngs_poisson(youngs_modulus=E, poissons_ratio=nu, mass_density=rho)
     material = Hookean(params)
-    elem_s3 = Shell3(material=material, thickness=t)
-    elem_s6 = Shell6(material=material, thickness=t)
+    elem_s3 = Shell3Linear(material=material, thickness=t)
+    elem_s6 = Shell6Linear(material=material, thickness=t)
 
     # Navier Analytical Solution for simply supported square plate:
     # w_center = 0.004062 * q * L^4 / D
