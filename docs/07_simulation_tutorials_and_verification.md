@@ -288,6 +288,25 @@ All simulation examples are located in [`psierra/examples/05_simulation/`](../ex
 
 ---
 
+### 2.17 Simulation 17: Severe Axial Torsion of Hyperelastic Beam (Poynting Effect & Cross-Sectional Warping)
+
+- **Script**: [`sim17_axial_torsion_hyperelastic_beam.py`](../examples/05_simulation/sim17_axial_torsion_hyperelastic_beam.py)
+- **Physics**: Severe progressive axial twisting of a 3D continuum cantilever beam up to a full half-turn ($180^\circ$ / $\pi \text{ rad}$) rotation to demonstrate finite-strain kinematics, the second-order **Poynting axial effect**, and **Saint-Venant cross-sectional warping**.
+- **Kinematic Setup**:
+  - Root face ($Z = -30 \text{ mm}$): Fully clamped ($u_x = u_y = u_z = 0$).
+  - Tip face ($Z = 200 \text{ mm}$): In-plane rigid-body rotation prescribed ($u_x(\theta) = X(\cos\theta - 1) - Y\sin\theta, u_y(\theta) = X\sin\theta + Y(\cos\theta - 1)$), while **$u_z$ is left completely free** to enable natural axial elongation/contraction and warping.
+- **Verification Results & Physical Meaning**:
+  - **The Poynting Effect**: Linear elasticity predicts zero axial stress ($\sigma_{zz} = 0$) and zero axial displacement ($U_z = 0$). In finite elasticity, helical fiber elongation produces normal stresses ($\sigma_{zz} \propto r^2 \theta^2$). The mean tip axial displacement grows monotonically across all models, reaching $+5.15 \text{ mm}$ (Neo-Hookean), $+6.20 \text{ mm}$ (Mooney-Rivlin), and $+5.17 \text{ mm}$ (Yeoh) at $180^\circ$.
+  - **Cross-Sectional Warping**: The non-circular rectangular cross-section exhibits out-of-plane distortion, reaching a warping amplitude $w_{\text{amp}} = \max(U_z) - \min(U_z) \approx 1.50 \text{ mm} - 1.61 \text{ mm}$ at $180^\circ$.
+  - **Root Reaction Torque**: Restoring moment reaches $M_z = -214.13 \text{ kN}\cdot\text{m}$ (Neo-Hookean), $-210.03 \text{ kN}\cdot\text{m}$ (Mooney-Rivlin), and $-216.51 \text{ kN}\cdot\text{m}$ (Yeoh) at $180^\circ$.
+  - **Constitutive Comparison**: All three models achieve 18/18 step convergence with zero element inversion ($\det \boldsymbol{F} > 0$).
+  - **ParaView PVD Collections**: Time-series collections for side-by-side visualization exported to:
+    - `examples/05_simulation/sim17_output/neohookean/result.pvd`
+    - `examples/05_simulation/sim17_output/mooney_rivlin/result.pvd`
+    - `examples/05_simulation/sim17_output/yeoh/result.pvd`
+
+---
+
 ## 3. Summary Comparison Table
 
 | Simulation | Formulation | Element Type | Load Condition | Max Disp ($u_{max}$) | Convergence / Physical Observation |
@@ -308,6 +327,7 @@ All simulation examples are located in [`psierra/examples/05_simulation/`](../ex
 | **`sim14`** | Comparison | Linear / CR / TL / UL | Self-Weight Gravity ($-1.0g$) | Multi-field | Elimination of artificial dilation; UL vs TL identical |
 | **`sim15`** | Comparison | Hookean / NH / MR / Yeoh | Tip Shear Load ($-150 \text{ kN}$) | Multi-field | High-strain stiffening in Yeoh; Mooney-Rivlin S-curve |
 | **`sim16`** | Comparison | Generalized-$\alpha$ ($\rho_\infty \in [0, 1]$) | Dynamic Gravity Transient | Multi-field | Low-frequency fidelity ($<0.03\%$ error); shock stress filtered |
+| **`sim17`** | Non-linear Static | `Tet4` (TL Hyperelastic) | Severe Axial Torsion ($180^\circ$) | $84.85 \text{ mm}$ | Poynting elongation ($+5.15 \text{ mm}$), warping ($1.51 \text{ mm}$), $M_z = -214.1 \text{ kN}\cdot\text{m}$ |
 
 ---
 
@@ -315,10 +335,10 @@ All simulation examples are located in [`psierra/examples/05_simulation/`](../ex
 
 All simulation outputs can be visualized and animated directly in [ParaView](https://www.paraview.org/):
 
-1. **Static Solid & Shell Analyses (`sim01`, `sim02`, `sim04`, `sim06`, `sim08`, `sim09`, `sim11`, `sim12`)**:
-   - File $\to$ Open $\to$ `examples/05_simulation/simXX_output/result.vtu`.
+1. **Static Solid & Shell Analyses (`sim01`, `sim02`, `sim04`, `sim06`, `sim08`, `sim09`, `sim11`, `sim12`, `sim17`)**:
+   - File $\to$ Open $\to$ `examples/05_simulation/simXX_output/result.vtu` (or `sim17_output/<model>/result.pvd` for animated torsion progression).
    - Click **Apply**.
-   - Under **Coloring**, choose `Displacement`, `Displacement Y`, or `Displacement Magnitude`.
+   - Under **Coloring**, choose `Displacement`, `Displacement Magnitude`, `Von Mises Stress`, or `Cauchy Stress`.
    - Coordinates in `.vtu` exports are automatically deformed ($x = X + u$), rendering the physical deflected state immediately.
 2. **Coupled Multi-Domain Assemblies (`sim10`)**:
    - File $\to$ Open $\to$ `examples/05_simulation/sim10_output/beam_shell_covered.pvd`.
