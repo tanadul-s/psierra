@@ -340,3 +340,47 @@ class TestNonlinearAnalysis:
         )
         assert res.converged is True
         assert res.steps_completed == 5
+
+    def test_nonlinear_static_displacement_control_torsion(
+        self, five_tet_cube_mesh: VolumetricMesh, neohookean_material: NeoHookean
+    ) -> None:
+        """Verifies displacement-controlled nonlinear static solve with step-dependent callable Dirichlet BCs."""
+        mesh = five_tet_cube_mesh
+        element = Tet4TotalLagrangian(neohookean_material)
+        domain = SolidDomain(mesh, neohookean_material, element)
+
+        fixed_nodes = select_nodes_by_plane(mesh, plane="xy", bound="min")
+        top_nodes = select_nodes_by_plane(mesh, plane="xy", bound="max")
+        top_X = mesh.nodes[top_nodes, 0]
+        top_Y = mesh.nodes[top_nodes, 1]
+
+        clamp_base = DirichletConstraint(fixed_nodes, components=(0, 1, 2), value=0.0)
+
+        theta_max = np.deg2rad(30.0)
+
+        def step_dirichlet(step: int, n_steps: int) -> DirichletManager:
+            theta = (step / n_steps) * theta_max
+            ux = top_X * (np.cos(theta) - 1.0) - top_Y * np.sin(theta)
+            uy = top_X * np.sin(theta) + top_Y * (np.cos(theta) - 1.0)
+
+            mgr = DirichletManager(mesh.n_dofs)
+            mgr.add_constraint(clamp_base)
+            mgr.add_constraint(DirichletConstraint(top_nodes, components=(0,), value=ux))
+            mgr.add_constraint(DirichletConstraint(top_nodes, components=(1,), value=uy))
+            # uz is left free for Poynting contraction/warping
+            return mgr
+
+        solver = NonlinearStaticAnalysis(domain)
+        result = solver.solve(
+            dirichlet=step_dirichlet,
+            f_ext=None,  # Pure displacement control
+            n_steps=3,
+            nr_iterations=15,
+            nr_tol=1e-4,
+            verbose=False,
+        )
+
+        assert result.converged is True
+        assert result.steps_completed == 3
+        assert np.all(np.isfinite(result.displacement))
+        assert np.max(np.abs(result.displacement)) > 0.0
