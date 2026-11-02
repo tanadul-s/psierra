@@ -28,8 +28,11 @@ from psierra.material import IsotropicElasticParameters, Hookean, NeoHookean
 from psierra.element import (
     Tet4Linear,
     Tet10Linear,
+    Tet4Corotational,
     Tet4TotalLagrangian,
+    Tet4UpdatedLagrangian,
     Tet10TotalLagrangian,
+    Tet10UpdatedLagrangian,
 )
 from psierra.mesh import VolumetricMesh
 from psierra.domain import SolidDomain
@@ -77,6 +80,13 @@ def parse_arguments() -> argparse.Namespace:
         choices=["tet4", "tet10"],
         default="tet4",
         help="Element order: 'tet4' (linear, ultra-fast) or 'tet10' (quadratic, shear-locking free) (default: tet4)",
+    )
+    parser.add_argument(
+        "--formulation",
+        type=str,
+        choices=["linear", "corotational", "total_lagrangian", "updated_lagrangian"],
+        default=None,
+        help="Kinematic formulation: 'linear', 'corotational', 'total_lagrangian', or 'updated_lagrangian' (default: linear)",
     )
     parser.add_argument(
         "--nonlinear",
@@ -133,13 +143,24 @@ def main() -> None:
         "  • Beam Dimensions : X: [-60, 60] mm, Y: [-60, 60] mm, Z: [-30, 200] mm (Length L = 230 mm)"
     )
 
+    # Determine kinematic formulation and nonlinearity
+    formulation = args.formulation
+    if formulation is None:
+        formulation = "total_lagrangian" if args.nonlinear else "linear"
+
+    is_nonlinear = formulation in ("corotational", "total_lagrangian", "updated_lagrangian")
+
     # Upgrade to Quadratic Tet10 if requested
     if args.element == "tet10":
-        mesh = mesh.to_quadratic()
-        console.print(
-            f"  • Upgraded to Quadratic Tet10: [green]{mesh.n_nodes}[/green] nodes | "
-            f"[green]{mesh.n_elements}[/green] elements | [green]{mesh.n_dofs}[/green] DOFs"
-        )
+        if formulation == "corotational":
+            console.print("  [yellow]Note: Corotational formulation is available for Tet4. Reverting to Tet4.[/yellow]")
+            args.element = "tet4"
+        else:
+            mesh = mesh.to_quadratic()
+            console.print(
+                f"  • Upgraded to Quadratic Tet10: [green]{mesh.n_nodes}[/green] nodes | "
+                f"[green]{mesh.n_elements}[/green] elements | [green]{mesh.n_dofs}[/green] DOFs"
+            )
 
     # 2. Material & Physical Continuum Configuration
     console.print(
@@ -152,20 +173,32 @@ def main() -> None:
         mass_density=1100e-6,  # tonne/mm^3 (1100 kg/m^3)
     )
 
-    if args.nonlinear:
+    if formulation == "corotational":
+        material = Hookean(params)
+        element = Tet4Corotational(material)
+        mode_desc = "Corotational Dynamic (Rigid-Frame Filtered Generalized-alpha)"
+    elif formulation == "total_lagrangian":
         material = NeoHookean(params)
         element = (
             Tet10TotalLagrangian(material)
             if args.element == "tet10"
             else Tet4TotalLagrangian(material)
         )
-        mode_desc = "Nonlinear Hyperelastic (Modified Newton Generalized-alpha)"
-    else:
+        mode_desc = f"Nonlinear Hyperelastic (TL {element.__class__.__name__})"
+    elif formulation == "updated_lagrangian":
+        material = NeoHookean(params)
+        element = (
+            Tet10UpdatedLagrangian(material)
+            if args.element == "tet10"
+            else Tet4UpdatedLagrangian(material)
+        )
+        mode_desc = f"Nonlinear Hyperelastic (UL {element.__class__.__name__})"
+    else:  # linear
         material = Hookean(params)
         element = (
             Tet10Linear(material) if args.element == "tet10" else Tet4Linear(material)
         )
-        mode_desc = "Linear Dynamic (Pre-factorized Generalized-alpha)"
+        mode_desc = f"Linear Dynamic ({element.__class__.__name__} Pre-factorized)"
 
     domain = SolidDomain(mesh, material, element)
 
@@ -216,7 +249,7 @@ def main() -> None:
         dt=args.dt,
         spectral_radius=args.spectral_radius,
         f_ext_base=f_grav,
-        nonlinear=args.nonlinear,
+        nonlinear=is_nonlinear,
         modified_newton=True,
     )
     t_init_ms = (time.perf_counter() - t_init_0) * 1000.0
@@ -529,6 +562,7 @@ def main() -> None:
                 tip_y = float(sim.displacement[tip_center_node, 1])
 
                 telemetry_str = (
+                    f"Model: {element.__class__.__name__} ({formulation.replace('_', ' ').title()})\n"
                     f"Sim Time: {stats.sim_time:.3f} s | Wall Time: {stats.wall_time:.3f} s | "
                     f"Speed Ratio: {stats.speed_ratio:.1f}x Real-Time\n"
                     f"Physics Rate: {stats.effective_hz:.0f} Hz ({stats.average_step_ms:.3f} ms/step) | "
