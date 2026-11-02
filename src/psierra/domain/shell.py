@@ -236,7 +236,12 @@ class ShellDomain(Domain):
         deformed_poly = self.mesh.polydata.copy(deep=True)
         if factor != 0.0:
             deformed_poly.points = self.mesh.nodes + factor * self.displacement
-        deformed_poly.point_data["Displacement"] = self.displacement
+        u = self.displacement
+        deformed_poly.point_data["Displacement"] = u
+        deformed_poly.point_data["Displacement_X"] = u[:, 0]
+        deformed_poly.point_data["Displacement_Y"] = u[:, 1]
+        deformed_poly.point_data["Displacement_Z"] = u[:, 2]
+        deformed_poly.point_data["Displacement_Mag"] = np.linalg.norm(u, axis=1)
         deformed_poly.point_data["Rotation"] = self.rotation
 
         if isinstance(deformed_poly, pv.PolyData):

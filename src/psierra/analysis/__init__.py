@@ -17,6 +17,10 @@ from psierra.analysis.nonlinear_dynamic import (
     NonlinearDynamicAnalysis,
     NonlinearDynamicResult,
 )
+from psierra.analysis.interactive_dynamic import (
+    InteractiveDynamicSimulation,
+    SimulationStats,
+)
 
 __all__ = [
     # Base
@@ -33,4 +37,7 @@ __all__ = [
     # Nonlinear Dynamic
     "NonlinearDynamicAnalysis",
     "NonlinearDynamicResult",
+    # Interactive / Online Dynamic
+    "InteractiveDynamicSimulation",
+    "SimulationStats",
 ]
