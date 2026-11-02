@@ -3,7 +3,7 @@ from dataclasses import dataclass, field
 from pathlib import Path
 import numpy as np
 import scipy.sparse as spsp
-import scipy.sparse.linalg as spla
+import scipy.sparse.linalg as spspla
 from rich import print
 
 from psierra.domain.base import Domain
@@ -29,16 +29,19 @@ class LinearDynamicResult:
 
 class LinearDynamicAnalysis(Analysis):
     """
-    Implicit Linear Dynamic Solver using the Newmark-beta method.
-    Solves M * a + C * v + K * u = F(t) over time steps.
+    Implicit Linear Dynamic Solver using the Generalized-alpha method (Chung & Hulbert, 1993).
+    Solves M * a + C * v + K * u = F(t) over time steps with controllable numerical damping.
+
+    The Generalized-alpha scheme unifies Newmark-beta, HHT-alpha, and Bossak-alpha into a single
+    unconditionally stable, strictly second-order accurate O(dt^2) framework controlled via the
+    high-frequency spectral radius rho_infinity in [0.0, 1.0].
     """
 
     def __init__(
         self,
         domain: Domain,
         damping: RayleighDamping | None = None,
-        gamma: float = 0.5,
-        beta: float = 0.25,
+        spectral_radius: float = 0.8,
     ) -> None:
         """
         Parameters:
@@ -47,15 +50,35 @@ class LinearDynamicAnalysis(Analysis):
             Physical continuum or coupled body.
         damping : RayleighDamping, optional
             Rayleigh damping model (defaults to undamped C = 0).
-        gamma : float, default=0.5
-            Newmark velocity parameter (0.5 ensures second-order accuracy).
-        beta : float, default=0.25
-            Newmark acceleration parameter (0.25 ensures unconditional numerical stability).
+        spectral_radius : float, default=0.8
+            High-frequency spectral radius rho_infinity in [0.0, 1.0] controlling algorithmic damping.
+            - rho_inf = 1.0: Undamped Newmark-beta / Midpoint Rule (alpha_m = 0.5, alpha_f = 0.5,
+              gamma = 0.5, beta = 0.25). Zero numerical dissipation; preserves mechanical energy.
+              Best for undamped linear vibrations, resonance tests, and acoustics.
+            - rho_inf = 0.8: (Default & Recommended) Optimal high-frequency dissipation for general
+              structural dynamics. Selectively suppresses spurious high-frequency spatial mesh noise
+              (omega_h ~ c / h_elem) while preserving physical low-frequency structural modes.
+            - rho_inf = 0.5: Moderate high-frequency dissipation (equivalent to HHT-alpha with
+              alpha_f = 1/3, alpha_m = 0). Ideal for stiff structures with rapid transient shocks.
+            - rho_inf = 0.0: Asymptotic annihilation / maximal dissipation (alpha_m = -1.0, alpha_f = 0.0,
+              gamma = 1.5, beta = 1.0). Annihilates highest frequency components in a single step.
+              Essential for suppressing severe contact chatter, impact shocks, and constraint switching.
         """
+        if not (0.0 <= spectral_radius <= 1.0):
+            raise ValueError(
+                f"spectral_radius must be in [0.0, 1.0], got {spectral_radius}"
+            )
+
         self.domain = domain
         self.damping = damping if damping is not None else RayleighDamping(0.0, 0.0)
-        self.gamma = gamma
-        self.beta = beta
+        self.spectral_radius = float(spectral_radius)
+
+        # Generalized-alpha algorithmic constants (Chung & Hulbert, 1993)
+        rho = self.spectral_radius
+        self.alpha_m = (2.0 * rho - 1.0) / (rho + 1.0)
+        self.alpha_f = rho / (rho + 1.0)
+        self.gamma = 0.5 - self.alpha_m + self.alpha_f
+        self.beta = 0.25 * (1.0 - self.alpha_m + self.alpha_f) ** 2
 
     def solve(
         self,
@@ -141,9 +164,12 @@ class LinearDynamicAnalysis(Analysis):
         steady_state_step: int | None = None
         max_kinetic_energy = 0.0
 
-        # 1. Newmark-beta Integration Constants
+        # 1. Generalized-alpha Integration Constants
         gamma = self.gamma
         beta = self.beta
+        alpha_m = self.alpha_m
+        alpha_f = self.alpha_f
+
         a0 = 1.0 / (beta * dt**2)
         a1 = gamma / (beta * dt)
         a2 = 1.0 / (beta * dt)
@@ -166,12 +192,16 @@ class LinearDynamicAnalysis(Analysis):
         if f_ref_norm < 1e-12:
             f_ref_norm = 1.0
 
-        # 4. Form Effective Tangent Matrix K_eff (Constant!)
-        # K_eff = K_ff + a0 * M_ff + a1 * C_ff
-        K_eff = (K_ff + a0 * M_ff + a1 * C_ff).tocsc()
+        # 4. Form Effective Dynamic Tangent Matrix K_eff (Constant in Linear Dynamics!)
+        # K_eff = (1 - alpha_f) * K_ff + (1 - alpha_m) * a0 * M_ff + (1 - alpha_f) * a1 * C_ff
+        K_eff = (
+            (1.0 - alpha_f) * K_ff
+            + (1.0 - alpha_m) * a0 * M_ff
+            + (1.0 - alpha_f) * a1 * C_ff
+        ).tocsc()
 
         # Factorize K_eff ONCE via SuperLU for blazingly fast O(N) back-substitutions
-        solve_step = spla.factorized(K_eff)
+        solve_step = spspla.factorized(K_eff)
 
         # 5. Initialize State on Free DOFs
         u_f = self.domain.u[free_dofs].copy()
@@ -180,7 +210,7 @@ class LinearDynamicAnalysis(Analysis):
         # Initial acceleration: M_ff * a0_f = F_ext_f - C_ff * v_f - K_ff * u_f
         r0 = f_ext_f - C_ff @ v_f - K_ff @ u_f
         M_ff_csc = M_ff.tocsc()
-        a_f = spla.spsolve(M_ff_csc, r0)
+        a_f = spspla.spsolve(M_ff_csc, r0)
 
         # Full vectors for output
         u_full = np.zeros(self.domain.n_dofs, dtype=np.float64)
@@ -214,25 +244,26 @@ class LinearDynamicAnalysis(Analysis):
 
         if verbose:
             print(
-                "[bold cyan]Linear Dynamic Analysis (Implicit Newmark-beta)[/bold cyan]"
+                "[bold cyan]Linear Dynamic Analysis (Implicit Generalized-alpha)[/bold cyan]"
             )
             print(
-                f"Total DOFs: {self.domain.n_dofs} | Free DOFs: {len(free_dofs)} | Total Steps: {n_steps} | dt = {dt:.4e} s\n"
+                f"Total DOFs: {self.domain.n_dofs} | Free DOFs: {len(free_dofs)} | Total Steps: {n_steps} | dt = {dt:.4e} s | rho_inf = {self.spectral_radius:.2f}\n"
             )
 
         # 7. Time Integration Steps
         for step in range(1, n_steps + 1):
             t_current = step * dt
 
-            # Predictor load: F_eff = F_ext_f + M_ff @ (a0*u + a2*v + a3*a) + C_ff @ (a1*u + a4*v + a5*a)
-            m_part = a0 * u_f + a2 * v_f + a3 * a_f
-            c_part = a1 * u_f + a4 * v_f + a5 * a_f
-            f_eff = f_ext_f + M_ff @ m_part + C_ff @ c_part
+            # Generalized-alpha RHS effective load vector:
+            m_part = (1.0 - alpha_m) * (a0 * u_f + a2 * v_f + a3 * a_f) - alpha_m * a_f
+            c_part = (1.0 - alpha_f) * (a1 * u_f + a4 * v_f + a5 * a_f) - alpha_f * v_f
+            k_part = -alpha_f * (K_ff @ u_f)
+            f_eff = f_ext_f + M_ff @ m_part + C_ff @ c_part + k_part
 
             # Solve for next displacement u_{t+dt} via pre-factorized solver
             u_f_next = solve_step(f_eff)
 
-            # Compute next acceleration and velocity using Newmark equations
+            # Compute next acceleration and velocity using Newmark kinematic relations
             a_f_next = a0 * (u_f_next - u_f) - a2 * v_f - a3 * a_f
             v_f_next = v_f + dt * ((1.0 - gamma) * a_f + gamma * a_f_next)
 

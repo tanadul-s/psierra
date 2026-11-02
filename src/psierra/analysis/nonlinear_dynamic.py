@@ -31,8 +31,13 @@ class NonlinearDynamicResult:
 
 class NonlinearDynamicAnalysis(Analysis):
     """
-    Implicit Nonlinear Dynamic Solver using Newmark-beta with Newton-Raphson.
-    Solves M * a + C * v + F_int(u) = F_ext(t) for finite deformations.
+    Implicit Nonlinear Dynamic Solver using the Generalized-alpha method (Chung & Hulbert, 1993)
+    coupled with inner Newton-Raphson iterations and backtracking line search.
+    Solves M * a + C * v + F_int(u) = F_ext(t) for finite deformations with controllable numerical damping.
+
+    The Generalized-alpha scheme unifies Newmark-beta, HHT-alpha, and Bossak-alpha into a single
+    unconditionally stable, strictly second-order accurate O(dt^2) framework controlled via the
+    high-frequency spectral radius rho_infinity in [0.0, 1.0].
     """
 
     def __init__(
@@ -40,16 +45,49 @@ class NonlinearDynamicAnalysis(Analysis):
         domain: Domain,
         damping: RayleighDamping | None = None,
         linear_solver: SparseLinearSolver | None = None,
-        gamma: float = 0.5,
-        beta: float = 0.25,
+        spectral_radius: float = 0.8,
     ) -> None:
+        """
+        Parameters:
+        -----------
+        domain : Domain
+            Physical continuum or coupled body.
+        damping : RayleighDamping, optional
+            Rayleigh damping model (defaults to undamped C = 0).
+        linear_solver : SparseLinearSolver, optional
+            Direct or iterative sparse solver for K_eff * du = r_eff (defaults to DirectSolver).
+        spectral_radius : float, default=0.8
+            High-frequency spectral radius rho_infinity in [0.0, 1.0] controlling algorithmic damping.
+            - rho_inf = 1.0: Undamped Newmark-beta / Midpoint Rule (alpha_m = 0.5, alpha_f = 0.5,
+              gamma = 0.5, beta = 0.25). Zero numerical dissipation; preserves mechanical energy.
+              Best for conservative hyperelastic oscillations without numerical loss.
+            - rho_inf = 0.8: (Default & Recommended) Optimal high-frequency dissipation for general
+              structural dynamics. Selectively suppresses spurious high-frequency spatial mesh noise
+              (omega_h ~ c / h_elem) while preserving physical low-frequency structural modes.
+            - rho_inf = 0.5: Moderate high-frequency dissipation (equivalent to HHT-alpha with
+              alpha_f = 1/3, alpha_m = 0). Ideal for stiff structures with rapid transient shocks.
+            - rho_inf = 0.0: Asymptotic annihilation / maximal dissipation (alpha_m = -1.0, alpha_f = 0.0,
+              gamma = 1.5, beta = 1.0). Annihilates highest frequency components in a single step.
+              Essential for suppressing severe contact chatter, impact shocks, and constraint switching.
+        """
+        if not (0.0 <= spectral_radius <= 1.0):
+            raise ValueError(
+                f"spectral_radius must be in [0.0, 1.0], got {spectral_radius}"
+            )
+
         self.domain = domain
         self.damping = damping if damping is not None else RayleighDamping(0.0, 0.0)
         self.linear_solver = (
             linear_solver if linear_solver is not None else DirectSolver()
         )
-        self.gamma = gamma
-        self.beta = beta
+        self.spectral_radius = float(spectral_radius)
+
+        # Generalized-alpha algorithmic constants (Chung & Hulbert, 1993)
+        rho = self.spectral_radius
+        self.alpha_m = (2.0 * rho - 1.0) / (rho + 1.0)
+        self.alpha_f = rho / (rho + 1.0)
+        self.gamma = 0.5 - self.alpha_m + self.alpha_f
+        self.beta = 0.25 * (1.0 - self.alpha_m + self.alpha_f) ** 2
 
     def solve(
         self,
@@ -141,9 +179,12 @@ class NonlinearDynamicAnalysis(Analysis):
         steady_state_step: int | None = None
         max_kinetic_energy = 0.0
 
-        # 1. Newmark Integration Constants
+        # 1. Generalized-alpha Integration Constants
         gamma = self.gamma
         beta = self.beta
+        alpha_m = self.alpha_m
+        alpha_f = self.alpha_f
+
         a0 = 1.0 / (beta * dt**2)
         a1 = gamma / (beta * dt)
         a2 = 1.0 / (beta * dt)
@@ -207,10 +248,10 @@ class NonlinearDynamicAnalysis(Analysis):
 
         if verbose:
             print(
-                "[bold cyan]Nonlinear Dynamic Analysis (Implicit Newmark-beta)[/bold cyan]"
+                "[bold cyan]Nonlinear Dynamic Analysis (Implicit Generalized-alpha)[/bold cyan]"
             )
             print(
-                f"Total DOFs: {self.domain.n_dofs} | Free DOFs: {len(free_dofs)} | Total Steps: {n_steps} | dt = {dt:.4e} s | Newton Tol = {nr_tol:.1e}\n"
+                f"Total DOFs: {self.domain.n_dofs} | Free DOFs: {len(free_dofs)} | Total Steps: {n_steps} | dt = {dt:.4e} s | rho_inf = {self.spectral_radius:.2f} | Newton Tol = {nr_tol:.1e}\n"
             )
 
         # 5. Dynamic Time Stepping Loop
@@ -223,22 +264,27 @@ class NonlinearDynamicAnalysis(Analysis):
 
             # Newton-Raphson equilibrium iterations within the time step
             for iteration in range(1, nr_iterations + 1):
-                # Kinematic accelerations and velocities from Newmark relations
+                # Kinematic accelerations and velocities at t_{n+1} from Newmark relations
                 a_f_i = a0 * (u_f_i - u_f) - a2 * v_f - a3 * a_f
                 v_f_i = a1 * (u_f_i - u_f) - a4 * v_f - a5 * a_f
 
-                # Full vectors for internal force evaluation
-                u_full[free_dofs] = u_f_i
-                v_full[free_dofs] = v_f_i
-                a_full[free_dofs] = a_f_i
+                # Generalized midpoint kinematics for dynamic balance
+                u_mid_f = (1.0 - alpha_f) * u_f_i + alpha_f * u_f
+                v_mid_f = (1.0 - alpha_f) * v_f_i + alpha_f * v_f
+                a_mid_f = (1.0 - alpha_m) * a_f_i + alpha_m * a_f
+
+                # Full vectors for internal force evaluation at midpoint
+                u_full[free_dofs] = u_mid_f
+                v_full[free_dofs] = v_mid_f
+                a_full[free_dofs] = a_mid_f
                 self.domain.update_state(u=u_full, v=v_full, a=a_full)
 
-                # Assemble nonlinear internal forces F_int(u)
+                # Assemble nonlinear internal forces F_int(u_mid)
                 f_int = self.domain.assemble_internal_forces()
 
-                # Dynamic out-of-balance residual: R = F_ext - M*a - C*v - F_int
-                inertia_f = M_ff @ a_f_i
-                damping_f = C_ff @ v_f_i
+                # Dynamic out-of-balance residual: R = F_ext - M*a_mid - C*v_mid - F_int
+                inertia_f = M_ff @ a_mid_f
+                damping_f = C_ff @ v_mid_f
                 r_eff = f_ext_f - inertia_f - damping_f - f_int[free_dofs]
 
                 res_norm = np.linalg.norm(r_eff)
@@ -249,10 +295,14 @@ class NonlinearDynamicAnalysis(Analysis):
                     iteration_history.append(iteration - 1)
                     break
 
-                # Assemble Tangent Stiffness K_tan(u) and Effective Dynamic Tangent Matrix
+                # Assemble Tangent Stiffness K_tan(u_mid) and Effective Dynamic Tangent Matrix
                 K_tan = self.domain.assemble_tangent_stiffness_matrix()
                 K_tan_ff = K_tan[free_dofs, :][:, free_dofs]
-                K_eff = (K_tan_ff + a0 * M_ff + a1 * C_ff).tocsc()
+                K_eff = (
+                    (1.0 - alpha_f) * K_tan_ff
+                    + (1.0 - alpha_m) * a0 * M_ff
+                    + (1.0 - alpha_f) * a1 * C_ff
+                ).tocsc()
 
                 # Solve for displacement increment: K_eff * du = R_eff
                 du_f = self.linear_solver.solve(K_eff, r_eff)
@@ -262,7 +312,8 @@ class NonlinearDynamicAnalysis(Analysis):
                 line_search_ok = False
                 for _ in range(8):
                     u_cand = u_f_i + alpha * du_f
-                    u_full[free_dofs] = u_cand
+                    u_cand_mid = (1.0 - alpha_f) * u_cand + alpha_f * u_f
+                    u_full[free_dofs] = u_cand_mid
                     self.domain.update_state(u=u_full)
                     try:
                         self.domain.assemble_internal_forces()
@@ -292,10 +343,10 @@ class NonlinearDynamicAnalysis(Analysis):
                     time_series_files=exported_files,
                 )
 
-            # Accept converged step: advance state
+            # Accept converged step: advance to physical endpoint state at t_{n+1}
+            a_f = a0 * (u_f_i - u_f) - a2 * v_f - a3 * a_f
+            v_f = a1 * (u_f_i - u_f) - a4 * v_f - a5 * a_f
             u_f = u_f_i
-            v_f = v_f_i
-            a_f = a_f_i
 
             u_full[free_dofs] = u_f
             v_full[free_dofs] = v_f
@@ -328,7 +379,8 @@ class NonlinearDynamicAnalysis(Analysis):
 
             # Steady-state equilibrium check (dynamic relaxation / steady state)
             if steady_state_tol is not None:
-                r_static = f_ext_f - f_int[free_dofs]
+                f_int_static = self.domain.assemble_internal_forces()
+                r_static = f_ext_f - f_int_static[free_dofs]
                 rel_res_static = float(np.linalg.norm(r_static) / f_ref_norm)
 
                 ke_current = 0.5 * float(v_f @ (M_ff @ v_f))
