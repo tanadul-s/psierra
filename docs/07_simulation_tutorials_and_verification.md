@@ -74,7 +74,7 @@ All simulation examples are located in [`psierra/examples/05_simulation/`](../ex
 
 ---
 
-### 2.3 Simulation 03: Linear Dynamic Hookean (Implicit Newmark-$\beta$)
+### 2.3 Simulation 03: Linear Dynamic Hookean (Implicit Generalized-$\alpha$)
 
 - **Script**: [`sim03_linear_dynamic_hookean.py`](../examples/05_simulation/sim03_linear_dynamic_hookean.py)
 - **Physics**: Transient dynamic oscillation under suddenly applied gravitational acceleration with Rayleigh proportional damping ($\alpha = 2.0, \beta = 0.001$).
@@ -223,6 +223,71 @@ All simulation examples are located in [`psierra/examples/05_simulation/`](../ex
 
 ---
 
+### 2.12 Simulation 12: Updated Lagrangian Static Neo-Hookean
+
+- **Script**: [`sim12_updated_lagrangian_static_neohookean.py`](../examples/05_simulation/sim12_updated_lagrangian_static_neohookean.py)
+- **Physics**: Hyperelastic cantilever beam undergoing large finite deformations under incremental gravity ($10$ steps) formulated in current spatial configuration via spatial shape function gradients ($\boldsymbol{b}_n = \nabla_{\boldsymbol{x}} N_n$) and push-forward spatial elasticity tensor $\mathbb{c}^{\tau}$.
+- **Constitutive Law**: Compressible Neo-Hookean ($E = 21000 \text{ MPa}, \nu = 0.35$).
+- **Verification Results**:
+  - Max displacement: $219.81 \text{ mm}$, exact equilibrium match ($< 0.01\%$) with Total Lagrangian formulation (`sim06`).
+  - Strict preservation of positive Jacobian determinant ($J = \det \boldsymbol{F} > 0$).
+  - Full Cauchy true stress field $\boldsymbol{\sigma}$ recovery.
+
+---
+
+### 2.13 Simulation 13: Updated Lagrangian Dynamic Neo-Hookean (Generalized-$\alpha$)
+
+- **Script**: [`sim13_updated_lagrangian_dynamic_neohookean.py`](../examples/05_simulation/sim13_updated_lagrangian_dynamic_neohookean.py)
+- **Physics**: Transient dynamic oscillation of finite-strain hyperelastic beam formulated in Updated Lagrangian with Generalized-$\alpha$ time integration ($\rho_\infty = 0.8$) and Rayleigh damping ($\alpha = 1.0, \beta = 0.001$).
+- **Verification Results**:
+  - Peak dynamic deflection of $\sim 243.9 \text{ mm}$, smoothly decaying and settling at the static equilibrium position ($205.7 \text{ mm}$).
+  - Full consistency between current spatial kinematics and mid-point dynamic balance.
+  - ParaView `.pvd` collection with Cauchy true stress and von Mises invariants.
+
+---
+
+### 2.14 Simulation 14: Solid Formulations Comparison (Linear vs Corotational vs TL vs UL)
+
+- **Script**: [`sim14_formulations_comparison_gravity.py`](../examples/05_simulation/sim14_formulations_comparison_gravity.py)
+- **Physics**: 4-way benchmark on identical cantilever beam mesh under identical gravitational acceleration comparing:
+  1. Small-strain Linear `Tet4`
+  2. Corotational `CorotationalTet4`
+  3. Total Lagrangian `Tet4TotalLagrangian` (Neo-Hookean)
+  4. Updated Lagrangian `Tet4UpdatedLagrangian` (Neo-Hookean)
+- **Verification Results**:
+  - Eliminates artificial small-strain dilation: linear formulation produces unphysical chord elongation, whereas both Corotational and Finite-Strain formulations correctly exhibit axial shortening ($U_z < 0$).
+  - Total Lagrangian and Updated Lagrangian match within $0.005\%$ in displacements and internal energy.
+
+---
+
+### 2.15 Simulation 15: Hyperelastic Material Models Comparison
+
+- **Script**: [`sim15_hyperelastic_models_comparison.py`](../examples/05_simulation/sim15_hyperelastic_models_comparison.py)
+- **Physics**: Side-by-side verification of non-linear constitutive formulations under tip shear loading:
+  1. **Linear Hookean**: Reference constant-tangent baseline.
+  2. **Neo-Hookean**: Classical 1-parameter strain-energy function for moderate polymer/rubber strains.
+  3. **Mooney-Rivlin**: 2-parameter formulation capturing distinct tension vs compression stiffness asymmetry.
+  4. **Yeoh**: 3-parameter polynomial formulation modeling the characteristic upturn/stiffening at large stretch ratios.
+- **Verification Results**:
+  - Captures high-strain stiffening in Yeoh model ($C_{30} > 0$), preventing unphysical elongation under heavy shear.
+  - S-shaped inflection in Mooney-Rivlin model matches physical experimental elastomer test curves.
+
+---
+
+### 2.16 Simulation 16: Dynamic Time Integration Scheme Comparison
+
+- **Script**: [`sim16_dynamic_time_integration_comparison.py`](../examples/05_simulation/sim16_dynamic_time_integration_comparison.py)
+- **Physics**: Direct comparison of high-frequency spectral radius $\rho_\infty \in [0.0, 1.0]$ in Generalized-$\alpha$ dynamic analysis under sudden step load:
+  1. $\rho_\infty = 1.0$ (Undamped Newmark / Midpoint Rule): Energy-preserving, zero algorithmic damping.
+  2. $\rho_\infty = 0.8$ (Optimal Generalized-$\alpha$, Default): Selective high-frequency dissipation with minimal low-frequency damping.
+  3. $\rho_\infty = 0.5$ (HHT-$\alpha$): Moderate algorithmic damping for stiff structural transients.
+  4. $\rho_\infty = 0.0$ (Asymptotic Annihilation): Maximum dissipation, single-step cancellation of spurious high-frequency modes.
+- **Verification Results**:
+  - Macroscopic tip sag matches across all schemes within $0.03\%$ ($-139.01 \text{ mm}$ vs $-139.05 \text{ mm}$), confirming that low-frequency modes are unattenuated.
+  - High-frequency shock waves and stress spikes are smoothly filtered: initial shock von Mises stress drops from $714.5 \text{ MPa}$ ($\rho_\infty = 1.0$) to $620.8 \text{ MPa}$ ($\rho_\infty = 0.0$), eliminating contact chatter.
+
+---
+
 ## 3. Summary Comparison Table
 
 | Simulation | Formulation | Element Type | Load Condition | Max Disp ($u_{max}$) | Convergence / Physical Observation |
@@ -238,6 +303,11 @@ All simulation examples are located in [`psierra/examples/05_simulation/`](../ex
 | **`sim09`** | Linear Static | `Shell3` vs `Shell6` | Uniform Pressure ($-10 \text{ kPa}$) | $-6.299 \text{ mm}$ (`Shell3`) | $99.40\%$ match to Navier analytical series (Kirchhoff plate) |
 | **`sim10`** | Linear Static | `CoupledSolidShellDomain` | Self-Weight Gravity ($-1.0g$) | $-24.25 \text{ mm}$ (Coupled) | $5.93\times$ sag reduction ($83.1\%$ less sag) via $0.5\text{ mm}$ stiff membrane |
 | **`sim11`** | Non-linear Static | `CorotationalTet4` | Self-Weight Gravity ($-1.0g$) | $55.49 \text{ mm}$ | True arc-length preservation; axial tip curl ($U_z = -7.30 \text{ mm}$) |
+| **`sim12`** | Non-linear Static | `Tet4` (UL Neo-Hookean) | Incremental Gravity ($-1.0g$) | $219.81 \text{ mm}$ | 10/10 Steps; Cauchy stress and deformation match TL within $0.01\%$ |
+| **`sim13`** | Non-linear Dynamic | `Tet4` (UL Neo-Hookean) | Dynamic Gravity (Gen-$\alpha, \rho_\infty=0.8$) | $243.9 \text{ mm}$ (peak) | Spatial mid-point equilibrium; steady-state settling |
+| **`sim14`** | Comparison | Linear / CR / TL / UL | Self-Weight Gravity ($-1.0g$) | Multi-field | Elimination of artificial dilation; UL vs TL identical |
+| **`sim15`** | Comparison | Hookean / NH / MR / Yeoh | Tip Shear Load ($-150 \text{ kN}$) | Multi-field | High-strain stiffening in Yeoh; Mooney-Rivlin S-curve |
+| **`sim16`** | Comparison | Generalized-$\alpha$ ($\rho_\infty \in [0, 1]$) | Dynamic Gravity Transient | Multi-field | Low-frequency fidelity ($<0.03\%$ error); shock stress filtered |
 
 ---
 
@@ -245,7 +315,7 @@ All simulation examples are located in [`psierra/examples/05_simulation/`](../ex
 
 All simulation outputs can be visualized and animated directly in [ParaView](https://www.paraview.org/):
 
-1. **Static Solid & Shell Analyses (`sim01`, `sim02`, `sim04`, `sim06`, `sim08`, `sim09`, `sim11`)**:
+1. **Static Solid & Shell Analyses (`sim01`, `sim02`, `sim04`, `sim06`, `sim08`, `sim09`, `sim11`, `sim12`)**:
    - File $\to$ Open $\to$ `examples/05_simulation/simXX_output/result.vtu`.
    - Click **Apply**.
    - Under **Coloring**, choose `Displacement`, `Displacement Y`, or `Displacement Magnitude`.
@@ -254,7 +324,7 @@ All simulation outputs can be visualized and animated directly in [ParaView](htt
    - File $\to$ Open $\to$ `examples/05_simulation/sim10_output/beam_shell_covered.pvd`.
    - Click **Apply**.
    - ParaView automatically loads both the solid continuum core (`part="0"`) and outer shell skin (`part="1"`) into the 3D pipeline simultaneously.
-3. **Dynamic Transient Analyses (`sim03`, `sim05`, `sim07`)**:
-   - File $\to$ Open $\to$ `examples/05_simulation/simXX_output/result.pvd`.
+3. **Dynamic Transient Analyses (`sim03`, `sim05`, `sim07`, `sim13`, `sim16`)**:
+   - File $\to$ Open $\to$ `examples/05_simulation/simXX_output/result.pvd` (or `sim16_output/rho_XXX/result.pvd`).
    - Click **Apply**.
    - Click the green **Play** button in the animation toolbar to scrub through the dynamic oscillation.

@@ -3,9 +3,9 @@
 This document details the numerical algorithms, time integration schemes, equilibrium solvers, and their **underlying physical meanings** implemented in `pSierra`:
 
 1. **Linear Static Analysis** (Direct Sparse Factorization)
-2. **Linear Dynamic Analysis** (Implicit Newmark-$\beta$ with Rayleigh Damping)
+2. **Linear Dynamic Analysis** (Implicit Generalized-$\alpha$ with Rayleigh Damping)
 3. **Nonlinear Static Analysis** (Incremental Newton-Raphson with Backtracking Line Search)
-4. **Nonlinear Dynamic Analysis** (Implicit Non-linear Newmark-$\beta$)
+4. **Nonlinear Dynamic Analysis** (Implicit Non-linear Generalized-$\alpha$)
 5. **ParaView Data Exchange Pipeline** (`.pvd` & `.vtu`)
 
 ---
