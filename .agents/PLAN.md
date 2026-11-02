@@ -132,8 +132,8 @@ $$\text{Forward Continuum Mechanics} \longrightarrow \text{Contact Mechanics} \l
   - Real-time PyVista `BackgroundPlotter` integration with non-blocking render loop.
   - In-place point coordinate mutation (`polydata.points = current_nodes`) to bypass expensive VTK object recreation.
 - [ ] **Deliverable Demonstrations & Capability Proofs**:
-  - `examples/05_simulation/sim17_axial_torsion_hyperelastic_beam.py`: Severe axial twisting benchmark of a 3D continuum cantilever beam (up to $90^\circ - 180^\circ$ rotation) to prove finite-strain kinematics, cross-sectional warping, Poynting axial shortening/lengthening, and hyperelastic stability under large torsional shear.
-  - `examples/06_interactive/sim01_online_dynamic_cantilever.py`: Real-time interactive cantilever beam under user-controlled dynamic disturbance.
+  - [x] `examples/05_simulation/sim17_axial_torsion_hyperelastic_beam.py`: Severe axial twisting benchmark of a 3D continuum cantilever beam (up to $90^\circ - 180^\circ$ rotation) to prove finite-strain kinematics, cross-sectional warping, Poynting axial shortening/lengthening, and hyperelastic stability under large torsional shear.
+  - [ ] `examples/06_interactive/sim01_online_dynamic_cantilever.py`: Real-time interactive cantilever beam under user-controlled dynamic disturbance.
 
 ---
 
