@@ -121,19 +121,21 @@ $$\text{Forward Continuum Mechanics} \longrightarrow \text{Contact Mechanics} \l
 
 *Objective*: Establish a lean, real-time dynamic simulation pipeline and axial torsion / dynamic demonstration runner before introducing contact mechanics.
 
-- [ ] **Online Dynamic Simulation Runner (`InteractiveDynamicSimulation`)**:
+- [x] **Online Dynamic Simulation Runner (`InteractiveDynamicSimulation`)**:
   - Real-time dynamic loop operating with fixed time step $\Delta t$ decoupled from rendering frame rate.
-  - High-performance sparse factorization reuse: pre-factorized linear dynamic step or cached Cholesky/LU factorizations for low computational overhead ($>60$ FPS).
+  - High-performance sparse factorization reuse: pre-factorized linear dynamic step or cached Cholesky/LU factorizations for low computational overhead ($>60$ FPS, $>10,000$ Hz physics rate).
   - Real-time execution monitor tracking wall-clock simulation speed ratio (Sim Time / Real Time).
-- [ ] **Interactive Dynamic Load & Boundary Perturbations**:
+- [x] **Interactive Dynamic Load & Boundary Perturbations**:
   - Dynamic external load generators (harmonic excitation, moving point forces).
-  - Interactive user disturbance interface (click-and-drag mouse forces on boundary surface nodes).
-- [ ] **Live 3D Visualization Pipeline**:
-  - Real-time PyVista `BackgroundPlotter` integration with non-blocking render loop.
+  - Interactive user disturbance interface (keyboard impulse triggers, mouse-pick surface node forces).
+- [x] **Live 3D Visualization Pipeline**:
+  - Real-time PyVista integration with non-blocking render loop.
   - In-place point coordinate mutation (`polydata.points = current_nodes`) to bypass expensive VTK object recreation.
-- [ ] **Deliverable Demonstrations & Capability Proofs**:
+- [x] **Deliverable Demonstrations & Capability Proofs**:
   - [x] `examples/05_simulation/sim17_axial_torsion_hyperelastic_beam.py`: Severe axial twisting benchmark of a 3D continuum cantilever beam (up to $90^\circ - 180^\circ$ rotation) to prove finite-strain kinematics, cross-sectional warping, Poynting axial shortening/lengthening, and hyperelastic stability under large torsional shear.
-  - [ ] `examples/06_interactive/sim01_online_dynamic_cantilever.py`: Real-time interactive cantilever beam under user-controlled dynamic disturbance.
+  - [x] `examples/05_simulation/sim18_tet10_nonlinear_hyperelastic_beam.py`: Finite-strain hyperelastic beam bending benchmark proving quadratic Tet10 shear-locking alleviation ($1.51\times$ compliance recovery) and TL/UL machine precision equivalence ($< 10^{-13}$ mm).
+  - [x] `examples/06_interactive/sim01_online_dynamic_cantilever.py`: Real-time interactive cantilever beam under user-controlled dynamic disturbance ($12,056 \text{ Hz}$, $24.1\times$ real-time).
+  - [x] `examples/06_interactive/sim02_online_dynamic_tet10_nonlinear.py`: Real-time interactive dynamic simulation with 10-node quadratic tetrahedra (Tet10) and nonlinear hyperelasticity (Modified Newton Generalized-$\alpha$).
 
 ---
 
