@@ -327,15 +327,15 @@ All simulation examples are located in [`psierra/examples/05_simulation/`](../ex
   - **Convergence**: Solves 5 load increments in 4-5 Newton-Raphson iterations per step with asymptotic quadratic residual reduction.
   - **ParaView Collections**: Multi-model snapshots and master PVD files exported to `examples/05_simulation/sim18_output/`.
 
-### 2.20 Simulation 02 (Interactive): Real-Time Dynamic Simulation with Nonlinear Tet10
+### 2.20 Simulation 02 (Interactive): Real-Time Dynamic 3D Axial Torsion Pipeline
 
-- **Script**: [`sim02_online_dynamic_tet10_nonlinear.py`](../examples/06_interactive/sim02_online_dynamic_tet10_nonlinear.py)
-- **Physics**: Real-time online dynamic simulation of a 3D continuum cantilever beam using 10-node quadratic tetrahedra (`Tet10TotalLagrangian` / `Tet10UpdatedLagrangian`) with Modified Newton-Raphson Generalized-$\alpha$ dynamic stepping.
+- **Script**: [`sim02_online_dynamic_axial_torsion.py`](../examples/06_interactive/sim02_online_dynamic_axial_torsion.py)
+- **Physics**: Real-time online dynamic simulation of a 3D continuum cantilever beam subjected to pure torsional twisting moments ($M_z$), torsional wave propagation, and elastic spring-back using Generalized-$\alpha$ dynamic time integration with support for Corotational, Linear, and Hyperelastic formulations.
 - **Key Capabilities**:
-  - **Nonlinear Dynamic Internal Forces**: Assembles true finite-strain hyperelastic restoring forces $\boldsymbol{f}_{\text{int}}(\boldsymbol{u})$ using 4-point Hammer quadrature at every time step.
-  - **Interactive Disturbance Handling**: Interactive keyboard impulse disturbances (`[I]`, `[U]`), sinusoidal resonance excitation (`[H]`), dynamic reset (`[R]`), and clearing (`[C]`).
-  - **In-Place VTK Mutation**: Updates PyVista UnstructuredGrid point coordinates in-place (`update_pyvista_grid()`).
-  - **Headless & Snapshot Support**: Runs automated headless verification (`--headless`) and streams time-series `.vtu` and `.pvd` files to `examples/06_interactive/sim02_output/`.
+  - **Pure Torsional Force Couple**: Evaluates an exact tangential force couple over tip face boundary nodes with zero net linear shear force, generating pure twisting moments $M_z$.
+  - **Interactive Torsion Handling**: Interactive keyboard clockwise torque (`[T]`), counter-clockwise torque (`[Y]`), harmonic torsional resonance (`[H]`), instant torque release for free spring-back vibration (`[C]`), and simulation reset (`[R]`).
+  - **Diverging Colormap Visualization**: Real-time extraction of local twist rotation angles $\theta_z$ rendered in a perceptually uniform diverging `coolwarm` palette centered at $0.0^\circ$ (neutral grey), with positive clockwise twist in warm red and negative counter-clockwise twist in cool blue.
+  - **Headless & Snapshot Support**: Runs automated headless verification sequence (`--headless`) and streams time-series `.vtu` and `.pvd` collections to `examples/06_interactive/sim02_output/`.
 
 ---
 
@@ -361,8 +361,8 @@ All simulation examples are located in [`psierra/examples/05_simulation/`](../ex
 | **`sim16`** | Comparison | Generalized-$\alpha$ ($\rho_\infty \in [0, 1]$) | Dynamic Gravity Transient | Multi-field | Low-frequency fidelity ($<0.03\%$ error); shock stress filtered |
 | **`sim17`** | Non-linear Static | `Tet4` (TL Hyperelastic) | Severe Axial Torsion ($180^\circ$) | $84.85 \text{ mm}$ | Poynting elongation ($+5.15 \text{ mm}$), warping ($1.51 \text{ mm}$), $M_z = -214.1 \text{ kN}\cdot\text{m}$ |
 | **`sim18`** | Non-linear Static | `Tet4` vs `Tet10` (TL/UL) | Transverse Shear ($-100 \text{ kN}$) | $-28.43 \text{ mm}$ (`Tet10`) | $1.51\times$ flex recovery over `Tet4`; TL vs UL match to $< 10^{-13} \text{ mm}$ |
-| **`sim01 (Interactive)`** | Online Dynamic | `Tet4` / `Tet10` | Gravity + Impulse + Harmonic | $-270.28 \text{ mm}$ (peak) | $12,056 \text{ Hz}$ physics rate ($82.9\,\mu\text{s}/\text{step}$), $24.1\times$ real-time speedup |
-| **`sim02 (Interactive)`** | Online Dynamic | `Tet10` (Nonlinear TL/UL) | Gravity + Impulse + Harmonic | $-12.42 \text{ mm}$ (peak) | Modified Newton Gen-$\alpha$ with true nonlinear internal forces |
+| **`sim01 (Interactive)`** | Online Dynamic | `Tet4` / `Tet10` (Lin/CR/TL/UL) | Gravity + Impulse + Harmonic | $-7.30 \text{ mm}$ (peak) | $11,527 \text{ Hz}$ physics rate ($86.8\,\mu\text{s}/\text{step}$), $23.1\times$ real-time speedup; coolwarm diverging colormap |
+| **`sim02 (Interactive)`** | Online Dynamic | `Tet4` / `Tet10` (CR/Lin/TL/UL) | Dynamic Torque $M_z$ + Harmonic | $83.61^\circ$ (peak) | Pure torsional force couple; dynamic spring-back; coolwarm twist angle map |
 
 ---
 
