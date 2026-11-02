@@ -68,40 +68,69 @@ $$\xi_n = \frac{\alpha}{2 \omega_n} + \frac{\beta \omega_n}{2}$$
   - Dominates at high frequencies ($\xi \propto \omega$).
   - Physically represents internal viscoelastic friction between polymer chains, crystal dislocation glide, and thermoelastic relaxation within the material. It filters out non-physical high-frequency numerical noise and acoustic vibrations.
 
-### 2.3 Implicit Newmark-$\beta$ Integration Scheme
+### 2.3 Implicit Generalized-$\alpha$ Time Integration Scheme
 
-`pSierra` employs the classical implicit Newmark-$\beta$ scheme with standard unconditionally stable parameters:
-$$\beta = \frac{1}{4}, \quad \gamma = \frac{1}{2} \quad \text{(Average Acceleration Method)}$$
+`pSierra` employs the **Generalized-$\alpha$ method** (Chung & Hulbert, 1993) for both linear and non-linear implicit structural dynamics. The method evaluates dynamic balance at generalized midpoints $t_{n+1-\alpha_m}$ and $t_{n+1-\alpha_f}$:
 
-The kinematic relations between time $t_n$ and $t_{n+1} = t_n + \Delta t$ are:
+$$\boldsymbol{M} \ddot{\boldsymbol{u}}_{n+1-\alpha_m} + \boldsymbol{C} \dot{\boldsymbol{u}}_{n+1-\alpha_f} + \boldsymbol{K} \boldsymbol{u}_{n+1-\alpha_f} = \boldsymbol{f}_{ext}(t_{n+1-\alpha_f})$$
+
+where the generalized midpoint quantities are:
+$$\begin{aligned}
+\boldsymbol{u}_{n+1-\alpha_f} &= (1 - \alpha_f) \boldsymbol{u}_{n+1} + \alpha_f \boldsymbol{u}_n \\
+\dot{\boldsymbol{u}}_{n+1-\alpha_f} &= (1 - \alpha_f) \dot{\boldsymbol{u}}_{n+1} + \alpha_f \dot{\boldsymbol{u}}_n \\
+\ddot{\boldsymbol{u}}_{n+1-\alpha_m} &= (1 - \alpha_m) \ddot{\boldsymbol{u}}_{n+1} + \alpha_m \ddot{\boldsymbol{u}}_n
+\end{aligned}$$
+
+The kinematic relations between time $t_n$ and endpoint $t_{n+1} = t_n + \Delta t$ follow the Newmark predictor-corrector equations:
 $$\boldsymbol{u}_{n+1} = \boldsymbol{u}_n + \Delta t \dot{\boldsymbol{u}}_n + \Delta t^2 \left[ \left(\frac{1}{2} - \beta\right) \ddot{\boldsymbol{u}}_n + \beta \ddot{\boldsymbol{u}}_{n+1} \right]$$
 $$\dot{\boldsymbol{u}}_{n+1} = \dot{\boldsymbol{u}}_n + \Delta t \left[ (1 - \gamma) \ddot{\boldsymbol{u}}_n + \gamma \ddot{\boldsymbol{u}}_{n+1} \right]$$
 
-### 2.4 Newmark Integration Constants
+### 2.4 Control via High-Frequency Spectral Radius ($\rho_\infty$)
 
+Instead of exposing arbitrary, error-prone coefficients $(\alpha_m, \alpha_f, \gamma, \beta)$ to the user, `pSierra` controls the entire time integration behavior via a single physical parameter: the **high-frequency spectral radius $\rho_\infty \in [0.0, 1.0]$** (`spectral_radius`).
+
+#### Why Spectral Radius?
+The spectral radius $\rho_\infty$ represents the magnitude of the largest eigenvalue of the dynamic amplification matrix $\boldsymbol{A}$ in the infinite-frequency limit ($\Delta t \to \infty$ or $\omega \Delta t \to \infty$):
+$$\rho_\infty = \max_{i} |\lambda_i(\boldsymbol{A}_\infty)|$$
+
+- It provides an intuitive, physically meaningful dial: $\rho_\infty = 1.0$ means $0\%$ damping of high frequencies, while $\rho_\infty = 0.0$ means $100\%$ annihilation of high-frequency components in a single time step.
+- Chung and Hulbert proved that by tying all four parameters algebraically to $\rho_\infty$:
+  $$\alpha_m = \frac{2\rho_\infty - 1}{\rho_\infty + 1}, \quad \alpha_f = \frac{\rho_\infty}{\rho_\infty + 1}$$
+  $$\gamma = \frac{1}{2} - \alpha_m + \alpha_f = \frac{1}{2} + \frac{1 - \rho_\infty}{\rho_\infty + 1}$$
+  $$\beta = \frac{1}{4}(1 - \alpha_m + \alpha_f)^2 = \frac{1}{(1 + \rho_\infty)^2}$$
+  the algorithm **strictly guarantees unconditional linear stability and second-order time accuracy $\mathcal{O}(\Delta t^2)$ for all $\rho_\infty \in [0, 1]$**. Unlike classical Newmark (where adding numerical damping $\gamma > 0.5$ degrades accuracy to 1st-order $\mathcal{O}(\Delta t)$), Generalized-$\alpha$ maintains optimal high-frequency filtering with zero order degradation.
+
+#### Mapping to Classic Schemes:
+| Spectral Radius | Scheme Equivalent | Parameters $(\alpha_m, \alpha_f, \gamma, \beta)$ | Physical Character & Recommended Use Case |
+|:---:|:---|:---:|:---|
+| **$\rho_\infty = 1.0$** | **Undamped Newmark / Midpoint Rule** | $(0.5, 0.5, 0.5, 0.25)$ | **Zero Numerical Dissipation**: Total mechanical energy is preserved indefinitely. Best for ideal linear vibration tests, acoustic resonances, and celestial mechanics. |
+| **$\rho_\infty = 0.8$** | **Optimal Generalized-$\alpha$ (Default)** | $(0.333, 0.444, 0.611, 0.309)$ | **Optimal High-Frequency Damping**: Selectively filters out spurious mesh discretization chatter ($\omega_h \sim c/h_{elem}$) while leaving gross physical structural motion undamped. Standard in Abaqus, FEBio, and COMSOL. |
+| **$\rho_\infty = 0.5$** | **HHT-$\alpha$** (Hilber-Hughes-Taylor) | $(0.0, 0.333, 0.833, 0.444)$ | **Moderate Damping**: Reconstructs HHT-$\alpha$ with $\alpha_{HHT} = -1/3$. Effective for stiff structural frames under sudden shock loads. |
+| **$\rho_\infty = 0.0$** | **Asymptotic Annihilation** | $(-1.0, 0.0, 1.5, 1.0)$ | **Maximum Damping**: Completely annihilates the highest frequency mode in 1 step. Essential for suppressing contact impact chatter and boundary constraint shock. |
+
+### 2.5 Integration Constants & Effective Dynamic Matrix
+
+The kinematic relations express endpoint acceleration $\ddot{\boldsymbol{u}}_{n+1}$ and velocity $\dot{\boldsymbol{u}}_{n+1}$ in terms of displacement:
 $$a_0 = \frac{1}{\beta \Delta t^2}, \quad a_1 = \frac{\gamma}{\beta \Delta t}, \quad a_2 = \frac{1}{\beta \Delta t}, \quad a_3 = \frac{1}{2\beta} - 1, \quad a_4 = \frac{\gamma}{\beta} - 1, \quad a_5 = \frac{\Delta t}{2}\left(\frac{\gamma}{\beta} - 2\right)$$
+$$\ddot{\boldsymbol{u}}_{n+1} = a_0 (\boldsymbol{u}_{n+1} - \boldsymbol{u}_n) - a_2 \dot{\boldsymbol{u}}_n - a_3 \ddot{\boldsymbol{u}}_n$$
+$$\dot{\boldsymbol{u}}_{n+1} = a_1 (\boldsymbol{u}_{n+1} - \boldsymbol{u}_n) - a_4 \dot{\boldsymbol{u}}_n - a_5 \ddot{\boldsymbol{u}}_n$$
 
-Substituting the kinematic updates into the partitioned equations of motion yields the effective linear algebraic system for $\boldsymbol{u}_{f, n+1}$:
+Substituting into the generalized midpoint balance yields the effective linear algebraic system for $\boldsymbol{u}_{f, n+1}$:
 $$\boldsymbol{K}_{eff} \boldsymbol{u}_{f, n+1} = \boldsymbol{f}_{eff, n+1}$$
 where:
-$$\boldsymbol{K}_{eff} = \boldsymbol{K}_{ff} + a_0 \boldsymbol{M}_{ff} + a_1 \boldsymbol{C}_{ff}$$
-$$\boldsymbol{f}_{eff, n+1} = \boldsymbol{f}_{ext, f} + \boldsymbol{M}_{ff} \left( a_0 \boldsymbol{u}_n + a_2 \dot{\boldsymbol{u}}_n + a_3 \ddot{\boldsymbol{u}}_n \right) + \boldsymbol{C}_{ff} \left( a_1 \boldsymbol{u}_n + a_4 \dot{\boldsymbol{u}}_n + a_5 \ddot{\boldsymbol{u}}_n \right)$$
+$$\boldsymbol{K}_{eff} = (1 - \alpha_f) \boldsymbol{K}_{ff} + (1 - \alpha_m) a_0 \boldsymbol{M}_{ff} + (1 - \alpha_f) a_1 \boldsymbol{C}_{ff}$$
+$$\begin{aligned}
+\boldsymbol{f}_{eff, n+1} &= \boldsymbol{f}_{ext, f} - \alpha_f \boldsymbol{K}_{ff} \boldsymbol{u}_n \\
+&\quad + \boldsymbol{M}_{ff} \left[ (1 - \alpha_m)(a_0 \boldsymbol{u}_n + a_2 \dot{\boldsymbol{u}}_n + a_3 \ddot{\boldsymbol{u}}_n) - \alpha_m \ddot{\boldsymbol{u}}_n \right] \\
+&\quad + \boldsymbol{C}_{ff} \left[ (1 - \alpha_f)(a_1 \boldsymbol{u}_n + a_4 \dot{\boldsymbol{u}}_n + a_5 \ddot{\boldsymbol{u}}_n) - \alpha_f \dot{\boldsymbol{u}}_n \right]
+\end{aligned}$$
 
-#### Physical Meaning of the Effective Dynamic Matrix $\boldsymbol{K}_{eff}$
-
-- In dynamics, the effective stiffness $\boldsymbol{K}_{eff} = \boldsymbol{K}_{ff} + \frac{4}{\Delta t^2} \boldsymbol{M}_{ff} + \frac{2}{\Delta t} \boldsymbol{C}_{ff}$ combines elastic stiffness with **inertial resistance** ($\frac{4}{\Delta t^2} \boldsymbol{M}$) and **viscous resistance** ($\frac{2}{\Delta t} \boldsymbol{C}$).
-- For very small time steps $\Delta t \to 0$, the inertial term $\frac{4}{\Delta t^2} \boldsymbol{M}$ dominates, reflecting the physical reality that sudden, instantaneous forces are initially resisted by inertia ($F = ma$) before strain has time to propagate across the structure.
-- **Zero Numerical Dissipation ($\gamma = 0.5$)**: Setting $\gamma = 0.5$ guarantees that the time integrator introduces no artificial numerical damping; the decay of the oscillation is governed entirely by the physical Rayleigh damping matrix $\boldsymbol{C}$.
-
-### 2.5 Computational Acceleration: Single Factorization
-
-In linear dynamics, $\boldsymbol{M}_{ff}$, $\boldsymbol{C}_{ff}$, and $\boldsymbol{K}_{ff}$ are **constant over time**. Therefore, $\boldsymbol{K}_{eff}$ is factorized **only once** at the beginning of the simulation:
-
+#### Computational Acceleration: Single Factorization
+In linear dynamics, $\boldsymbol{K}_{eff}$ is **constant over time**. Therefore, $\boldsymbol{K}_{eff}$ is factorized **only once** at step 0 via SuperLU:
 ```python
-solve_step = spla.factorized(K_eff)
+solve_step = spspla.factorized(K_eff)
 ```
-
-Each time step then requires only $\mathcal{O}(N)$ back-substitution, enabling hundreds of dynamic time steps to run in seconds.
+Each subsequent time step requires only an $\mathcal{O}(N)$ back-substitution.
 
 ---
 
@@ -151,27 +180,32 @@ for _ in range(8):
 
 ## 4. Nonlinear Dynamic Analysis (`NonlinearDynamicAnalysis`)
 
-### 4.1 Governing System
+### 4.1 Governing System: Generalized-$\alpha$ Midpoint Equilibrium
 
-Non-linear dynamic equilibrium at time $t_{n+1}$ satisfies:
-$$\boldsymbol{R}(\boldsymbol{u}_{n+1}) = \boldsymbol{f}_{ext, n+1} - \boldsymbol{M} \ddot{\boldsymbol{u}}_{n+1} - \boldsymbol{C} \dot{\boldsymbol{u}}_{n+1} - \boldsymbol{f}_{int}(\boldsymbol{u}_{n+1}) = \boldsymbol{0}$$
+In non-linear finite deformation dynamics, dynamic equilibrium is enforced at the generalized midpoint:
+$$\boldsymbol{R}_{mid} = \boldsymbol{f}_{ext}(t_{n+1-\alpha_f}) - \boldsymbol{M} \ddot{\boldsymbol{u}}_{n+1-\alpha_m} - \boldsymbol{C} \dot{\boldsymbol{u}}_{n+1-\alpha_f} - \boldsymbol{f}_{int}(\boldsymbol{u}_{n+1-\alpha_f}) = \boldsymbol{0}$$
+where:
+$$\begin{aligned}
+\boldsymbol{u}_{n+1-\alpha_f} &= (1 - \alpha_f) \boldsymbol{u}_{n+1} + \alpha_f \boldsymbol{u}_n \\
+\dot{\boldsymbol{u}}_{n+1-\alpha_f} &= (1 - \alpha_f) \dot{\boldsymbol{u}}_{n+1} + \alpha_f \dot{\boldsymbol{u}}_n \\
+\ddot{\boldsymbol{u}}_{n+1-\alpha_m} &= (1 - \alpha_m) \ddot{\boldsymbol{u}}_{n+1} + \alpha_m \ddot{\boldsymbol{u}}_n
+\end{aligned}$$
 
 ### 4.2 Dynamic Tangent Stiffness Matrix
 
-Expressing acceleration and velocity increments in terms of displacement increments:
-$$\ddot{\boldsymbol{u}}_{n+1}^{(i+1)} = \ddot{\boldsymbol{u}}_n + a_0 (\boldsymbol{u}_{n+1}^{(i+1)} - \boldsymbol{u}_n) - a_2 \dot{\boldsymbol{u}}_n - a_3 \ddot{\boldsymbol{u}}_n$$
-$$\dot{\boldsymbol{u}}_{n+1}^{(i+1)} = \dot{\boldsymbol{u}}_n + a_1 (\boldsymbol{u}_{n+1}^{(i+1)} - \boldsymbol{u}_n) - a_4 \dot{\boldsymbol{u}}_n - a_5 \ddot{\boldsymbol{u}}_n$$
+Taking the derivative of the midpoint residual with respect to the endpoint displacement $\boldsymbol{u}_{n+1}$:
+$$\boldsymbol{K}_{eff} = -\frac{\partial \boldsymbol{R}_{mid}}{\partial \boldsymbol{u}_{n+1}} = (1 - \alpha_f) \boldsymbol{K}_{tan}(\boldsymbol{u}_{n+1-\alpha_f}) + (1 - \alpha_m) a_0 \boldsymbol{M} + (1 - \alpha_f) a_1 \boldsymbol{C}$$
 
-The dynamic tangent stiffness matrix assembled at each Newton iteration is:
-$$\boldsymbol{K}_{dyn} = \boldsymbol{K}_{tan}(\boldsymbol{u}_{n+1}^{(i)}) + a_0 \boldsymbol{M} + a_1 \boldsymbol{C}$$
-The displacement correction $\delta \boldsymbol{u}$ satisfies:
-$$\boldsymbol{K}_{dyn, ff} \delta \boldsymbol{u}_f = \boldsymbol{R}_f^{(i)}$$
-$$\boldsymbol{u}_{f, n+1}^{(i+1)} = \boldsymbol{u}_{f, n+1}^{(i)} + \delta \boldsymbol{u}_f$$
+At each Newton-Raphson iteration $k$, the displacement increment $\delta \boldsymbol{u}$ satisfies:
+$$\boldsymbol{K}_{eff, ff} \delta \boldsymbol{u}_f = \boldsymbol{R}_{mid, f}^{(k)}$$
+$$\boldsymbol{u}_{f, n+1}^{(k+1)} = \boldsymbol{u}_{f, n+1}^{(k)} + \delta \boldsymbol{u}_f$$
 
-#### Physical Meaning of Non-linear Dynamic Coupling
+#### Physical Meaning of Non-linear Dynamic Coupling & Algorithmic Damping
 
-- Non-linear dynamics captures the physical interplay between **kinetic energy, large geometric rotations, and material non-linearity**.
-- As a beam swings dynamically under gravity, its orientation changes continuously, which rotates its mass distribution and internal stresses. The dynamic tangent $\boldsymbol{K}_{dyn}$ accounts for both the **instantaneous material stiffness**, the **geometric stress-stiffening from tension**, and the **effective inertial resistance**, enabling realistic simulations of soft organ kinematics, beating hearts, and flexible robotic arms.
+- **Energy-Conserving vs. Chatter-Suppressed Dynamics**:
+  - Setting `spectral_radius=1.0` preserves total mechanical energy in undamped systems.
+  - Setting `spectral_radius=0.8` (default) introduces optimal algorithmic dissipation specifically targeted at the highest spatial discretization frequencies of the tetrahedral mesh without attenuating gross low-frequency structural deformation.
+  - In contact mechanics (Phase 3), slave node impacts and contact constraint transitions generate sharp high-frequency momentum shocks. Generalized-$\alpha$ damps out these non-physical impact oscillations, preventing Newton-Raphson diverged iterations while preserving strict 2nd-order accuracy $\mathcal{O}(\Delta t^2)$.
 
 ---
 
@@ -214,16 +248,19 @@ Opening `result.pvd` in ParaView provides an interactive animation time slider a
 | Solver / Concept | Formulation | Source File | Class & Method |
 | --- | --- | --- | --- |
 | Linear Static Solver | $\boldsymbol{K}_{ff}\boldsymbol{u}_f = \boldsymbol{f}_{eff}$ | [`linear_static.py`](../src/psierra/analysis/linear_static.py) | `LinearStaticAnalysis.solve()` |
-| Linear Dynamic Solver | Implicit Newmark-$\beta$ | [`linear_dynamic.py`](../src/psierra/analysis/linear_dynamic.py) | `LinearDynamicAnalysis.solve()` |
+| Linear Dynamic Solver | Implicit Generalized-$\alpha$ | [`linear_dynamic.py`](../src/psierra/analysis/linear_dynamic.py) | `LinearDynamicAnalysis.solve()` |
 | Rayleigh Damping | $\boldsymbol{C} = \alpha \boldsymbol{M} + \beta \boldsymbol{K}$ | [`rayleigh.py`](../src/psierra/damping/rayleigh.py) | `RayleighDamping.assemble_damping_matrix()` |
 | Nonlinear Static Solver | Incremental Newton-Raphson | [`nonlinear_static.py`](../src/psierra/analysis/nonlinear_static.py) | `NonlinearStaticAnalysis.solve()` |
-| Nonlinear Dynamic Solver | Dynamic Newton-Newmark | [`nonlinear_dynamic.py`](../src/psierra/analysis/nonlinear_dynamic.py) | `NonlinearDynamicAnalysis.solve()` |
+| Nonlinear Dynamic Solver | Dynamic Newton Generalized-$\alpha$ | [`nonlinear_dynamic.py`](../src/psierra/analysis/nonlinear_dynamic.py) | `NonlinearDynamicAnalysis.solve()` |
 | ParaView PVD Exporter | XML Collection Builder | [`pvd.py`](../src/psierra/exchange/pvd.py) | `PvdCollectionWriter` |
 
 ---
 
 ## 7. References & Further Reading
 
+- **J. Chung and G.M. Hulbert**, *A Time Integration Algorithm for Structural Dynamics with Improved Numerical Dissipation: The Generalized-$\alpha$ Method*, Journal of Applied Mechanics, 60(2):371-375, 1993.
+- **H.M. Hilber, T.J.R. Hughes, and R.L. Taylor**, *Improved Numerical Dissipation for Time Integration Algorithms in Structural Dynamics*, Earthquake Engineering & Structural Dynamics, 5(3):283-292, 1977.
+- **W.L. Wood, M. Bossak, and O.C. Zienkiewicz**, *An Alpha Modification of Newmark's Method*, International Journal for Numerical Methods in Engineering, 15(10):1562-1566, 1980.
 - **N.M. Newmark**, *A Method of Computation for Structural Dynamics*, Journal of the Engineering Mechanics Division, ASCE, 85:67-94, 1959.
 - **K.J. Bathe**, *Finite Element Procedures*, Chapter 9: Dynamic Analysis and Time Integration.
 - **T. Belytschko et al.**, *Nonlinear Finite Elements for Continua and Structures*, Chapter 6: Nonlinear Dynamic Solutions.

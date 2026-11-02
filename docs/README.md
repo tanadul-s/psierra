@@ -22,7 +22,7 @@ flowchart TD
 
     subgraph Stage3["Stage III: Assembly, Coupling & Solvers"]
         D05["05. System Assembly, Boundary Conditions & Monolithic Coupling<br/><i>Sparse COO/CSC assembly, Dirichlet condensation, gravity, CoupledSolidShellDomain</i>"]
-        D06["06. Structural Analysis Solvers & Computational Pipelines<br/><i>Direct SuperLU, Newmark-beta dynamics, Newton-Raphson equilibrium, VTU/PVD</i>"]
+        D06["06. Structural Analysis Solvers & Computational Pipelines<br/><i>Direct SuperLU, Generalized-alpha dynamics (spectral radius), Newton-Raphson equilibrium, VTU/PVD</i>"]
     end
 
     subgraph Stage4["Stage IV: Verification & Clinical Case Studies"]
@@ -105,9 +105,9 @@ flowchart TD
 
 ### 6. [Structural Analysis Solvers & Computational Pipelines](06_solvers_and_analysis_pipelines.md)
 - **Linear Static Analysis**: direct sparse SuperLU factorization for $\boldsymbol{K}_{ff} \boldsymbol{u}_f = \boldsymbol{f}_{eff}$.
-- **Linear Dynamic Analysis**: Rayleigh damping $\boldsymbol{C} = \alpha \boldsymbol{M} + \beta \boldsymbol{K}$, implicit Newmark-$\beta$ time integration, and pre-factorization of effective stiffness matrix $\boldsymbol{K}_{eff}$.
+- **Linear Dynamic Analysis**: Rayleigh damping $\boldsymbol{C} = \alpha \boldsymbol{M} + \beta \boldsymbol{K}$, implicit Generalized-$\alpha$ time integration with controllable high-frequency spectral radius $\rho_\infty$, and pre-factorization of effective stiffness matrix $\boldsymbol{K}_{eff}$.
 - **Nonlinear Static Analysis**: incremental Newton-Raphson iterations, out-of-balance residual $\boldsymbol{R} = \lambda \boldsymbol{f}_{ext} - \boldsymbol{f}_{int}(\boldsymbol{u})$, and backtracking line search guarding against element inversion ($\det(\boldsymbol{F}) \le 0$).
-- **Nonlinear Dynamic Analysis**: implicit Newmark-$\beta$ integration coupled with inner Newton-Raphson equilibrium iterations.
+- **Nonlinear Dynamic Analysis**: implicit Generalized-$\alpha$ integration coupled with inner Newton-Raphson equilibrium iterations and high-frequency noise dissipation.
 - **ParaView Data Exchange**: `.pvd` XML collection generation linking `.vtu` snapshots.
 - Implementation map: [`LinearStaticAnalysis`](../src/psierra/analysis/linear_static.py), [`LinearDynamicAnalysis`](../src/psierra/analysis/linear_dynamic.py), [`NonlinearStaticAnalysis`](../src/psierra/analysis/nonlinear_static.py), [`NonlinearDynamicAnalysis`](../src/psierra/analysis/nonlinear_dynamic.py), [`PvdCollectionWriter`](../src/psierra/exchange/pvd.py).
 
