@@ -305,6 +305,38 @@ All simulation examples are located in [`psierra/examples/05_simulation/`](../ex
     - `examples/05_simulation/sim17_output/mooney_rivlin/result.pvd`
     - `examples/05_simulation/sim17_output/yeoh/result.pvd`
 
+### 2.18 Simulation 01 (Interactive): Real-Time Online Dynamic Cantilever Simulation
+
+- **Script**: [`sim01_online_dynamic_cantilever.py`](../examples/06_interactive/sim01_online_dynamic_cantilever.py)
+- **Physics**: Real-time interactive FEA simulation of a 3D continuum cantilever beam under self-weight gravity and dynamic user perturbations (impulse forces, sinusoidal resonance driving) using Generalized-$\alpha$ integration ($\rho_\infty = 0.8$) and single-factorization SuperLU reuse.
+- **Key Capabilities**:
+  - **Physics / Render Clock Decoupling**: Physics advances at fixed $\Delta t = 2 \text{ ms}$ ($500 \text{ Hz}$), synchronized with wall-clock time via `advance_wall_clock()` to prevent lag spikes.
+  - **Ultra-High Physics Rate**: Sparse dynamic matrix $\boldsymbol{K}_{\text{eff}}$ is factorized once at $t = 0$. Each step executes in **$82.9\,\mu\text{s}$**, achieving an effective physics rate of **$12,056 \text{ Hz}$** ($24.1\times$ real-time).
+  - **In-Place VTK Mutation**: Direct point buffer update (`update_pyvista_grid()`) enables smooth $60+ \text{ FPS}$ 3D visualization without VTK memory reallocations.
+  - **Interactive Disturbance Handling**: Real-time keyboard callbacks (`[I]` downward impulse, `[U]` upward impulse, `[H]` harmonic resonance excitation, `[C]` clear forces, `[R]` reset rest state).
+  - **Headless & CI Execution**: Automated fallback to non-GUI demonstration sequence when running without an X11/Wayland display (`--headless`).
+  - **Snapshot Streaming**: Saves time-series snapshots and collection file to `examples/06_interactive/sim01_output/sim01_online_dynamic.pvd`.
+
+### 2.19 Simulation 18: Nonlinear Quadratic Tetrahedral (Tet10) Hyperelastic Beam Bending
+
+- **Script**: [`sim18_tet10_nonlinear_hyperelastic_beam.py`](../examples/05_simulation/sim18_tet10_nonlinear_hyperelastic_beam.py)
+- **Physics**: Finite-strain hyperelastic bending of a 3D continuum cantilever beam comparing linear Tet4, nonlinear Tet4 (Total Lagrangian), and nonlinear Tet10 (Total & Updated Lagrangian) to evaluate shear-locking alleviation and TL/UL formulation equivalence.
+- **Key Findings**:
+  - **Shear-Locking Elimination**: Constant-strain linear tetrahedra (`Tet4`) lock in bending, underpredicting deflection ($-18.83 \text{ mm}$). Quadratic `Tet10` elements recover true flexural curvature with **$1.51\times$ higher compliance** ($-28.43 \text{ mm}$).
+  - **TL vs UL Machine Precision**: Total Lagrangian and Updated Lagrangian on quadratic `Tet10` elements yield identical displacements to $|\boldsymbol{u}_{\text{TL}} - \boldsymbol{u}_{\text{UL}}| = 4.26 \times 10^{-14} \text{ mm}$.
+  - **Convergence**: Solves 5 load increments in 4-5 Newton-Raphson iterations per step with asymptotic quadratic residual reduction.
+  - **ParaView Collections**: Multi-model snapshots and master PVD files exported to `examples/05_simulation/sim18_output/`.
+
+### 2.20 Simulation 02 (Interactive): Real-Time Dynamic Simulation with Nonlinear Tet10
+
+- **Script**: [`sim02_online_dynamic_tet10_nonlinear.py`](../examples/06_interactive/sim02_online_dynamic_tet10_nonlinear.py)
+- **Physics**: Real-time online dynamic simulation of a 3D continuum cantilever beam using 10-node quadratic tetrahedra (`Tet10TotalLagrangian` / `Tet10UpdatedLagrangian`) with Modified Newton-Raphson Generalized-$\alpha$ dynamic stepping.
+- **Key Capabilities**:
+  - **Nonlinear Dynamic Internal Forces**: Assembles true finite-strain hyperelastic restoring forces $\boldsymbol{f}_{\text{int}}(\boldsymbol{u})$ using 4-point Hammer quadrature at every time step.
+  - **Interactive Disturbance Handling**: Interactive keyboard impulse disturbances (`[I]`, `[U]`), sinusoidal resonance excitation (`[H]`), dynamic reset (`[R]`), and clearing (`[C]`).
+  - **In-Place VTK Mutation**: Updates PyVista UnstructuredGrid point coordinates in-place (`update_pyvista_grid()`).
+  - **Headless & Snapshot Support**: Runs automated headless verification (`--headless`) and streams time-series `.vtu` and `.pvd` files to `examples/06_interactive/sim02_output/`.
+
 ---
 
 ## 3. Summary Comparison Table
@@ -328,6 +360,9 @@ All simulation examples are located in [`psierra/examples/05_simulation/`](../ex
 | **`sim15`** | Comparison | Hookean / NH / MR / Yeoh | Tip Shear Load ($-150 \text{ kN}$) | Multi-field | High-strain stiffening in Yeoh; Mooney-Rivlin S-curve |
 | **`sim16`** | Comparison | Generalized-$\alpha$ ($\rho_\infty \in [0, 1]$) | Dynamic Gravity Transient | Multi-field | Low-frequency fidelity ($<0.03\%$ error); shock stress filtered |
 | **`sim17`** | Non-linear Static | `Tet4` (TL Hyperelastic) | Severe Axial Torsion ($180^\circ$) | $84.85 \text{ mm}$ | Poynting elongation ($+5.15 \text{ mm}$), warping ($1.51 \text{ mm}$), $M_z = -214.1 \text{ kN}\cdot\text{m}$ |
+| **`sim18`** | Non-linear Static | `Tet4` vs `Tet10` (TL/UL) | Transverse Shear ($-100 \text{ kN}$) | $-28.43 \text{ mm}$ (`Tet10`) | $1.51\times$ flex recovery over `Tet4`; TL vs UL match to $< 10^{-13} \text{ mm}$ |
+| **`sim01 (Interactive)`** | Online Dynamic | `Tet4` / `Tet10` | Gravity + Impulse + Harmonic | $-270.28 \text{ mm}$ (peak) | $12,056 \text{ Hz}$ physics rate ($82.9\,\mu\text{s}/\text{step}$), $24.1\times$ real-time speedup |
+| **`sim02 (Interactive)`** | Online Dynamic | `Tet10` (Nonlinear TL/UL) | Gravity + Impulse + Harmonic | $-12.42 \text{ mm}$ (peak) | Modified Newton Gen-$\alpha$ with true nonlinear internal forces |
 
 ---
 
