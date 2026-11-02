@@ -1,11 +1,12 @@
 from __future__ import annotations
+from collections.abc import Callable
 from dataclasses import dataclass, field
 from pathlib import Path
 import numpy as np
 from rich import print
 
 from psierra.domain.base import Domain
-from psierra.boundary.dirichlet import DirichletManager, DirichletConstraint
+from psierra.boundary import DirichletManager, DirichletConstraint, DirichletBoundaryCondition
 from psierra.solver.sparse_linear_solver import SparseLinearSolver, DirectSolver
 from psierra.analysis.base import Analysis
 from psierra.exchange import PvdCollectionWriter
@@ -43,8 +44,12 @@ class NonlinearStaticAnalysis(Analysis):
 
     def solve(
         self,
-        dirichlet: DirichletManager | list[DirichletConstraint],
-        f_ext: np.ndarray,
+        dirichlet: (
+            DirichletManager
+            | list[DirichletBoundaryCondition]
+            | Callable[[int, int], DirichletManager | list[DirichletBoundaryCondition]]
+        ),
+        f_ext: np.ndarray | None = None,
         n_steps: int = 10,
         nr_iterations: int = 25,
         nr_tol: float = 1e-4,
@@ -60,16 +65,16 @@ class NonlinearStaticAnalysis(Analysis):
 
         Parameters:
         -----------
-        dirichlet : DirichletManager or list of DirichletConstraint
-            Essential boundary conditions.
-        f_ext : np.ndarray of shape (n_dofs,)
-            Total external load vector to be reached at lambda = 1.0.
+        dirichlet : DirichletManager, list of DirichletBoundaryCondition, or callable (step, n_steps) -> DirichletManager
+            Essential boundary conditions. Can be a static constraint manager or a step-dependent callable.
+        f_ext : np.ndarray of shape (n_dofs,), optional
+            Total external load vector to be reached at lambda = 1.0. Defaults to zero vector for displacement control.
         n_steps : int, default=10
             Number of incremental load steps.
         nr_iterations : int, default=25
             Maximum Newton-Raphson iterations per load step.
         nr_tol : float, default=1e-4
-            Relative Euclidean residual convergence tolerance ||R|| / ||F_ext||.
+            Relative Euclidean residual convergence tolerance ||R|| / ||F_ext|| (or relative to step unbalance).
         include_stresses : bool, default=False
             If True, calculates von Mises & principal stresses at each saved step.
         smooth_to_nodes : bool, default=False
@@ -87,8 +92,19 @@ class NonlinearStaticAnalysis(Analysis):
         --------
         result : NonlinearStaticResult
         """
-        # Ensure DirichletManager
-        if isinstance(dirichlet, list):
+        if f_ext is None:
+            f_ext = np.zeros(self.domain.n_dofs, dtype=np.float64)
+
+        # Initialize DirichletManager
+        if callable(dirichlet):
+            initial_manager = dirichlet(1, n_steps)
+            if isinstance(initial_manager, list):
+                mgr = DirichletManager(self.domain.n_dofs)
+                for c in initial_manager:
+                    mgr.add_constraint(c)
+                initial_manager = mgr
+            manager = initial_manager
+        elif isinstance(dirichlet, list):
             manager = DirichletManager(self.domain.n_dofs)
             for c in dirichlet:
                 manager.add_constraint(c)
@@ -110,12 +126,6 @@ class NonlinearStaticAnalysis(Analysis):
 
         if save_interval < 1:
             raise ValueError(f"save_interval must be >= 1, got {save_interval}")
-
-        # Baseline reference scale for convergence check
-        f_ext_free = f_ext[free_dofs]
-        f_ref_norm = np.linalg.norm(f_ext_free)
-        if f_ref_norm < 1e-12:
-            f_ref_norm = 1.0  # Avoid division by zero for unforced problems
 
         u_current = np.zeros(self.domain.n_dofs, dtype=np.float64)
         iteration_history: list[int] = []
@@ -149,12 +159,26 @@ class NonlinearStaticAnalysis(Analysis):
 
         for step in range(1, n_steps + 1):
             load_factor = step / n_steps
+
+            # Update Dirichlet constraints for the current step
+            if callable(dirichlet):
+                step_manager = dirichlet(step, n_steps)
+                if isinstance(step_manager, list):
+                    mgr = DirichletManager(self.domain.n_dofs)
+                    for c in step_manager:
+                        mgr.add_constraint(c)
+                    step_manager = mgr
+                free_dofs = step_manager.free_dofs
+                p_dofs = step_manager.prescribed_dofs
+                u_p = step_manager.prescribed_values
+                u_current[p_dofs] = u_p
+            elif len(p_dofs) > 0 and np.any(u_p != 0.0):
+                u_current[p_dofs] = load_factor * u_p
+
             f_step = load_factor * f_ext
             f_step_free = f_step[free_dofs]
-
-            # Scale prescribed displacements proportionally if non-zero
-            if len(p_dofs) > 0 and np.any(u_p != 0.0):
-                u_current[p_dofs] = load_factor * u_p
+            f_ext_free_norm = float(np.linalg.norm(f_step_free))
+            f_ref_step: float | None = f_ext_free_norm if f_ext_free_norm >= 1e-12 else None
 
             if verbose:
                 print(
@@ -173,8 +197,14 @@ class NonlinearStaticAnalysis(Analysis):
 
                 # 3. Compute Out-of-Balance Residual Vector: R = F_ext_step - F_int
                 r_free = f_step_free - f_int[free_dofs]
-                residual_norm = np.linalg.norm(r_free)
-                rel_residual = residual_norm / f_ref_norm
+                residual_norm = float(np.linalg.norm(r_free))
+
+                if f_ref_step is None:
+                    # Displacement-controlled problem without external loads:
+                    # normalize against the step's initial unbalance or internal force scale
+                    f_ref_step = max(residual_norm, float(np.linalg.norm(f_int[free_dofs])), 1.0)
+
+                rel_residual = residual_norm / f_ref_step
 
                 if verbose:
                     print(
