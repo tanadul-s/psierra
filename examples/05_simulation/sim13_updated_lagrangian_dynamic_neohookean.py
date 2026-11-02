@@ -99,14 +99,19 @@ def main() -> None:
     # 5. Executing Simulation Solver
     console.print("\n[bold yellow][5/6] Executing Simulation Solver[/bold yellow]")
     damping = RayleighDamping(alpha=1.0, beta=0.001)
-    analysis = NonlinearDynamicAnalysis(domain, damping=damping)
+    analysis = NonlinearDynamicAnalysis(domain, damping=damping, spectral_radius=0.8)
+    console.print(
+        f"  • Time Integrator  : [cyan]Generalized-alpha[/cyan] (spectral_radius = [green]{analysis.spectral_radius}[/green])"
+    )
 
     output_dir = Path("examples/05_simulation/sim13_output")
+    dt = 0.005
+    n_steps = 1000
     result = analysis.solve(
         dirichlet=dirichlet,
         f_ext=f_ext,
-        dt=0.005,
-        n_steps=1000,
+        dt=dt,
+        n_steps=n_steps,
         nr_iterations=15,
         nr_tol=1e-4,
         steady_state_tol=1e-4,
@@ -125,7 +130,7 @@ def main() -> None:
     disp = domain.displacement
     max_disp = float(np.linalg.norm(disp, axis=1).max())
     tip_z = float(disp[:, 2].min())
-    total_time = 400 * 0.005
+    total_time = result.steps_completed * dt
 
     status_style = "green" if result.converged else "red"
 
@@ -137,12 +142,15 @@ def main() -> None:
     summary_table.add_column("Status / Unit", style="green")
 
     summary_table.add_row(
-        "Convergence Status",
-        f"{result.converged}",
-        f"[bold {status_style}]{result.steps_completed}/40 Steps[/bold {status_style}]",
+        "Time Integration Scheme", f"Generalized-alpha (ρ∞={analysis.spectral_radius})", "Optimal Damping"
     )
     summary_table.add_row(
-        "Duration (Total Time)", f"{total_time:.2f} s", "40 Steps @ dt = 0.005s"
+        "Convergence Status",
+        f"{result.converged}",
+        f"[bold {status_style}]{result.steps_completed}/{n_steps} Steps[/bold {status_style}]",
+    )
+    summary_table.add_row(
+        "Duration (Total Time)", f"{total_time:.2f} s", f"{result.steps_completed} Steps @ dt = {dt:.4f}s"
     )
     summary_table.add_row(
         "Max Resultant Displacement", f"{max_disp:.2f} mm", "Dynamic Peak"

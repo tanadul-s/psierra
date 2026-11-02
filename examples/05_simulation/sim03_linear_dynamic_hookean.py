@@ -106,7 +106,10 @@ def main() -> None:
 
     dt = 0.005
     n_steps = 100
-    analysis = LinearDynamicAnalysis(domain, damping=damping)
+    analysis = LinearDynamicAnalysis(domain, damping=damping, spectral_radius=0.8)
+    console.print(
+        f"  • Time Integrator  : [cyan]Generalized-alpha[/cyan] (spectral_radius = [green]{analysis.spectral_radius}[/green])"
+    )
     result = analysis.solve(
         dirichlet=dirichlet,
         f_ext=f_ext,
@@ -133,7 +136,10 @@ def main() -> None:
     summary_table.add_column("Status / Unit", style="green")
 
     summary_table.add_row(
-        "Time Step Size (dt)", f"{dt:.4f} s", "Newmark Time Increment"
+        "Time Integration Scheme", f"Generalized-alpha (ρ∞={analysis.spectral_radius})", "Optimal Damping"
+    )
+    summary_table.add_row(
+        "Time Step Size (dt)", f"{dt:.4f} s", "Time Increment"
     )
     summary_table.add_row(
         "Total Time Steps", f"{n_steps}", f"Duration = {total_time:.2f} s"
