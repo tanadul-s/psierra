@@ -4,25 +4,32 @@ This document outlines the strategic milestones, component delivery roadmap, and
 
 ---
 
-## Strategic Roadmap Overview
+## Strategic Vision: Fast-Track to Inverse FEM (iFEM)
+
+The primary goal of Project `pSierra` is to **close the complete work loop from forward simulation to Inverse FEM (iFEM) as quickly as possible**:
+$$\text{Forward Continuum Mechanics} \longrightarrow \text{Contact Mechanics} \longrightarrow \text{Model Order Reduction (MOR)} \longrightarrow \text{Inverse FEM (iFEM)}$$
+
+### Guiding Execution Strategy:
+* **Lean, High-Value Core Implementations**: For Phases 2–5, implement the robust, battle-tested numerical foundations that provide immediate engineering value and close the pipeline loop.
+* **Defer Complex Research Overhead**: Defer complex, high-friction formulations (such as augmented Lagrangian mortar contact, nonlinear ECSW hyper-reduction, and multi-phase poroelasticity) to the **Post-Loop Enhancement Roadmap (Phase 6+)** to prevent stalling momentum on the highway to iFEM.
 
 ```
-[ Phase 1: Linear FEM Core ]
+[ Phase 1: Linear FEM Core ] (Completed)
             │
             ▼
-[ Phase 2: Non-Linear Continua & Hyperelasticity ]
+[ Phase 2: Non-Linear Continua & Hyperelasticity ] (In Finalization)
             │
             ▼
-[ Phase 3: Contact Mechanics & Interactive Collision ]
+[ Phase 3: Contact Mechanics (Penalty & Augmented Lagrangian) ]
             │
             ▼
-[ Phase 4: Model Order Reduction (MOR) & Hyper-Reduction ]
+[ Phase 4: Model Order Reduction (POD-Galerkin, DEIM & ECSW Hyper-Reduction) ]
             │
             ▼
-[ Phase 5: Inverse FEM (iFEM) & Parameter Identification ]
+[ Phase 5: Inverse FEM (iFEM) & Parameter Identification ] ★ Primary End Goal ★
             │
             ▼
-[ Phase 6: Biomechanical Specialization & Multiphysics ]
+[ Phase 6+: Post-Loop Enhancements & Biomechanical Multiphysics ]
 ```
 
 ---
@@ -84,7 +91,14 @@ This document outlines the strategic milestones, component delivery roadmap, and
   - [x] Machine-precision equivalence between TL and UL verified to $< 10^{-13}$ mm.
 - [ ] **Hyperelastic Constitutive Models**:
   - [x] Compressible Neo-Hookean hyperelasticity with exact analytical tangent and 2nd PK stress (`NeoHookean`).
-  - [ ] Mooney-Rivlin, Ogden, and Yeoh strain energy functions.
+  - [ ] **Yeoh Model (`Yeoh`)** (Immediate Target for Soft Tissue):
+    - 3-parameter reduced polynomial formulation: $\Psi = \sum_{i=1}^3 C_{i0} (\bar{I}_1 - 3)^i + \frac{1}{2} K (\ln J)^2$.
+    - Captures physiological exponential strain-stiffening of soft biological tissues (liver, brain, kidney) at large strains.
+    - Pure closed-form invariant tensor derivatives: directly leverages existing `NeoHookean` $\partial \bar{I}_1 / \partial \boldsymbol{C}$ and $\partial^2 \bar{I}_1 / \partial \boldsymbol{C} \partial \boldsymbol{C}$ kernels.
+  - [ ] **Mooney-Rivlin Model (`MooneyRivlin`)**:
+    - 2-parameter formulation: $\Psi = C_{10} (\bar{I}_1 - 3) + C_{01} (\bar{I}_2 - 3) + \frac{1}{2} K (\ln J)^2$.
+    - Analytical derivatives for second invariant $\bar{I}_2$: $\partial I_2 / \partial \boldsymbol{C} = I_1 \boldsymbol{I} - \boldsymbol{C}$.
+    - Standard benchmark for synthetic elastomers, silicones, and rubber phantoms in surgical training.
 - [ ] **Non-linear Solver Algorithms & Analysis**:
   - [x] Incremental Newton-Raphson iteration with backtracking line search (`NonlinearStaticAnalysis`).
   - [x] Implicit non-linear dynamics with Newmark-$\beta$ integration and Rayleigh damping (`NonlinearDynamicAnalysis`).
@@ -99,146 +113,140 @@ This document outlines the strategic milestones, component delivery roadmap, and
 
 ---
 
-## Milestone 2.5: Interactive / Online Dynamic Simulation Framework (Pre-Contact Target)
+## Milestone 2.5: Interactive / Online Dynamic Simulation Framework (Lean Prototype)
 
-*Objective*: Establish an interactive, real-time dynamic simulation pipeline and demonstration runner before introducing contact and collision mechanics.
+*Objective*: Establish a lean, real-time dynamic simulation pipeline and demonstration runner before introducing contact mechanics.
 
 - [ ] **Online Dynamic Simulation Runner (`InteractiveDynamicSimulation`)**:
   - Real-time dynamic loop operating with fixed time step $\Delta t$ decoupled from rendering frame rate.
-  - High-performance sparse factorization reuse: pre-factorized linear dynamic step or cached Cholesky/LU factorizations for low computational overhead.
-  - Real-time execution monitor tracking:
-    - Wall-clock simulation speed ratio (Sim Time / Real Time).
-    - Loop execution jitter, latency, and effective FPS.
+  - High-performance sparse factorization reuse: pre-factorized linear dynamic step or cached Cholesky/LU factorizations for low computational overhead ($>60$ FPS).
+  - Real-time execution monitor tracking wall-clock simulation speed ratio (Sim Time / Real Time).
 - [ ] **Interactive Dynamic Load & Boundary Perturbations**:
-  - Dynamic external load generators:
-    - Harmonic excitation: $F(t) = F_0 \sin(\omega t)$.
-    - Chirp / frequency sweep excitation for modal characterization.
-    - Moving point force / surface traction trajectories.
-  - Interactive user disturbance interface:
-    - Mouse / cursor virtual tool interaction (drag-to-pull, click-to-poke on boundary surface nodes).
-    - Dynamic keyboard controls to toggle loads, impulses, and boundary displacements.
-- [ ] **Live 3D Visualization & Streaming Pipeline**:
+  - Dynamic external load generators (harmonic excitation, moving point forces).
+  - Interactive user disturbance interface (click-and-drag mouse forces on boundary surface nodes).
+- [ ] **Live 3D Visualization Pipeline**:
   - Real-time PyVista `BackgroundPlotter` integration with non-blocking render loop.
   - In-place point coordinate mutation (`polydata.points = current_nodes`) to bypass expensive VTK object recreation.
-  - Live scalar field colormaps:
-    - Displacement magnitude $\|\boldsymbol{u}\|$.
-    - Velocity magnitude $\|\boldsymbol{v}\|$.
-    - Von Mises equivalent stress field $\sigma_{vm}$.
-  - Real-time HUD overlay: time $t$, kinetic energy $E_k$, max displacement, and step frequency.
-- [ ] **Deliverable Demonstrations**:
+- [ ] **Deliverable Demonstration**:
   - `examples/06_interactive/sim15_online_dynamic_cantilever.py`: Real-time interactive cantilever beam under user-controlled dynamic disturbance.
-  - `examples/06_interactive/sim16_online_dynamic_shell.py`: Real-time interactive shell membrane vibration under moving pressure load.
 
 ---
 
-## Extensive Feature Plan: Dynamic Relaxation Analysis (`DynamicRelaxationAnalysis`)
+## Phase 3: Contact Mechanics & Interactive Collision
 
-*Objective*: Provide an independent, robust pseudo-transient equilibrium solver for highly nonlinear, snap-through, or ill-conditioned structural problems where traditional Newton-Raphson static solvers diverge due to negative or singular tangent matrices.
+*Objective*: Provide robust tool-tissue interaction, surface indentation, and collision constraints necessary for forward testing and inverse parameter estimation, supporting both Penalty and Augmented Lagrangian formulations.
 
-- [ ] **Kinetic Damping Formulation (Barnes / Underwood Algorithm)**:
-  - Integration of explicit or implicit equations of motion with fictitious mass matrix $\boldsymbol{M}_f$:
-    $$\boldsymbol{M}_f \ddot{\boldsymbol{u}} + \boldsymbol{f}_{\text{int}}(\boldsymbol{u}) = \boldsymbol{f}_{\text{ext}}$$
-  - Kinetic energy monitoring at every time increment:
-    $$E_k(t) = \frac{1}{2} \dot{\boldsymbol{u}}^T \boldsymbol{M}_f \dot{\boldsymbol{u}}$$
-  - Kinetic energy peak detection: when $\dot{E}_k(t) < 0$, a local maximum of kinetic energy is detected (the structure is passing through equilibrium at maximum velocity).
-  - Immediate velocity reset:
-    $$\dot{\boldsymbol{u}} = \mathbf{0}$$
-  - Displacement adjustment to peak kinetic energy state (parabolic interpolation between $t_{n-1}$, $t_n$, and $t_{n+1}$).
-  - Automatically eliminates the need for trial-and-error manual tuning of Rayleigh damping coefficients.
-- [ ] **Artificial Diagonal Mass Scaling (Gerschgorin Circle Theorem)**:
-  - Construction of optimal fictitious diagonal mass matrix:
-    $$M_{ii} \ge \frac{\Delta t^2}{4} \sum_{j} |K_{ij}|$$
-  - Ensures uniform numerical wave speed across elements with widely varying sizes or aspect ratios, maximizing the stable explicit time increment $\Delta t$.
-- [ ] **Local Adaptive Viscous Damping**:
-  - Damping matrix proportional to diagonal stiffness: $C_{ii} = 2 \omega_{\text{dom}} M_{ii}$.
-  - Adaptive estimation of dominant frequency via Rayleigh quotient:
-    $$\omega_{\text{dom}} \approx \sqrt{\frac{\boldsymbol{u}^T \boldsymbol{K} \boldsymbol{u}}{\boldsymbol{u}^T \boldsymbol{M} \boldsymbol{u}}}$$
-- [ ] **Convergence Criteria & Monitoring**:
-  - Static out-of-balance residual tolerance: $\|\boldsymbol{f}_{\text{ext}} - \boldsymbol{f}_{\text{int}}\| / \|\boldsymbol{f}_{\text{ext}}\| \le \varepsilon_{\text{res}}$.
-  - Peak kinetic energy ratio: $\max(E_k) / E_k^0 \le \varepsilon_{ke}$.
-  - Nodal velocity norm: $\|\dot{\boldsymbol{u}}\|_\infty \le \varepsilon_v$.
-- [ ] **Target Applications in `psierra`**:
-  - Post-buckling equilibrium tracing of thin shell structures (`Shell3`, `Shell6`).
-  - Soft-tissue pre-stress estimation and gravitational sag under near-incompressible constraints.
-  - Large-strain wrinkling and snapping of hyperelastic membranes.
-
----
-
-## Phase 3: Contact Mechanics & Interactive Collision (Before MOR)
-
-- [ ] **Surface Extraction & Proximity Detection**:
-  - Boundary surface facet extraction from 3D tetrahedral/hexahedral meshes.
-  - Fast collision detection with Bounding Volume Hierarchy (BVH) / Axis-Aligned Bounding Boxes (AABB).
-  - Ray-tracing approach (Möller-Trumbore ray-triangle intersection) for high-speed signed distance, penetration depth ($g_n < 0$), and gap determination along surface normals.
-  - Point-to-surface and surface-to-surface proximity / penetration distance calculations.
+- [ ] **Dual-Tier Proximity & Collision Detection**:
+  - **Broad-Phase Acceleration**: Fast bounding volume queries via `scipy.spatial.cKDTree` / AABB bounding hierarchy to prune non-colliding pairs ($< 1$ ms).
+  - **Narrow-Phase Closest-Point Projection (Primary Deformable Surface Contact)**:
+    - Exact orthogonal projection of slave nodes onto candidate master triangles (face interior, edge, or vertex Voronoi regions).
+    - Evaluates signed normal penetration gap: $g_n = (\boldsymbol{x}_{\text{slave}} - \boldsymbol{x}_{\text{target}}) \cdot \boldsymbol{n} < 0$.
+    - Prevents false-misses inherent in pure normal ray casting on curved or folding tissue boundaries.
+  - **Ray-Traced Collision Detection (Möller-Trumbore Algorithm)**:
+    - High-speed ray-triangle intersection dedicated to straight rigid surgical tool shafts, needles, and virtual sensor lines-of-sight.
 - [ ] **Contact Formulations**:
-  - Penalty method for normal contact constraints.
-  - Augmented Lagrangian multiplier method for exact non-penetration.
-  - Tangential friction models (Coulomb friction with regularized slip/stick transitions).
-- [ ] **Surgical Interaction & Boundary Contact**:
-  - Rigid and compliant tool-tissue interaction (virtual palpation, indenter contact, surgical clamp grasping).
-  - Consistent tangent matrices for contact contributions in Newton-Raphson iterations.
+  - **Penalty Method**:
+    - Normal contact force vector: $\boldsymbol{f}_c = k_p |g_n| \boldsymbol{n}$.
+    - Simple and robust for initial contact setup and dynamic stabilization.
+  - **Augmented Lagrangian Multiplier Method**:
+    - Normal contact force: $f_n = \max(0, \lambda_n + k_p g_n)$.
+    - Multiplier update at step convergence: $\lambda_n^{(k+1)} = \max(0, \lambda_n^{(k)} + k_p g_n^{(k+1)})$.
+    - Decouples penetration error from penalty stiffness $k_p$, achieving high non-penetration precision without ill-conditioning the tangent stiffness matrix.
+  - **Regularized Tangential Friction**:
+    - Viscous regularized friction vector: $\boldsymbol{f}_t = -\mu |f_n| \tanh\left(\frac{\|\boldsymbol{v}_t\|}{v_0}\right) \boldsymbol{t}$.
+- [ ] **Rigid Indenters & Surgical Tool Contact**:
+  - Analytical rigid obstacles: spherical indenter, cylindrical tool, and flat punch pressing onto deformable organ meshes.
+  - Streams force-depth curves ($F$ vs. $\delta$) directly into Phase 5 Inverse Material Calibration.
+- [ ] **Deliverable Demonstrations & Tests**:
+  - `tests/test_contact_penalty.py`: Non-penetration verification and energy consistency for Penalty method.
+  - `tests/test_contact_augmented_lagrangian.py`: Multiplier convergence and penetration error decay ($|g_n| \to 0$).
+  - `examples/07_contact/sim16_spherical_indentation_soft_tissue.py`: Spherical indenter pressing into a hyperelastic soft organ block.
 
 ---
 
 ## Phase 4: Model Order Reduction (MOR) & Hyper-Reduction
 
-*Objective*: Accelerate high-dimensional non-linear and contact-aware FEM to real-time execution (>30–1000 Hz) for medical digital twins and surgical navigation.
+*Objective*: Accelerate high-dimensional linear and nonlinear FEM to real-time execution (< 1 ms per evaluation), eliminating the $\mathcal{O}(N)$ full-mesh assembly bottleneck via DEIM and ECSW hyper-reduction.
 
-- [ ] **Offline Snapshot Management & Basis Construction**:
-  - Full-Order Model (FOM) forward trajectory simulations with contact and deformation.
-  - Proper Orthogonal Decomposition (POD / Snapshot PCA) with SVD.
-  - Truncation based on cumulative energy spectrum $\sum \sigma_i / \sum \sigma_{all} \ge 0.999$.
-  - Orthonormal reduced basis verification ($V^T V = I$).
-- [ ] **Linear Reduced Order Modeling (Linear ROM)**:
-  - Galerkin projection of linear stiffness, mass, and damping matrices:
-    $$K_r = V^T K V, \quad M_r = V^T M V, \quad C_r = V^T C V$$
-  - Component mode synthesis (Craig-Bampton, Guyan reduction).
-  - Real-time online dynamic integration.
-- [ ] **Nonlinear Hyper-Reduction**:
-  - Discrete Empirical Interpolation Method (DEIM / Q-DEIM) for point-wise nonlinear internal force evaluation without full-mesh quadrature.
-  - Energy-Conserving Sampling and Weighting (ECSW) for stable, energy-preserving element-level hyper-reduction in nonlinear solid dynamics.
-- [ ] **Online Execution & Interactive Reconstruction**:
-  - Ultra-fast online solver in low-dimensional generalized coordinates: $u \approx V u_r$.
-  - Real-time surface displacement projection for interactive visual rendering and haptic feedback loops.
-
----
-
-## Phase 5: Inverse FEM (iFEM) & Parameter Identification
-
-*Objective*: Infer full-field deformations, unmeasured loads, patient-specific material properties, and stress-free configurations from sparse physical measurements.
-
-- [ ] **Inverse Shape Sensing & Displacement Reconstruction (iFEM)**:
-  - Reconstruct full 3D displacement and strain fields from sparse surface discrete sensors (e.g., optical markers, stereovision tracking, ultrasound probe points, fiber Bragg grating strain sensors).
-  - Weighted least-squares variational functional matching experimental surface observations with FEM displacement fields without needing prior knowledge of external loading.
-- [ ] **Inverse Material Parameter Identification**:
-  - Optimization and adjoint-based inverse problem solvers to calibrate patient-specific constitutive parameters (e.g., Young's modulus, hyperelastic parameters $C_{10}, D_1$) from measured force-displacement curves (e.g., indentation or aspiration tests).
-- [ ] **Stress-Free Reference Configuration Estimation**:
-  - Inverse elastostatic solver to determine the in vivo zero-pressure / undeformed reference geometry from clinical scans of pre-stressed tissues (e.g., pressurized aorta, gravitationally deformed brain).
-
----
-
-## Phase 6: Biomechanical Specialization & Multiphysics
-
-- [ ] Time-dependent and porous tissue constitutive formulations:
-  - Linear and non-linear viscoelasticity (Prony series, quasi-linear viscoelasticity - QLV).
-  - Poroelasticity (Biot formulation for fluid-saturated porous soft tissues).
-  - Hybrid hyper-visco-poroelastic models for brain and liver tissues.
-- [ ] Anatomical boundary conditions:
-  - Pulsatile hemodynamic pressure loading for aortic walls.
-  - Skull boundary constraints and cerebrospinal fluid (CSF) interactions.
-- [ ] Multiphysics coupling:
-  - Vibro-acoustics simulation.
-  - Fluid-Structure Interaction (FSI) coupling interfaces.
+- [ ] **Offline Snapshot Matrix Management & SVD Basis Generation**:
+  - Collect displacement snapshots matrix $\boldsymbol{S} = [\boldsymbol{u}_1, \boldsymbol{u}_2, \dots, \boldsymbol{u}_m] \in \mathbb{R}^{n \times m}$ from forward dynamic / static simulations.
+  - Thin Singular Value Decomposition (SVD): $\boldsymbol{S} = \boldsymbol{U} \boldsymbol{\Sigma} \boldsymbol{V}^T$.
+  - Truncation based on cumulative energy spectrum ($\ge 0.999$).
+  - Extract orthonormal reduced basis matrix $\boldsymbol{\Phi} = \boldsymbol{U}[:, :r] \in \mathbb{R}^{n \times r}$ ($r \approx 5\text{--}20$ modes).
+- [ ] **Linear & Corotational POD-Galerkin ROM**:
+  - Exact Galerkin projection of structural matrices onto low-dimensional subspace ($r \ll n$):
+    $$\boldsymbol{K}_r = \boldsymbol{\Phi}^T \boldsymbol{K} \boldsymbol{\Phi}, \quad \boldsymbol{M}_r = \boldsymbol{\Phi}^T \boldsymbol{M} \boldsymbol{\Phi}, \quad \boldsymbol{f}_r = \boldsymbol{\Phi}^T \boldsymbol{f}$$
+  - Fast online dynamic solver: solves the dense $r \times r$ linear system in $< 0.5$ ms.
+- [ ] **Nonlinear Hyper-Reduction (DEIM & ECSW)**:
+  - **Discrete Empirical Interpolation Method (DEIM / Q-DEIM)**:
+    - Collect nonlinear internal force snapshots: $\boldsymbol{S}_f = [\boldsymbol{f}_{\text{int}}(\boldsymbol{u}_1), \dots, \boldsymbol{f}_{\text{int}}(\boldsymbol{u}_m)]$.
+    - Compute force basis $\boldsymbol{\Psi}_f \in \mathbb{R}^{n \times m}$ via SVD.
+    - Greedy selection of $m$ "magic" interpolation DOFs $\boldsymbol{P} \in \mathbb{R}^{n \times m}$.
+    - Reduced nonlinear force evaluation:
+      $$\boldsymbol{f}_r \approx \boldsymbol{\Phi}^T \boldsymbol{\Psi}_f (\boldsymbol{P}^T \boldsymbol{\Psi}_f)^{-1} \boldsymbol{f}_{\text{int}}(\boldsymbol{u})[\boldsymbol{P}]$$
+      evaluating nonlinear internal forces only at the $m$ sample indices rather than all $n$ DOFs.
+  - **Energy-Conserving Sampling and Weighting (ECSW)**:
+    - Formulates a Non-Negative Least Squares (NNLS) optimization problem to select a sparse sub-mesh of elements $\tilde{\mathcal{E}} \subset \mathcal{E}$ ($|\tilde{\mathcal{E}}| \ll |\mathcal{E}|$) with strictly positive weights $w_e > 0$.
+    - Reduced virtual work integration:
+      $$\boldsymbol{f}_r \approx \sum_{e \in \tilde{\mathcal{E}}} w_e \boldsymbol{\Phi}_e^T \boldsymbol{f}_{\text{int}, e}(\boldsymbol{\Phi}_e \boldsymbol{u}_r)$$
+    - Strictly preserves symmetry and positive-definiteness of the reduced tangent stiffness $\boldsymbol{K}_r$, guaranteeing numerical stability in nonlinear dynamic simulations.
+- [ ] **Real-Time Surface Reconstruction**:
+  - Pre-extracted surface sub-basis $\boldsymbol{\Phi}_{\text{surf}} = \boldsymbol{\Phi}[\text{surface\_dofs}, :]$ for instantaneous 3D surface rendering:
+    $$\boldsymbol{u}_{\text{surf}} = \boldsymbol{\Phi}_{\text{surf}} \boldsymbol{u}_r$$
+- [ ] **Deliverable Demonstrations & Tests**:
+  - `tests/test_mor_pod_galerkin.py`: Basis orthonormality ($\boldsymbol{\Phi}^T \boldsymbol{\Phi} = \boldsymbol{I}_r$), ROM vs. FOM accuracy verification ($< 2\%$ relative error).
+  - `tests/test_mor_hyperreduction.py`: DEIM and ECSW hyper-reduction speedup and energy conservation verification.
+  - `examples/08_mor/sim17_realtime_reduced_dynamic_beam.py`: Real-time online dynamic simulation running at $> 500$ Hz.
 
 ---
 
-## Extension & Secondary Roadmap: Structured Hexahedral Mechanics (Hex8, Hex20)
+## Phase 5: Inverse FEM (iFEM) & Parameter Identification (★ Primary End Goal ★)
 
-*Objective*: Advanced structured hexahedral discretizations for prismatic and mapped CAD domains where structured block meshing is applicable.
+*Objective*: Infer full-field internal deformations, patient-specific material properties, and stress-free configurations from sparse physical measurements (closing the forward-to-inverse loop).
 
-- [ ] Hexahedral volume meshing infrastructure (structured sweeping, transfinite interpolation, polycube mapping).
-- [ ] Linear 8-node brick element (`Hex8`) with B-bar / Selective Reduced Integration (SRI) to prevent volumetric locking.
-- [ ] Quadratic 20-node serendipity brick element (`Hex20`) with 27-point / 14-point Gauss quadrature.
-- [ ] Quadrilateral shell element (`Shell4` / MITC4) for structured quadrilateral surface patches.
+- [ ] **5.1: Discrete Sensor Observation Operator ($\boldsymbol{H}$)**:
+  - Linear observation matrix mapping sparse discrete sensor measurement points (e.g., 5–20 surface markers, optical tracking, stereo camera, or ultrasound probe points) to FE degrees of freedom:
+    $$\hat{\boldsymbol{u}}_k = \boldsymbol{H}_k \boldsymbol{u}$$
+  - Spatial point-in-element barycentric locator for arbitrary sensor positions located on the organ surface.
+- [ ] **5.2: Variational Shape Sensing iFEM (Full-Field 3D Reconstruction)**:
+  - Reconstruct full 3D internal displacement and strain fields throughout the entire volume from sparse surface sensor measurements without knowing external boundary loads:
+    $$\mathcal{J}(\boldsymbol{u}) = \sum_{k=1}^{N_{\text{sensor}}} w_k \|\boldsymbol{H}_k \boldsymbol{u} - \hat{\boldsymbol{u}}_k\|^2 + \alpha \cdot \boldsymbol{u}^T \boldsymbol{K} \boldsymbol{u}$$
+  - Stationarity $\partial \mathcal{J} / \partial \boldsymbol{u} = \boldsymbol{0}$ yields a symmetric positive-definite linear system:
+    $$(\boldsymbol{H}^T \boldsymbol{W} \boldsymbol{H} + \alpha \boldsymbol{K}) \boldsymbol{u} = \boldsymbol{H}^T \boldsymbol{W} \hat{\boldsymbol{u}}$$
+  - Solvable in milliseconds via sparse Cholesky factorization, or in microseconds via POD reduced basis $\boldsymbol{\Phi}$.
+- [ ] **5.3: Inverse Material Parameter Identification (Constitutive Calibration)**:
+  - Optimization loop (`scipy.optimize.minimize` / L-BFGS-B / Gauss-Newton) to calibrate unknown material parameters (Young's modulus $E$, hyperelastic parameter $C_{10}$) by minimizing discrepancy between simulated indenter response and measured force-displacement curves ($F$ vs. $\delta$):
+    $$\min_{\boldsymbol{\theta}} \sum_{j} \left( F_{\text{FEM}}(\delta_j; \boldsymbol{\theta}) - F_{\text{exp}}(\delta_j) \right)^2$$
+  - Accelerated by forward ROM from Phase 4 for rapid convergence in seconds.
+- [ ] **5.4: Stress-Free Reference Configuration Solver (Zero-Pressure Configuration)**:
+  - Fixed-point inverse elastostatic solver to determine the undeformed reference geometry $\boldsymbol{X}_0$ from clinical scans of deformed / gravitationally sagged organs (e.g., intraoperative brain shift, pressurized aorta):
+    $$\boldsymbol{X}^{k+1} = \boldsymbol{X}_{\text{scan}} - \boldsymbol{u}(\boldsymbol{X}^k)$$
+- [ ] **Deliverable Demonstrations & Tests**:
+  - `tests/test_ifem_shape_sensing.py`: Reconstructing full 3D beam deformation from 6 surface sensor points ($< 5\%$ error).
+  - `tests/test_ifem_parameter_identification.py`: Calibrating Young's modulus from simulated indentation test.
+  - `examples/09_inverse/sim18_sparse_sensor_shape_sensing.py`: Full 3D organ deformation reconstruction from surface optical markers.
+  - `examples/09_inverse/sim19_tissue_indentation_parameter_identification.py`: Automated hyperelastic parameter fitting from indenter test.
+
+---
+
+## Phase 6+: Post-Loop Enhancements & Advanced Biomechanics (Post-iFEM Roadmap)
+
+*Objective*: Advanced research enhancements, non-smooth contact theories, and multiphysics to be added after the end-to-end iFEM loop is fully working and verified.
+
+- [ ] **Advanced Non-Smooth Contact Mechanics**:
+  - Segment-to-segment mortar contact for non-conforming mesh interfaces.
+  - Exact Coulomb friction with non-smooth stick-slip active set strategy.
+- [ ] **Dynamic Relaxation Equilibrium Solver (`DynamicRelaxationAnalysis`)**:
+  - Barnes / Underwood kinetic damping algorithm ($\boldsymbol{v} \leftarrow \mathbf{0}$ on kinetic energy peaks) with Gerschgorin diagonal mass scaling for post-buckling and snap-through equilibrium paths.
+- [ ] **Biomechanical Specialization & Multiphysics**:
+  - **Viscoelastic Constitutive Formulations**: Generalized Maxwell / Prony series relaxation spectrum ($G(t) = G_\infty + \sum_m G_m e^{-t/\tau_m}$) via internal element history variables.
+  - **Advanced Hyperelasticity & Anisotropy**: Holzapfel-Gasser-Ogden (`HGO`) anisotropic fiber reinforcement; Ogden spectral principal stretch model with coalescing eigenvalue perturbation handling.
+  - **Incompressibility & Volumetric Locking**: `Tet4Fbar` / B-bar (Mean Dilatation) and hybrid mixed $u-p$ formulations for nearly incompressible soft tissue ($\nu \to 0.5$).
+  - **Poroelasticity (Biot Consolidation)**: Coupled $u-p$ mixed formulation with saddle-point solvers and Taylor-Hood `Tet10`-`Tet4` elements satisfying the LBB / inf-sup condition.
+  - **Coupled Hybrid Formulations**: Unified hyper-visco-poroelastic constitutive laws for perfused parenchymal organs.
+- [ ] **Structured Hexahedral Discretizations**:
+  - Hexahedral volume meshing infrastructure (structured sweeping, polycube mapping).
+  - Linear 8-node brick element (`Hex8`) with B-bar / Selective Reduced Integration (SRI).
+  - Quadratic 20-node serendipity brick element (`Hex20`).
+  - Quadrilateral shell element (`Shell4` / MITC4).
 
