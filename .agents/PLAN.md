@@ -139,35 +139,74 @@ $$\text{Forward Continuum Mechanics} \longrightarrow \text{Contact Mechanics} \l
 
 ---
 
-## Phase 3: Contact Mechanics & Interactive Collision
+## Phase 3: Multi-Body Systems & Advanced Contact Mechanics
 
-*Objective*: Provide robust tool-tissue interaction, surface indentation, and collision constraints necessary for forward testing and inverse parameter estimation, supporting both Penalty and Augmented Lagrangian formulations.
+*Objective*: Establish an Abaqus-like **Assembly Layer (`MultiBodySystem`)** and a unified contact mechanics framework capable of managing multiple independent and coupled meshes interacting in 3D space. The primary clinical/biomechanical vision is the **interaction between brain parenchyma, tumor lesion, skull boundary, and surgical instruments** (e.g. brain resting in skull cavity, pressed by an indenter tool).
 
-- [ ] **Dual-Tier Proximity & Collision Detection**:
-  - **Broad-Phase Acceleration**: Fast bounding volume queries via `scipy.spatial.cKDTree` / AABB bounding hierarchy to prune non-colliding pairs ($< 1$ ms).
-  - **Narrow-Phase Closest-Point Projection (Primary Deformable Surface Contact)**:
-    - Exact orthogonal projection of slave nodes onto candidate master triangles (face interior, edge, or vertex Voronoi regions).
-    - Evaluates signed normal penetration gap: $g_n = (\boldsymbol{x}_{\text{slave}} - \boldsymbol{x}_{\text{target}}) \cdot \boldsymbol{n} < 0$.
-    - Prevents false-misses inherent in pure normal ray casting on curved or folding tissue boundaries.
-  - **Ray-Traced Collision Detection (Möller-Trumbore Algorithm)**:
-    - High-speed ray-triangle intersection dedicated to straight rigid surgical tool shafts, needles, and virtual sensor lines-of-sight.
-- [ ] **Contact Formulations**:
-  - **Penalty Method**:
-    - Normal contact force vector: $\boldsymbol{f}_c = k_p |g_n| \boldsymbol{n}$.
-    - Simple and robust for initial contact setup and dynamic stabilization.
-  - **Augmented Lagrangian Multiplier Method**:
-    - Normal contact force: $f_n = \max(0, \lambda_n + k_p g_n)$.
-    - Multiplier update at step convergence: $\lambda_n^{(k+1)} = \max(0, \lambda_n^{(k)} + k_p g_n^{(k+1)})$.
-    - Decouples penetration error from penalty stiffness $k_p$, achieving high non-penetration precision without ill-conditioning the tangent stiffness matrix.
-  - **Regularized Tangential Friction**:
-    - Viscous regularized friction vector: $\boldsymbol{f}_t = -\mu |f_n| \tanh\left(\frac{\|\boldsymbol{v}_t\|}{v_0}\right) \boldsymbol{t}$.
-- [ ] **Rigid Indenters & Surgical Tool Contact**:
-  - Analytical rigid obstacles: spherical indenter, cylindrical tool, and flat punch pressing onto deformable organ meshes.
-  - Streams force-depth curves ($F$ vs. $\delta$) directly into Phase 5 Inverse Material Calibration.
-- [ ] **Deliverable Demonstrations & Tests**:
-  - `tests/test_contact_penalty.py`: Non-penetration verification and energy consistency for Penalty method.
-  - `tests/test_contact_augmented_lagrangian.py`: Multiplier convergence and penetration error decay ($|g_n| \to 0$).
-  - `examples/07_contact/sim16_spherical_indentation_soft_tissue.py`: Spherical indenter pressing into a hyperelastic soft organ block.
+### 3.1: MultiBody Assembly Layer (`MultiBodySystem`)
+- [ ] **Multi-Body Assembly Container (`psierra/multibody/system.py`)**:
+  - Acts as the top-level assembly layer (analogous to `*ASSEMBLY` / `*INSTANCE` in Abaqus).
+  - Combines multiple constituent domains (single domains like `SolidDomain`, `ShellDomain`, or monolithic multiphysics domains like `CoupledSolidShellDomain`, and future `CoupledSolidFluidDomain`, `AcousticSolidDomain`).
+  - Manages global concatenated DOF indexing ($[0 \dots N_1-1]$, $[N_1 \dots N_1+N_2-1]$, ...).
+  - Assembles block-diagonal system matrices:
+    $$\boldsymbol{M}_{\text{global}} = \operatorname{diag}(\boldsymbol{M}_1, \boldsymbol{M}_2, \dots), \quad \boldsymbol{K}_{\text{global}} = \operatorname{diag}(\boldsymbol{K}_1, \boldsymbol{K}_2, \dots)$$
+  - Assembles concatenated internal force vectors: $\boldsymbol{F}_{\text{int}} = [\boldsymbol{F}_{\text{int}, 1}; \boldsymbol{F}_{\text{int}, 2}; \dots]$.
+  - Propagates global kinematic state updates (`u`, `v`, `a`) cleanly to each constituent body.
+  - Transparently satisfies the `Domain` interface, enabling all existing static, dynamic, and interactive solvers to solve multi-body systems out of the box.
+  - Multi-body visualization: exports unified PyVista unstructured grid / PVD collection with integer `Body ID` and string `Domain Name` for interactive filtering in ParaView.
+
+### 3.2: Collision Detection Engine (Ray-Tracing & Proximity)
+- [ ] **Intel Embree BVH Ray-Tracing (`psierra/collision/raytrace.py`)**:
+  - High-performance ray-triangle intersection via Intel Embree (`embreex` backend via `trimesh`) with $\mathcal{O}(\log N)$ BVH acceleration.
+  - Dedicated to surgical probes, straight instrument shafts, needles, and virtual optical sensor lines-of-sight.
+- [ ] **Narrow-Phase Closest-Point Surface Projection via PyVista / VTK (`psierra/collision/detector.py`)**:
+  - Exact orthogonal projection of candidate contact nodes onto target triangular surface facets (interior, edge, vertex Voronoi regions).
+  - Evaluates signed normal penetration gap: $g_N = (\boldsymbol{x}_{\text{slave}} - \boldsymbol{x}_{\text{target}}) \cdot \boldsymbol{n} < 0$.
+  - Computes outward facet normals $\boldsymbol{n}$ for curved and irregular anatomical boundaries.
+- [ ] **Broad-Phase Proximity Filtering**:
+  - Fast bounding volume hierarchy (AABB / `scipy.spatial.cKDTree`) to prune non-contacting pairs in $< 1\text{ ms}$.
+
+### 3.3: Hierarchical Contact Regimes
+- [ ] **Regime 1: Deformable-to-Rigid Contact**:
+  - **Step 1A (Virtual Primitives)**: Analytical rigid obstacles (`RigidPlane`, `RigidSphere`, `RigidCylinder`) to verify non-penetration kinematics, penalty compliance $\delta \approx F / k_p$, and energy conservation.
+  - **Step 1B (Rigid 3D Meshes)**: Real imported 3D surface meshes (e.g. rigid floor `floor1.vtk`, rigid cranial skull `skull.msh`, surgical tool CAD) acting as rigid obstacles.
+- [ ] **Regime 2: Deformable-to-Deformable Contact (Mesh-to-Mesh)**:
+  - Contact between two or more independent flexible bodies (e.g. beam-to-beam impact, soft brain parenchyma interacting with tumor lesion).
+  - Assembles cross-body off-diagonal coupling blocks into the global tangent stiffness:
+    $$\boldsymbol{K}_{\text{coupled}} = \begin{bmatrix} \boldsymbol{K}_1 + \boldsymbol{K}_{c,11} & \boldsymbol{K}_{c,12} \\ \boldsymbol{K}_{c,21} & \boldsymbol{K}_2 + \boldsymbol{K}_{c,22} \end{bmatrix}$$
+  - Enforces action-reaction equilibrium across interfaces: $\boldsymbol{f}_{c, 1} = -\boldsymbol{f}_{c, 2}$.
+- [ ] **Regime 3: Deformable Self-Contact**:
+  - Autonomous contact between boundary facets belonging to the same physical domain.
+  - Essential for folding brain sulci, deep tissue invaginations, and membrane crumpling under large compression.
+
+### 3.4: Contact Mechanics Formulations
+- [ ] **Penalty Contact Method (`PenaltyContact`)**:
+  - Normal penalty contact force: $\boldsymbol{f}_c = -k_p g_N \boldsymbol{n}$ (active when $g_N < 0$).
+  - Contact velocity damping: $\boldsymbol{f}_d = -c_p (\dot{\boldsymbol{u}} \cdot \boldsymbol{n}) \boldsymbol{n}$ to eliminate high-frequency contact chatter and control impact restitution.
+  - Symmetric tangent stiffness contribution: $\boldsymbol{K}_c = k_p (\boldsymbol{n} \otimes \boldsymbol{n})$.
+  - Contact potential energy tracking: $\Pi_c = \frac{1}{2} k_p \sum g_N^2$.
+- [ ] **Augmented Lagrangian Multiplier Method (`AugmentedLagrangianContact`)**:
+  - Normal contact force: $f_N = \max(0, \lambda_N + k_p g_N)$.
+  - Multiplier update at step convergence: $\lambda_N^{(k+1)} = \max(0, \lambda_N^{(k)} + k_p g_N^{(k+1)})$.
+  - Decouples penetration error from penalty stiffness $k_p$, achieving exact non-penetration ($g_N \to 0$) without matrix ill-conditioning.
+- [ ] **Regularized Tangential Friction**:
+  - Regularized Coulomb stick-slip friction: $\boldsymbol{f}_t = -\mu |f_N| \tanh\left(\frac{\|\boldsymbol{v}_t\|}{v_0}\right) \boldsymbol{t}$.
+
+### 3.5: Software Engineering & Data Standards
+- [ ] **Clean & Simple CLI Interface**:
+  - Use standard, minimal `click` or `argparse` with standard `--help` support. Avoid brittle shell completion dependencies.
+- [ ] **Unified Visualization Data Standard**:
+  - `point_data["Displacement"]` is strictly stored as a 3D vector array in all `Domain` instances (`SolidDomain`, `ShellDomain`).
+  - Active scalars set to `"Displacement"`. Synthetic breakdowns (`_X`, `_Y`, `_Z`, `_Mag`) eliminated; ParaView natively handles vector component selection and Warp-by-Vector.
+
+### 3.6: Deliverable Demonstrations & Test Benchmarks
+- [ ] `tests/test_multibody.py`: Multi-body DOF indexing, state propagation, block matrix assembly, and static/dynamic solve.
+- [ ] `tests/test_collision_and_contact.py`: Collision primitives, detector classification, penalty force and tangent stiffness linearization consistency.
+- [ ] `examples/05_simulation/sim19_contact_static_rigid_floor.py`: Static cantilever beam bending and settling onto a rigid ground floor under gravity.
+- [ ] `examples/05_simulation/sim20_contact_dynamic_bouncing_beam.py`: Dynamic free-fall, impact, contact penalty energy storage, and elastic rebound.
+- [ ] `examples/05_simulation/sim21_contact_rigid_mesh_floor.py`: Deformable beam impact on imported 3D rigid floor mesh (`floor1.vtk`).
+- [ ] `examples/05_simulation/sim22_contact_mesh_to_mesh.py`: Deformable-to-deformable multi-body contact between two flexible meshes.
+- [ ] `examples/05_simulation/sim23_contact_brain_skull_tool.py`: Flagship biomechanical multi-mesh benchmark: brain parenchyma contacting rigid skull interior and indented by surgical tool.
 
 ---
 
