@@ -108,14 +108,18 @@ $$\text{Forward Continuum Mechanics} \longrightarrow \text{Contact Mechanics} \l
     - Guaranteed export of final snapshot upon reaching steady state.
   - [x] **Unified Snapshot Stride Management**:
     - Snapshot saving period (`save_interval`) and PVD streaming across all static and dynamic solvers (`LinearStaticAnalysis`, `NonlinearStaticAnalysis`, `LinearDynamicAnalysis`, `NonlinearDynamicAnalysis`).
-  - [ ] Arc-length / Riks methods for post-buckling and softening equilibrium paths.
-  - [ ] Generalized-$\alpha$ dynamic scheme with controllable numerical high-frequency damping.
+  - [x] **Generalized-$\alpha$ Dynamic Scheme (`LinearDynamicAnalysis` & `NonlinearDynamicAnalysis`)**:
+    - Controllable numerical high-frequency damping parameterized by single physical knob: high-frequency spectral radius $\rho_\infty \in [0, 1]$.
+    - Deprecated and removed legacy $\beta, \gamma$ parameters in favor of clean single-parameter control.
+    - Preserves unconditional stability and strict 2nd-order accuracy $\mathcal{O}(\Delta t^2)$ while filtering out spurious mesh discretization chatter during fast dynamics and contact impact.
+    - Full mapping: $\rho_\infty = 1.0$ (Undamped Newmark), $\rho_\infty = 0.8$ (Default Generalized-$\alpha$), $\rho_\infty = 0.5$ (HHT-$\alpha$), $\rho_\infty = 0.0$ (Asymptotic Annihilation).
+    - Verified via `examples/05_simulation/sim16_dynamic_time_integration_comparison.py`.
 
 ---
 
 ## Milestone 2.5: Interactive / Online Dynamic Simulation Framework (Lean Prototype)
 
-*Objective*: Establish a lean, real-time dynamic simulation pipeline and demonstration runner before introducing contact mechanics.
+*Objective*: Establish a lean, real-time dynamic simulation pipeline and axial torsion / dynamic demonstration runner before introducing contact mechanics.
 
 - [ ] **Online Dynamic Simulation Runner (`InteractiveDynamicSimulation`)**:
   - Real-time dynamic loop operating with fixed time step $\Delta t$ decoupled from rendering frame rate.
@@ -127,8 +131,9 @@ $$\text{Forward Continuum Mechanics} \longrightarrow \text{Contact Mechanics} \l
 - [ ] **Live 3D Visualization Pipeline**:
   - Real-time PyVista `BackgroundPlotter` integration with non-blocking render loop.
   - In-place point coordinate mutation (`polydata.points = current_nodes`) to bypass expensive VTK object recreation.
-- [ ] **Deliverable Demonstration**:
-  - `examples/06_interactive/sim15_online_dynamic_cantilever.py`: Real-time interactive cantilever beam under user-controlled dynamic disturbance.
+- [ ] **Deliverable Demonstrations & Capability Proofs**:
+  - `examples/05_simulation/sim17_axial_torsion_hyperelastic_beam.py`: Severe axial twisting benchmark of a 3D continuum cantilever beam (up to $90^\circ - 180^\circ$ rotation) to prove finite-strain kinematics, cross-sectional warping, Poynting axial shortening/lengthening, and hyperelastic stability under large torsional shear.
+  - `examples/06_interactive/sim01_online_dynamic_cantilever.py`: Real-time interactive cantilever beam under user-controlled dynamic disturbance.
 
 ---
 
@@ -236,8 +241,9 @@ $$\text{Forward Continuum Mechanics} \longrightarrow \text{Contact Mechanics} \l
 - [ ] **Advanced Non-Smooth Contact Mechanics**:
   - Segment-to-segment mortar contact for non-conforming mesh interfaces.
   - Exact Coulomb friction with non-smooth stick-slip active set strategy.
-- [ ] **Dynamic Relaxation Equilibrium Solver (`DynamicRelaxationAnalysis`)**:
-  - Barnes / Underwood kinetic damping algorithm ($\boldsymbol{v} \leftarrow \mathbf{0}$ on kinetic energy peaks) with Gerschgorin diagonal mass scaling for post-buckling and snap-through equilibrium paths.
+- [ ] **Advanced Instability & Equilibrium Path Solvers**:
+  - **Arc-Length / Riks Method (`ArcLengthAnalysis`)**: Tracing post-buckling, snap-through, and snap-back equilibrium paths where $\det(\boldsymbol{K}_T) \le 0$ via augmented constraint equations.
+  - **Dynamic Relaxation Equilibrium Solver (`DynamicRelaxationAnalysis`)**: Barnes / Underwood kinetic damping algorithm ($\boldsymbol{v} \leftarrow \mathbf{0}$ on kinetic energy peaks) with Gerschgorin diagonal mass scaling for highly unstable softening paths.
 - [ ] **Biomechanical Specialization & Multiphysics**:
   - **Viscoelastic Constitutive Formulations**: Generalized Maxwell / Prony series relaxation spectrum ($G(t) = G_\infty + \sum_m G_m e^{-t/\tau_m}$) via internal element history variables.
   - **Advanced Hyperelasticity & Anisotropy**: Holzapfel-Gasser-Ogden (`HGO`) anisotropic fiber reinforcement; Ogden spectral principal stretch model with coalescing eigenvalue perturbation handling.
