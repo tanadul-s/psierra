@@ -89,13 +89,13 @@ $$\text{Forward Continuum Mechanics} \longrightarrow \text{Contact Mechanics} \l
   - [x] **Total Lagrangian (TL)**: Reference configuration $X$ kinematics with Green-Lagrange strain $E$ and 2nd Piola-Kirchhoff stress $S$ (`Tet4TotalLagrangian`, `Tet10TotalLagrangian`).
   - [x] **Updated Lagrangian (UL)**: Spatial current configuration $x$ kinematics with spatial gradients $h = H F^{-1}$, Cauchy stress $\sigma = \frac{1}{J} F S F^T$, spatial tangent moduli $c^{\text{spatial}}$, and spatial geometric stiffness $k_{\text{geo}}$ (`Tet4UpdatedLagrangian`, `Tet10UpdatedLagrangian`).
   - [x] Machine-precision equivalence between TL and UL verified to $< 10^{-13}$ mm.
-- [ ] **Hyperelastic Constitutive Models**:
+- [x] **Hyperelastic Constitutive Models**:
   - [x] Compressible Neo-Hookean hyperelasticity with exact analytical tangent and 2nd PK stress (`NeoHookean`).
-  - [ ] **Yeoh Model (`Yeoh`)** (Immediate Target for Soft Tissue):
+  - [x] **Yeoh Model (`Yeoh`)** (Soft Tissue Strain-Stiffening):
     - 3-parameter reduced polynomial formulation: $\Psi = \sum_{i=1}^3 C_{i0} (\bar{I}_1 - 3)^i + \frac{1}{2} K (\ln J)^2$.
     - Captures physiological exponential strain-stiffening of soft biological tissues (liver, brain, kidney) at large strains.
     - Pure closed-form invariant tensor derivatives: directly leverages existing `NeoHookean` $\partial \bar{I}_1 / \partial \boldsymbol{C}$ and $\partial^2 \bar{I}_1 / \partial \boldsymbol{C} \partial \boldsymbol{C}$ kernels.
-  - [ ] **Mooney-Rivlin Model (`MooneyRivlin`)**:
+  - [x] **Mooney-Rivlin Model (`MooneyRivlin`)**:
     - 2-parameter formulation: $\Psi = C_{10} (\bar{I}_1 - 3) + C_{01} (\bar{I}_2 - 3) + \frac{1}{2} K (\ln J)^2$.
     - Analytical derivatives for second invariant $\bar{I}_2$: $\partial I_2 / \partial \boldsymbol{C} = I_1 \boldsymbol{I} - \boldsymbol{C}$.
     - Standard benchmark for synthetic elastomers, silicones, and rubber phantoms in surgical training.
