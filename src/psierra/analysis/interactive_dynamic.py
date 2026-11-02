@@ -470,39 +470,18 @@ class InteractiveDynamicSimulation(Analysis):
         self,
         grid: Any,
         plotter: Any | None = None,
-        field: str = "Displacement_Y",
+        field: str = "Displacement",
         auto_clim: bool = True,
         symmetric_clim: bool = True,
         min_clim: float = 0.5,
     ) -> None:
         """
         Updates an existing PyVista UnstructuredGrid in-place with current deformed coordinates
-        and displacement scalars for zero-overhead real-time rendering.
-
-        Parameters:
-        -----------
-        grid : pv.UnstructuredGrid
-            Target PyVista grid previously created from the domain.
-        plotter : pv.Plotter, optional
-            Active PyVista Plotter instance. If provided and `auto_clim=True`, dynamically
-            updates the scalar bar range so the color palette tracks instantaneous deflection.
-        field : str, default="Displacement_Y"
-            Active scalar field name to track for dynamic color mapping.
-        auto_clim : bool, default=True
-            Whether to automatically adjust the mapper scalar range when `plotter` is given.
-        symmetric_clim : bool, default=True
-            Whether to enforce symmetric scalar limits [-max_abs, +max_abs] centered at 0.0.
-            Ideal for diverging colormaps (e.g. 'coolwarm') where 0.0 represents the neutral state.
-        min_clim : float, default=0.5
-            Minimum absolute extent for symmetric scalar bounds to prevent zero-width ranges.
+        and displacement vectors for zero-overhead real-time rendering.
         """
         u = self.displacement
         grid.points = self.deformed_nodes
         grid.point_data["Displacement"] = u
-        grid.point_data["Displacement_X"] = u[:, 0]
-        grid.point_data["Displacement_Y"] = u[:, 1]
-        grid.point_data["Displacement_Z"] = u[:, 2]
-        grid.point_data["Displacement_Mag"] = np.linalg.norm(u, axis=1)
 
         # Update synthetic component arrays if PyVista created them (e.g. from component=1)
         for comp_idx in range(3):
