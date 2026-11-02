@@ -276,3 +276,52 @@ class TestLinearAnalysis:
         assert result.saved_file is not None
         assert result.saved_file.exists()
         assert result.saved_file.name == "cube_linear.vtu"
+
+    def test_linear_dynamic_spectral_radius_cases(
+        self,
+        five_tet_cube_mesh: VolumetricMesh,
+        hookean_material: Hookean,
+    ) -> None:
+        """Verifies that spectral_radius controls numerical damping correctly."""
+        mesh = five_tet_cube_mesh
+        element = Tet4Linear(hookean_material)
+        domain = SolidDomain(mesh, hookean_material, element)
+
+        # Invalid bounds validation
+        import pytest
+
+        with pytest.raises(ValueError, match="spectral_radius must be in"):
+            LinearDynamicAnalysis(domain, spectral_radius=-0.1)
+        with pytest.raises(ValueError, match="spectral_radius must be in"):
+            LinearDynamicAnalysis(domain, spectral_radius=1.5)
+
+        # Test solver with undamped rho=1.0 and fully damped rho=0.0
+        fixed_nodes = select_nodes_by_plane(mesh, plane="xy", bound="min")
+        dirichlet = DirichletManager(mesh.n_dofs)
+        dirichlet.add_constraint(
+            DirichletConstraint(node_indices=fixed_nodes, components=(0, 1, 2), value=0.0)
+        )
+        top_nodes = select_nodes_by_plane(mesh, plane="xy", bound="max")
+        load = NodalForce(node_indices=top_nodes, force_vector=[0.0, 0.0, 50.0 / len(top_nodes)])
+        f_ext = load.compute_force_vector(mesh.n_dofs)
+
+        solver_undamped = LinearDynamicAnalysis(domain, spectral_radius=1.0)
+        assert solver_undamped.spectral_radius == 1.0
+        assert solver_undamped.alpha_m == 0.5
+        assert solver_undamped.alpha_f == 0.5
+        assert solver_undamped.gamma == 0.5
+        assert solver_undamped.beta == 0.25
+
+        solver_damped = LinearDynamicAnalysis(domain, spectral_radius=0.0)
+        assert solver_damped.spectral_radius == 0.0
+        assert solver_damped.alpha_m == -1.0
+        assert solver_damped.alpha_f == 0.0
+        assert solver_damped.gamma == 1.5
+        assert solver_damped.beta == 1.0
+
+        res_undamped = solver_undamped.solve(dirichlet=dirichlet, f_ext=f_ext, dt=0.01, n_steps=10, verbose=False)
+        domain.reset_state()
+        res_damped = solver_damped.solve(dirichlet=dirichlet, f_ext=f_ext, dt=0.01, n_steps=10, verbose=False)
+
+        assert res_undamped.converged is True
+        assert res_damped.converged is True

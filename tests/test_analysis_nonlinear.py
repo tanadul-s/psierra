@@ -287,3 +287,56 @@ class TestNonlinearAnalysis:
         residual_norm = np.linalg.norm(f_ext[free_dofs] - f_int[free_dofs])
         rel_residual = residual_norm / np.linalg.norm(f_ext[free_dofs])
         assert rel_residual < 1e-4
+
+    def test_nonlinear_dynamic_spectral_radius_cases(
+        self,
+        five_tet_cube_mesh: VolumetricMesh,
+        neohookean_material: NeoHookean,
+    ) -> None:
+        """Verifies NonlinearDynamicAnalysis Generalized-alpha parameterization."""
+        mesh = five_tet_cube_mesh
+        element = Tet4TotalLagrangian(neohookean_material)
+        domain = SolidDomain(mesh, neohookean_material, element)
+
+        # Invalid spectral_radius validation
+        import pytest
+
+        with pytest.raises(ValueError, match="spectral_radius must be in"):
+            NonlinearDynamicAnalysis(domain, spectral_radius=-0.5)
+        with pytest.raises(ValueError, match="spectral_radius must be in"):
+            NonlinearDynamicAnalysis(domain, spectral_radius=2.0)
+
+        # Check default rho_inf = 0.8
+        default_solver = NonlinearDynamicAnalysis(domain)
+        assert default_solver.spectral_radius == 0.8
+        assert np.isclose(default_solver.alpha_m, 1.0 / 3.0)
+        assert np.isclose(default_solver.alpha_f, 4.0 / 9.0)
+        assert np.isclose(default_solver.gamma, 11.0 / 18.0)
+        assert np.isclose(default_solver.beta, 100.0 / 324.0)
+
+        # Verify solve works cleanly with custom rho_inf = 0.5 (HHT-alpha)
+        fixed_nodes = select_nodes_by_plane(mesh, plane="xy", bound="min")
+        dirichlet = DirichletManager(mesh.n_dofs)
+        dirichlet.add_constraint(
+            DirichletConstraint(node_indices=fixed_nodes, components=(0, 1, 2), value=0.0)
+        )
+        top_nodes = select_nodes_by_plane(mesh, plane="xy", bound="max")
+        load = NodalForce(node_indices=top_nodes, force_vector=[0.0, 0.0, 10.0 / len(top_nodes)])
+        f_ext = load.compute_force_vector(mesh.n_dofs)
+
+        solver_hht = NonlinearDynamicAnalysis(domain, spectral_radius=0.5)
+        assert np.isclose(solver_hht.alpha_m, 0.0)
+        assert np.isclose(solver_hht.alpha_f, 1.0 / 3.0)
+        assert np.isclose(solver_hht.gamma, 5.0 / 6.0)
+        assert np.isclose(solver_hht.beta, 4.0 / 9.0)
+
+        res = solver_hht.solve(
+            dirichlet=dirichlet,
+            f_ext=f_ext,
+            dt=0.01,
+            n_steps=5,
+            nr_iterations=10,
+            verbose=False,
+        )
+        assert res.converged is True
+        assert res.steps_completed == 5
