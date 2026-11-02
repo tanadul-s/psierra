@@ -134,8 +134,8 @@ $$\text{Forward Continuum Mechanics} \longrightarrow \text{Contact Mechanics} \l
 - [x] **Deliverable Demonstrations & Capability Proofs**:
   - [x] `examples/05_simulation/sim17_axial_torsion_hyperelastic_beam.py`: Severe axial twisting benchmark of a 3D continuum cantilever beam (up to $90^\circ - 180^\circ$ rotation) to prove finite-strain kinematics, cross-sectional warping, Poynting axial shortening/lengthening, and hyperelastic stability under large torsional shear.
   - [x] `examples/05_simulation/sim18_tet10_nonlinear_hyperelastic_beam.py`: Finite-strain hyperelastic beam bending benchmark proving quadratic Tet10 shear-locking alleviation ($1.51\times$ compliance recovery) and TL/UL machine precision equivalence ($< 10^{-13}$ mm).
-  - [x] `examples/06_interactive/sim01_online_dynamic_cantilever.py`: Real-time interactive cantilever beam under user-controlled dynamic disturbance ($12,056 \text{ Hz}$, $24.1\times$ real-time).
-  - [x] `examples/06_interactive/sim02_online_dynamic_tet10_nonlinear.py`: Real-time interactive dynamic simulation with 10-node quadratic tetrahedra (Tet10) and nonlinear hyperelasticity (Modified Newton Generalized-$\alpha$).
+  - [x] `examples/06_interactive/sim01_online_dynamic_cantilever.py`: Unified real-time interactive cantilever beam supporting linear, corotational, Total Lagrangian, and Updated Lagrangian kinematics with Tet4 and Tet10 elements under user-controlled dynamic disturbances (impulse, harmonic).
+  - [x] `examples/06_interactive/sim02_online_dynamic_axial_torsion.py`: Real-time interactive dynamic simulation of 3D continuum axial torsion under user-controlled dynamic twisting moments ($M_z$), torsional wave propagation, and elastic spring-back.
 
 ---
 
