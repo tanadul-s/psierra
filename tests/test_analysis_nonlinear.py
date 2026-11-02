@@ -384,3 +384,37 @@ class TestNonlinearAnalysis:
         assert result.steps_completed == 3
         assert np.all(np.isfinite(result.displacement))
         assert np.max(np.abs(result.displacement)) > 0.0
+
+    def test_nonlinear_static_tet10_newton_raphson(
+        self, five_tet_cube_mesh: VolumetricMesh, neohookean_material: NeoHookean
+    ) -> None:
+        """Verifies Newton-Raphson nonlinear static convergence for Tet10 (both TL and UL)."""
+        from psierra.element import Tet10TotalLagrangian, Tet10UpdatedLagrangian
+
+        mesh10 = five_tet_cube_mesh.to_quadratic()
+        fixed_nodes = select_nodes_by_plane(mesh10, plane="xy", bound="min")
+        top_nodes = select_nodes_by_plane(mesh10, plane="xy", bound="max")
+
+        clamp = DirichletConstraint(fixed_nodes, components=(0, 1, 2), value=0.0)
+        dm = DirichletManager(mesh10.n_dofs)
+        dm.add_constraint(clamp)
+
+        load = NodalForce(top_nodes, force_vector=[0.0, 0.0, 50.0 / len(top_nodes)])
+        f_ext = load.compute_force_vector(mesh10.n_dofs)
+
+        # 1. Total Lagrangian
+        dom_tl = SolidDomain(mesh10.copy(), neohookean_material, Tet10TotalLagrangian(neohookean_material))
+        res_tl = NonlinearStaticAnalysis(dom_tl).solve(
+            dirichlet=dm, f_ext=f_ext, n_steps=2, nr_tol=1e-4, verbose=False
+        )
+        assert res_tl.converged is True
+
+        # 2. Updated Lagrangian
+        dom_ul = SolidDomain(mesh10.copy(), neohookean_material, Tet10UpdatedLagrangian(neohookean_material))
+        res_ul = NonlinearStaticAnalysis(dom_ul).solve(
+            dirichlet=dm, f_ext=f_ext, n_steps=2, nr_tol=1e-4, verbose=False
+        )
+        assert res_ul.converged is True
+
+        # Machine-precision equivalence between TL and UL
+        np.testing.assert_allclose(res_tl.displacement, res_ul.displacement, atol=1e-10)
