@@ -318,24 +318,25 @@ class TestInteractiveDynamicSimulation:
         assert sim.strain_energy >= 0.0
 
     def test_sim02_headless_cli_execution(self, tmp_path: pytest.TempPathFactory) -> None:
-        """Verifies sim02_online_dynamic_tet10_nonlinear runs end-to-end via CLI in headless mode."""
+        """Verifies sim02_online_dynamic_axial_torsion runs end-to-end via CLI in headless mode."""
         import subprocess
         import sys
 
         cmd = [
             sys.executable,
-            "examples/06_interactive/sim02_online_dynamic_tet10_nonlinear.py",
+            "examples/06_interactive/sim02_online_dynamic_axial_torsion.py",
             "--headless",
             "--duration",
-            "0.01",
+            "0.02",
             "--dt",
             "0.005",
+            "--formulation",
+            "linear",
             "--save-snapshots",
             "--output-dir",
             str(tmp_path),
         ]
         result = subprocess.run(cmd, capture_output=True, text=True)
         assert result.returncode == 0, f"Script failed with output:\n{result.stderr}"
-        assert "Interactive Nonlinear Tet10 Dynamic Simulation Pipeline" in result.stdout
-        assert "successfully!" in result.stdout
-        assert (tmp_path / "sim02_online_dynamic_tet10.pvd").exists()
+        assert "Interactive Dynamic Axial Torsion Pipeline completed successfully!" in result.stdout
+        assert (tmp_path / "sim02_online_dynamic_torsion.pvd").exists()
