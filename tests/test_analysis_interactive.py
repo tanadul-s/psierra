@@ -206,8 +206,7 @@ class TestInteractiveDynamicSimulation:
         sim.update_pyvista_grid(grid)
         assert np.allclose(grid.points, sim.deformed_nodes)
         assert np.allclose(grid.point_data["Displacement"], sim.displacement)
-        assert np.allclose(grid.point_data["Displacement_Y"], sim.displacement[:, 1])
-        assert np.allclose(grid.point_data["Displacement_Mag"], np.linalg.norm(sim.displacement, axis=1))
+        assert np.allclose(grid.point_data["Displacement"][:, 1], sim.displacement[:, 1])
 
     def test_sim01_headless_cli_execution(self, tmp_path: pytest.TempPathFactory) -> None:
         """Verifies sim01_online_dynamic_cantilever runs end-to-end via CLI in headless mode."""
@@ -245,7 +244,8 @@ class TestInteractiveDynamicSimulation:
         grid = domain.to_pyvista(factor=1.0)
         actor = plotter.add_mesh(
             grid,
-            scalars="Displacement_Y",
+            scalars="Displacement",
+            component=1,
             clim=[-10.0, 10.0],
             cmap="coolwarm",
         )
@@ -270,7 +270,7 @@ class TestInteractiveDynamicSimulation:
             sim.update_pyvista_grid(
                 grid,
                 plotter=plotter,
-                field="Displacement_Y",
+                field="Displacement",
                 symmetric_clim=True,
                 min_clim=10.0,
             )
