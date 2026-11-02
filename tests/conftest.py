@@ -4,7 +4,15 @@ import numpy as np
 import pytest
 import pyvista as pv
 
-from psierra.material import IsotropicElasticParameters, Hookean, NeoHookean
+from psierra.material import (
+    IsotropicElasticParameters,
+    MooneyRivlinParameters,
+    YeohParameters,
+    Hookean,
+    NeoHookean,
+    MooneyRivlin,
+    Yeoh,
+)
 from psierra.element import Tet4Linear
 from psierra.mesh import VolumetricMesh, SurfaceMesh
 from psierra.domain import SolidDomain
@@ -66,6 +74,31 @@ def neohookean_material() -> NeoHookean:
         mass_density=1000.0,
     )
     return NeoHookean(params)
+
+
+@pytest.fixture
+def mooney_rivlin_material() -> MooneyRivlin:
+    """Soft elastomer Mooney-Rivlin material."""
+    params = MooneyRivlinParameters.from_constants(
+        c10=2.0e3,
+        c01=0.5e3,
+        bulk_modulus=100.0e3,
+        mass_density=1000.0,
+    )
+    return MooneyRivlin(params)
+
+
+@pytest.fixture
+def yeoh_material() -> Yeoh:
+    """Soft biological tissue Yeoh material with strain-stiffening."""
+    params = YeohParameters.from_constants(
+        c10=2.5e3,
+        c20=-0.2e3,
+        c30=0.5e3,
+        bulk_modulus=100.0e3,
+        mass_density=1000.0,
+    )
+    return Yeoh(params)
 
 
 @pytest.fixture

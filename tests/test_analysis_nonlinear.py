@@ -5,7 +5,7 @@ import pytest
 
 from psierra.domain.solid import SolidDomain
 from psierra.element import Tet4TotalLagrangian
-from psierra.material.neohookean import NeoHookean
+from psierra.material import NeoHookean, MooneyRivlin, Yeoh
 from psierra.mesh.volumetric import VolumetricMesh
 from psierra.boundary.dirichlet import DirichletConstraint, DirichletManager
 from psierra.boundary.load import NodalForce
@@ -201,3 +201,89 @@ class TestNonlinearAnalysis:
         assert (out_dir / "result.pvd").exists()
         # Step 0, step 2, step 4, step 6 = 4 snapshots
         assert len(result.time_series_files) == 4
+
+    def test_nonlinear_static_mooney_rivlin(
+        self,
+        five_tet_cube_mesh: VolumetricMesh,
+        mooney_rivlin_material: MooneyRivlin,
+    ) -> None:
+        """Verifies incremental Newton-Raphson nonlinear static solve with Mooney-Rivlin material."""
+        mesh = five_tet_cube_mesh
+        element = Tet4TotalLagrangian(mooney_rivlin_material)
+        domain = SolidDomain(mesh, mooney_rivlin_material, element)
+
+        fixed_nodes = select_nodes_by_plane(mesh, plane="xy", bound="min")
+        dirichlet = DirichletManager(mesh.n_dofs)
+        dirichlet.add_constraint(
+            DirichletConstraint(node_indices=fixed_nodes, components=(0, 1, 2), value=0.0)
+        )
+
+        top_nodes = select_nodes_by_plane(mesh, plane="xy", bound="max")
+        load = NodalForce(
+            node_indices=top_nodes, force_vector=[0.0, 0.0, 30.0 / len(top_nodes)]
+        )
+        f_ext = load.compute_force_vector(mesh.n_dofs)
+
+        analysis = NonlinearStaticAnalysis(domain)
+        result = analysis.solve(
+            dirichlet=dirichlet,
+            f_ext=f_ext,
+            n_steps=4,
+            nr_iterations=15,
+            nr_tol=1e-4,
+            verbose=False,
+        )
+
+        assert isinstance(result, NonlinearStaticResult)
+        assert result.converged is True
+        assert result.steps_completed == 4
+
+        # Verify internal force equilibrium
+        f_int = domain.assemble_internal_forces()
+        free_dofs = dirichlet.free_dofs
+        residual_norm = np.linalg.norm(f_ext[free_dofs] - f_int[free_dofs])
+        rel_residual = residual_norm / np.linalg.norm(f_ext[free_dofs])
+        assert rel_residual < 1e-4
+
+    def test_nonlinear_static_yeoh(
+        self,
+        five_tet_cube_mesh: VolumetricMesh,
+        yeoh_material: Yeoh,
+    ) -> None:
+        """Verifies incremental Newton-Raphson nonlinear static solve with Yeoh strain-stiffening material."""
+        mesh = five_tet_cube_mesh
+        element = Tet4TotalLagrangian(yeoh_material)
+        domain = SolidDomain(mesh, yeoh_material, element)
+
+        fixed_nodes = select_nodes_by_plane(mesh, plane="xy", bound="min")
+        dirichlet = DirichletManager(mesh.n_dofs)
+        dirichlet.add_constraint(
+            DirichletConstraint(node_indices=fixed_nodes, components=(0, 1, 2), value=0.0)
+        )
+
+        top_nodes = select_nodes_by_plane(mesh, plane="xy", bound="max")
+        load = NodalForce(
+            node_indices=top_nodes, force_vector=[0.0, 0.0, 30.0 / len(top_nodes)]
+        )
+        f_ext = load.compute_force_vector(mesh.n_dofs)
+
+        analysis = NonlinearStaticAnalysis(domain)
+        result = analysis.solve(
+            dirichlet=dirichlet,
+            f_ext=f_ext,
+            n_steps=4,
+            nr_iterations=15,
+            nr_tol=1e-4,
+            verbose=False,
+        )
+
+        assert isinstance(result, NonlinearStaticResult)
+        assert result.converged is True
+        assert result.steps_completed == 4
+
+        # Verify internal force equilibrium
+        f_int = domain.assemble_internal_forces()
+        free_dofs = dirichlet.free_dofs
+        residual_norm = np.linalg.norm(f_ext[free_dofs] - f_int[free_dofs])
+        rel_residual = residual_norm / np.linalg.norm(f_ext[free_dofs])
+        assert rel_residual < 1e-4
