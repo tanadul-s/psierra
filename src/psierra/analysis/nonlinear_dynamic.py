@@ -1,4 +1,5 @@
 from __future__ import annotations
+from collections.abc import Sequence
 from dataclasses import dataclass, field
 from pathlib import Path
 import numpy as np
@@ -7,6 +8,7 @@ from rich import print
 
 from psierra.domain.base import Domain
 from psierra.boundary.dirichlet import DirichletManager, DirichletConstraint
+from psierra.boundary.contact import PenaltyContact
 from psierra.damping.rayleigh import RayleighDamping
 from psierra.solver.base import SparseLinearSolver
 from psierra.solver.sparse_linear_solver import DirectSolver
@@ -95,6 +97,7 @@ class NonlinearDynamicAnalysis(Analysis):
         f_ext: np.ndarray,
         dt: float,
         n_steps: int,
+        contact: PenaltyContact | Sequence[PenaltyContact] | None = None,
         nr_iterations: int = 15,
         nr_tol: float = 1e-4,
         include_stresses: bool = False,
@@ -102,6 +105,7 @@ class NonlinearDynamicAnalysis(Analysis):
         save_directory: Path | str | None = None,
         output_name: str = "result",
         save_interval: int = 1,
+        factor: float = 0.0,
         steady_state_tol: float | None = None,
         kinetic_energy_tol: float | None = None,
         consecutive_hold_steps: int = 3,
@@ -120,6 +124,8 @@ class NonlinearDynamicAnalysis(Analysis):
             Time increment in seconds.
         n_steps : int
             Maximum number of time steps to compute.
+        contact : PenaltyContact or Sequence[PenaltyContact], optional
+            Boundary contact condition(s) enforcing non-penetration against rigid obstacles.
         nr_iterations : int, default=15
             Maximum Newton-Raphson iterations per time step.
         nr_tol : float, default=1e-4
@@ -179,6 +185,16 @@ class NonlinearDynamicAnalysis(Analysis):
         steady_state_step: int | None = None
         max_kinetic_energy = 0.0
 
+        if contact is None:
+            if hasattr(self.domain, "contacts"):
+                contact_list = list(self.domain.contacts)
+            else:
+                contact_list = []
+        elif isinstance(contact, PenaltyContact):
+            contact_list = [contact]
+        else:
+            contact_list = list(contact)
+
         # 1. Generalized-alpha Integration Constants
         gamma = self.gamma
         beta = self.beta
@@ -210,9 +226,20 @@ class NonlinearDynamicAnalysis(Analysis):
         u_f = self.domain.u[free_dofs].copy()
         v_f = self.domain.v[free_dofs].copy()
 
-        # Initial acceleration: M_ff * a0_f = F_ext_f - C_ff * v_f - F_int_0
+        # Initial acceleration: M_ff * a0_f = F_ext_f + F_c0 - C_ff * v_f - F_int_0
         f_int0 = self.domain.assemble_internal_forces()
-        r0 = f_ext_f - C_ff @ v_f - f_int0[free_dofs]
+        f_c0 = sum(
+            (
+                c.evaluate_forces(
+                    current_nodes=self.domain.current_nodes,
+                    velocities=self.domain.v,
+                    n_dofs=self.domain.n_dofs,
+                )
+                for c in contact_list
+            ),
+            np.zeros(self.domain.n_dofs, dtype=np.float64),
+        )
+        r0 = f_ext_f + f_c0[free_dofs] - C_ff @ v_f - f_int0[free_dofs]
         a_f = self.linear_solver.solve(M_ff.tocsc(), r0)
 
         # Full vectors for output
@@ -282,13 +309,38 @@ class NonlinearDynamicAnalysis(Analysis):
                 # Assemble nonlinear internal forces F_int(u_mid)
                 f_int = self.domain.assemble_internal_forces()
 
-                # Dynamic out-of-balance residual: R = F_ext - M*a_mid - C*v_mid - F_int
+                # Contact forces and tangent stiffness at midpoint
+                f_contact = np.zeros(self.domain.n_dofs, dtype=np.float64)
+                K_contact = spsp.csr_matrix(
+                    (self.domain.n_dofs, self.domain.n_dofs), dtype=np.float64
+                )
+                for c in contact_list:
+                    f_contact += c.evaluate_forces(
+                        current_nodes=self.domain.current_nodes,
+                        velocities=v_full,
+                        n_dofs=self.domain.n_dofs,
+                    )
+                    K_contact = K_contact + c.evaluate_stiffness(
+                        current_nodes=self.domain.current_nodes,
+                        n_dofs=self.domain.n_dofs,
+                        a1=a1,
+                    )
+
+                # Dynamic out-of-balance residual: R = F_ext + F_contact - M*a_mid - C*v_mid - F_int
                 inertia_f = M_ff @ a_mid_f
                 damping_f = C_ff @ v_mid_f
-                r_eff = f_ext_f - inertia_f - damping_f - f_int[free_dofs]
+                r_eff = (
+                    f_ext_f
+                    + f_contact[free_dofs]
+                    - inertia_f
+                    - damping_f
+                    - f_int[free_dofs]
+                )
 
                 res_norm = np.linalg.norm(r_eff)
-                rel_res = res_norm / f_ref_norm
+                rel_res = res_norm / max(
+                    f_ref_norm, np.linalg.norm(f_contact[free_dofs])
+                )
 
                 if rel_res < nr_tol:
                     step_converged = True
@@ -297,7 +349,7 @@ class NonlinearDynamicAnalysis(Analysis):
 
                 # Assemble Tangent Stiffness K_tan(u_mid) and Effective Dynamic Tangent Matrix
                 K_tan = self.domain.assemble_tangent_stiffness_matrix()
-                K_tan_ff = K_tan[free_dofs, :][:, free_dofs]
+                K_tan_ff = (K_tan + K_contact)[free_dofs, :][:, free_dofs]
                 K_eff = (
                     (1.0 - alpha_f) * K_tan_ff
                     + (1.0 - alpha_m) * a0 * M_ff
@@ -364,6 +416,7 @@ class NonlinearDynamicAnalysis(Analysis):
                 vtu_path = save_dir / vtu_name
                 self.domain.save_state(
                     vtu_path,
+                    factor=factor,
                     include_stresses=include_stresses,
                     smooth_to_nodes=smooth_to_nodes,
                 )

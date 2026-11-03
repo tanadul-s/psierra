@@ -41,7 +41,10 @@ class SurfaceMesh:
             )
 
         # Ensure linear surface is fully triangulated
-        if isinstance(self._polydata, pv.PolyData) and not self._polydata.is_all_triangles:
+        if (
+            isinstance(self._polydata, pv.PolyData)
+            and not self._polydata.is_all_triangles
+        ):
             self._polydata = self._polydata.triangulate()
 
         self._node_indices = (
@@ -60,22 +63,25 @@ class SurfaceMesh:
             raise FileNotFoundError(f"Surface mesh file not found: {path}")
 
         path_str = str(path)
+        pdata = None
         try:
             pdata = pv.read(path_str)
-            if isinstance(pdata, pv.UnstructuredGrid):
-                pdata = pdata.extract_surface(algorithm=None)
-            return pdata
         except Exception:
+            pass
+
+        if pdata is None:
             try:
                 m = meshio.read(path_str)
-                grid = pv.from_meshio(m)
-                return (
-                    grid.extract_surface(algorithm=None)
-                    if isinstance(grid, pv.UnstructuredGrid)
-                    else grid
-                )
+                m.cell_sets = {}
+                pdata = pv.from_meshio(m)
             except Exception as e:
                 raise RuntimeError(f"Failed to read surface mesh from {path}: {e}")
+
+        if isinstance(pdata, pv.UnstructuredGrid):
+            pdata = pdata.extract_surface(algorithm=None)
+
+        clean_poly = pv.PolyData(pdata.points, pdata.faces)
+        return clean_poly
 
     # =========================================================================
     # Data Queries
@@ -240,24 +246,62 @@ class SurfaceMesh:
         self,
         translation: Sequence[float] | np.ndarray = (0.0, 0.0, 0.0),
         orientation: Rotation = Rotation.from_euler("xyz", (0, 0, 0)),
+        scale: float | Sequence[float] | np.ndarray = 1.0,
         about_point: Sequence[float] | np.ndarray = (0.0, 0.0, 0.0),
     ) -> None:
         """
-        Translates and rotates the surface mesh in-place using a 4x4 affine transformation.
+        Translates, rotates, and scales the surface mesh in-place using a 4x4 affine transformation.
+
+        Parameters:
+        -----------
+        translation : Sequence[float] or np.ndarray of shape (3,), default=(0, 0, 0)
+            Translational offset vector [dx, dy, dz].
+        orientation : scipy.spatial.transform.Rotation, default=identity
+            3D orientation / rotation object.
+        scale : float or Sequence[float] of shape (3,), default=1.0
+            Scaling factor (scalar for uniform isotropic scaling, or [sx, sy, sz]).
+        about_point : Sequence[float] or np.ndarray of shape (3,), default=(0, 0, 0)
+            Pivot point for rotation and scaling.
         """
         about_point = np.asarray(about_point, dtype=np.float64)
         translation = np.asarray(translation, dtype=np.float64)
+
+        if np.isscalar(scale):
+            s = np.full(3, float(scale), dtype=np.float64)
+        else:
+            s = np.asarray(scale, dtype=np.float64)
+            if s.shape != (3,):
+                raise ValueError(
+                    f"Scale must be a scalar or 3-element vector, got shape {s.shape}."
+                )
 
         tf1 = np.eye(4)
         tf1[:3, 3] = -about_point
 
         tf2 = np.eye(4)
-        tf2[:3, :3] = orientation.as_matrix()
+        tf2[:3, :3] = orientation.as_matrix() @ np.diag(s)
         tf2[:3, 3] = translation + about_point
 
         tf = tf2 @ tf1
 
         self._polydata.transform(tf, inplace=True)
+
+    def scale(
+        self,
+        factors: float | Sequence[float] | np.ndarray,
+        center: Sequence[float] | np.ndarray = (0.0, 0.0, 0.0),
+    ) -> None:
+        """
+        Scales the surface mesh coordinates in-place.
+
+        Parameters:
+        -----------
+        factors : float or Sequence[float] of shape (3,)
+            Scaling factor(s) (scalar for uniform isotropic scaling, or [sx, sy, sz]).
+        center : Sequence[float] of shape (3,), default=(0, 0, 0)
+            Pivot point for scaling.
+        """
+        self.transform(scale=factors, about_point=center)
 
     def save(self, filepath: Path) -> None:
         """Saves surface mesh to disk (.vtu, .stl, .ply), creating parent directories if needed."""

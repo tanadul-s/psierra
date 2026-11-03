@@ -16,6 +16,7 @@ from psierra.boundary.load import (
     NodalForce,
     GravityLoad,
 )
+from psierra.boundary.contact import PenaltyContact
 
 __all__ = [
     "BoundaryCondition",
@@ -28,4 +29,5 @@ __all__ = [
     "DirichletManager",
     "NodalForce",
     "GravityLoad",
+    "PenaltyContact",
 ]

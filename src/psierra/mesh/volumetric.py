@@ -334,22 +334,43 @@ class VolumetricMesh:
         self,
         translation: Sequence[float] | np.ndarray = (0.0, 0.0, 0.0),
         orientation: Rotation = Rotation.from_euler("xyz", (0, 0, 0)),
+        scale: float | Sequence[float] | np.ndarray = 1.0,
         about_point: Sequence[float] | np.ndarray = (0.0, 0.0, 0.0),
     ) -> None:
         """
-        Translates and rotates the mesh in-place using a 4x4 affine transformation.
+        Translates, rotates, and scales the mesh in-place using a 4x4 affine transformation.
         Invalidates cached surface structures.
+
+        Parameters:
+        -----------
+        translation : Sequence[float] or np.ndarray of shape (3,), default=(0, 0, 0)
+            Translational offset vector [dx, dy, dz].
+        orientation : scipy.spatial.transform.Rotation, default=identity
+            3D orientation / rotation object.
+        scale : float or Sequence[float] of shape (3,), default=1.0
+            Scaling factor (scalar for uniform isotropic scaling, or [sx, sy, sz]).
+        about_point : Sequence[float] or np.ndarray of shape (3,), default=(0, 0, 0)
+            Pivot point for rotation and scaling.
         """
         about_point = np.asarray(about_point, dtype=np.float64)
         translation = np.asarray(translation, dtype=np.float64)
+
+        if np.isscalar(scale):
+            s = np.full(3, float(scale), dtype=np.float64)
+        else:
+            s = np.asarray(scale, dtype=np.float64)
+            if s.shape != (3,):
+                raise ValueError(
+                    f"Scale must be a scalar or 3-element vector, got shape {s.shape}."
+                )
 
         # 1. Translate to origin relative to pivot point
         tf1 = np.eye(4)
         tf1[:3, 3] = -about_point
 
-        # 2. Apply rotation and translation to target position
+        # 2. Apply scaling, rotation, and translation to target position
         tf2 = np.eye(4)
-        tf2[:3, :3] = orientation.as_matrix()
+        tf2[:3, :3] = orientation.as_matrix() @ np.diag(s)
         tf2[:3, 3] = translation + about_point
 
         tf = tf2 @ tf1
@@ -357,6 +378,23 @@ class VolumetricMesh:
         # Apply in-place to coordinates (fast, zero duplicate memory)
         self._ugrid.transform(tf, inplace=True)
         self._surface = None  # Invalidate cached surface
+
+    def scale(
+        self,
+        factors: float | Sequence[float] | np.ndarray,
+        center: Sequence[float] | np.ndarray = (0.0, 0.0, 0.0),
+    ) -> None:
+        """
+        Scales the volumetric mesh coordinates in-place.
+
+        Parameters:
+        -----------
+        factors : float or Sequence[float] of shape (3,)
+            Scaling factor(s) (scalar for uniform isotropic scaling, or [sx, sy, sz]).
+        center : Sequence[float] of shape (3,), default=(0, 0, 0)
+            Pivot point for scaling.
+        """
+        self.transform(scale=factors, about_point=center)
 
     def save(self, filepath: Path) -> None:
         """Saves mesh to disk as .vtu or .vtk (creates parent directories if needed)."""

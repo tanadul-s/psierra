@@ -1,12 +1,18 @@
 from __future__ import annotations
-from collections.abc import Callable
+from collections.abc import Callable, Sequence
 from dataclasses import dataclass, field
 from pathlib import Path
 import numpy as np
+import scipy.sparse as spsp
 from rich import print
 
 from psierra.domain.base import Domain
-from psierra.boundary import DirichletManager, DirichletConstraint, DirichletBoundaryCondition
+from psierra.boundary import (
+    DirichletManager,
+    DirichletConstraint,
+    DirichletBoundaryCondition,
+    PenaltyContact,
+)
 from psierra.solver.sparse_linear_solver import SparseLinearSolver, DirectSolver
 from psierra.analysis.base import Analysis
 from psierra.exchange import PvdCollectionWriter
@@ -50,6 +56,7 @@ class NonlinearStaticAnalysis(Analysis):
             | Callable[[int, int], DirichletManager | list[DirichletBoundaryCondition]]
         ),
         f_ext: np.ndarray | None = None,
+        contact: PenaltyContact | Sequence[PenaltyContact] | None = None,
         n_steps: int = 10,
         nr_iterations: int = 25,
         nr_tol: float = 1e-4,
@@ -58,6 +65,7 @@ class NonlinearStaticAnalysis(Analysis):
         save_directory: Path | str | None = None,
         output_name: str = "result",
         save_interval: int = 1,
+        factor: float = 0.0,
         verbose: bool = True,
     ) -> NonlinearStaticResult:
         """
@@ -69,6 +77,8 @@ class NonlinearStaticAnalysis(Analysis):
             Essential boundary conditions. Can be a static constraint manager or a step-dependent callable.
         f_ext : np.ndarray of shape (n_dofs,), optional
             Total external load vector to be reached at lambda = 1.0. Defaults to zero vector for displacement control.
+        contact : PenaltyContact or Sequence[PenaltyContact], optional
+            Boundary contact condition(s) enforcing non-penetration against rigid obstacles.
         n_steps : int, default=10
             Number of incremental load steps.
         nr_iterations : int, default=25
@@ -94,6 +104,16 @@ class NonlinearStaticAnalysis(Analysis):
         """
         if f_ext is None:
             f_ext = np.zeros(self.domain.n_dofs, dtype=np.float64)
+
+        if contact is None:
+            if hasattr(self.domain, "contacts"):
+                contact_list = list(self.domain.contacts)
+            else:
+                contact_list = []
+        elif isinstance(contact, PenaltyContact):
+            contact_list = [contact]
+        else:
+            contact_list = list(contact)
 
         # Initialize DirichletManager
         if callable(dirichlet):
@@ -178,7 +198,9 @@ class NonlinearStaticAnalysis(Analysis):
             f_step = load_factor * f_ext
             f_step_free = f_step[free_dofs]
             f_ext_free_norm = float(np.linalg.norm(f_step_free))
-            f_ref_step: float | None = f_ext_free_norm if f_ext_free_norm >= 1e-12 else None
+            f_ref_step: float | None = (
+                f_ext_free_norm if f_ext_free_norm >= 1e-12 else None
+            )
 
             if verbose:
                 print(
@@ -195,14 +217,31 @@ class NonlinearStaticAnalysis(Analysis):
                 f_int = self.domain.assemble_internal_forces()
                 K_tan = self.domain.assemble_tangent_stiffness_matrix()
 
-                # 3. Compute Out-of-Balance Residual Vector: R = F_ext_step - F_int
-                r_free = f_step_free - f_int[free_dofs]
+                # Contact force and tangent stiffness
+                f_contact = np.zeros(self.domain.n_dofs, dtype=np.float64)
+                K_contact = spsp.csr_matrix(
+                    (self.domain.n_dofs, self.domain.n_dofs), dtype=np.float64
+                )
+                for c in contact_list:
+                    f_contact += c.evaluate_forces(
+                        current_nodes=self.domain.current_nodes,
+                        n_dofs=self.domain.n_dofs,
+                    )
+                    K_contact = K_contact + c.evaluate_stiffness(
+                        current_nodes=self.domain.current_nodes,
+                        n_dofs=self.domain.n_dofs,
+                    )
+
+                # 3. Compute Out-of-Balance Residual Vector: R = F_ext_step + F_contact - F_int
+                r_free = f_step_free + f_contact[free_dofs] - f_int[free_dofs]
                 residual_norm = float(np.linalg.norm(r_free))
 
                 if f_ref_step is None:
                     # Displacement-controlled problem without external loads:
                     # normalize against the step's initial unbalance or internal force scale
-                    f_ref_step = max(residual_norm, float(np.linalg.norm(f_int[free_dofs])), 1.0)
+                    f_ref_step = max(
+                        residual_norm, float(np.linalg.norm(f_int[free_dofs])), 1.0
+                    )
 
                 rel_residual = residual_norm / f_ref_step
 
@@ -222,7 +261,8 @@ class NonlinearStaticAnalysis(Analysis):
                     break
 
                 # 4. Partition Tangent Stiffness to Free DOFs
-                K_tan_free = K_tan[free_dofs, :][:, free_dofs].tocsc()
+                K_total = K_tan + K_contact
+                K_tan_free = K_total[free_dofs, :][:, free_dofs].tocsc()
 
                 # 5. Solve for Displacement Increment: K_tan_free * du = r_free
                 du_free = self.linear_solver.solve(K_tan_free, r_free)
@@ -262,7 +302,19 @@ class NonlinearStaticAnalysis(Analysis):
                 self.domain.update_state(u=u_current)
                 if save_dir is not None and pvd_writer is not None:
                     pvd_writer.write()
-                reactions = self.domain.assemble_internal_forces() - f_step
+                f_contact_step = sum(
+                    (
+                        c.evaluate_forces(
+                            current_nodes=self.domain.current_nodes,
+                            n_dofs=self.domain.n_dofs,
+                        )
+                        for c in contact_list
+                    ),
+                    np.zeros(self.domain.n_dofs, dtype=np.float64),
+                )
+                reactions = (
+                    self.domain.assemble_internal_forces() - f_step - f_contact_step
+                )
                 return NonlinearStaticResult(
                     displacement=u_current,
                     reactions=reactions,
@@ -282,6 +334,7 @@ class NonlinearStaticAnalysis(Analysis):
                 vtu_path = save_dir / vtu_name
                 self.domain.save_state(
                     vtu_path,
+                    factor=factor,
                     include_stresses=include_stresses,
                     smooth_to_nodes=smooth_to_nodes,
                 )
@@ -291,7 +344,16 @@ class NonlinearStaticAnalysis(Analysis):
         # Simulation successfully completed all steps
         self.domain.update_state(u=u_current)
         f_int_final = self.domain.assemble_internal_forces()
-        reactions = f_int_final - f_ext
+        f_contact_final = sum(
+            (
+                c.evaluate_forces(
+                    current_nodes=self.domain.current_nodes, n_dofs=self.domain.n_dofs
+                )
+                for c in contact_list
+            ),
+            np.zeros(self.domain.n_dofs, dtype=np.float64),
+        )
+        reactions = f_int_final - f_ext - f_contact_final
 
         if save_dir is not None and pvd_writer is not None:
             pvd_writer.write()

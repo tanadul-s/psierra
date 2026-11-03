@@ -472,6 +472,7 @@ class CoupledSolidShellDomain(Domain):
                 self._n_solid_dofs + 3 * sk : self._n_solid_dofs + 3 * sk + 3
             ]
         unified_grid.point_data["Rotation"] = rotations
+        unified_grid.set_active_scalars("Displacement")
 
         return unified_grid
 

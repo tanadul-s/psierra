@@ -24,6 +24,7 @@ class DirichletConstraint(DirichletBoundaryCondition):
         components: Sequence[int] = (0, 1, 2),
         value: float | np.ndarray = 0.0,
         dofs_per_node: int = 3,
+        dof_offset: int = 0,
     ) -> None:
         """
         Parameters:
@@ -36,15 +37,20 @@ class DirichletConstraint(DirichletBoundaryCondition):
             Prescribed displacement value(s).
         dofs_per_node : int, default=3
             Degrees of freedom per node.
+        dof_offset : int, default=0
+            Global DOF offset when used within a MultiBodySystem assembly.
         """
         self.node_indices = np.asarray(node_indices, dtype=np.int64)
         self.components = tuple(components)
         self.dofs_per_node = dofs_per_node
+        self.dof_offset = int(dof_offset)
 
         # Compute the global DOF indices for this constraint
         dofs_list: list[np.ndarray] = []
         for comp in self.components:
-            dofs_list.append(self.node_indices * self.dofs_per_node + comp)
+            dofs_list.append(
+                self.dof_offset + self.node_indices * self.dofs_per_node + comp
+            )
 
         self.dofs = np.sort(np.concatenate(dofs_list))
 
