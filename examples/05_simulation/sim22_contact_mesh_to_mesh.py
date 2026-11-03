@@ -36,7 +36,7 @@ from psierra.boundary import (
     GravityLoad,
 )
 from psierra.damping import RayleighDamping
-from psierra.boundary.contact import DeformableContact, AugmentedLagrangianContact
+from psierra.boundary.contact import DeformableContact
 from psierra.analysis import NonlinearDynamicAnalysis
 
 install(show_locals=False)
@@ -347,7 +347,7 @@ def main() -> None:
     table.add_row(
         "Stored Contact Potential Energy (Pi_c)", f"{contact_energy:.4f}", "N*mm (mJ)"
     )
-    if isinstance(contact, AugmentedLagrangianContact):
+    if getattr(contact, "formulation", "") == "augmented_lagrangian":
         max_lam = float(np.max(contact.multipliers))
         table.add_row("Max Multiplier (lambda_N)", f"{max_lam:.2f}", "N")
 

@@ -34,7 +34,7 @@ from psierra.boundary import (
     GravityLoad,
 )
 from psierra.damping import RayleighDamping
-from psierra.boundary.contact import PenaltyContact
+from psierra.boundary.contact import RigidContact
 from psierra.analysis import NonlinearDynamicAnalysis
 
 install(show_locals=False)
@@ -179,7 +179,7 @@ def main() -> None:
     )
 
     console.print(f"  Assembly Bodies : {system.names} (Total DOFs: {system.n_dofs})")
-    console.print(f"  Registered Contact: PenaltyContact(slave='Beam', master='Floor', k_p = {args.kp:.1e} N/mm)")
+    console.print(f"  Registered Contact: RigidContact(slave='Beam', master='Floor', k_p = {args.kp:.1e} N/mm)")
 
     # Boundary conditions:
     # - Clamped beam root at min Z
