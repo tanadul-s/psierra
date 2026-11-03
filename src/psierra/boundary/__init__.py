@@ -16,7 +16,11 @@ from psierra.boundary.load import (
     NodalForce,
     GravityLoad,
 )
-from psierra.boundary.contact import PenaltyContact
+from psierra.boundary.contact import (
+    PenaltyContact,
+    DeformableContact,
+    AugmentedLagrangianContact,
+)
 
 __all__ = [
     "BoundaryCondition",
@@ -30,4 +34,6 @@ __all__ = [
     "NodalForce",
     "GravityLoad",
     "PenaltyContact",
+    "DeformableContact",
+    "AugmentedLagrangianContact",
 ]

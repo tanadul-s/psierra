@@ -8,6 +8,7 @@ with global DOF indexing, block sparse assembly, and state propagation.
 
 from __future__ import annotations
 from collections.abc import Sequence
+from typing import Literal
 from pathlib import Path
 
 import numpy as np
@@ -215,6 +216,7 @@ class MultiBodySystem(Domain):
         c_damping: float = 0.0,
         friction: float = 0.0,
         slave_nodes: Sequence[int] | np.ndarray | None = None,
+        formulation: Literal["penalty", "augmented_lagrangian"] = "penalty",
         **kwargs: Any,
     ) -> Any:
         """
@@ -235,13 +237,19 @@ class MultiBodySystem(Domain):
             Friction coefficient.
         slave_nodes : Sequence[int] or np.ndarray, optional
             Specific candidate contact nodes on the slave body (defaults to surface nodes).
+        formulation : {'penalty', 'augmented_lagrangian'}, default='penalty'
+            Contact formulation method.
 
         Returns:
         --------
-        contact : PenaltyContact
+        contact : PenaltyContact or DeformableContact
             The registered contact interaction constraint.
         """
-        from psierra.boundary.contact import PenaltyContact
+        from psierra.boundary.contact import (
+            PenaltyContact,
+            DeformableContact,
+            AugmentedLagrangianContact,
+        )
 
         slave_body = self[slave] if isinstance(slave, (str, int)) else slave
         master_obj = (
@@ -250,21 +258,67 @@ class MultiBodySystem(Domain):
             else master
         )
 
-        dof_offset = int(self.get_body_dof_slice(slave_body).start)
+        slave_idx = self.get_body_index(slave_body)
+        slave_offset = int(self._dof_offsets[slave_idx])
         dofs_per_node = getattr(slave_body, "dofs_per_node", 3)
 
-        contact = PenaltyContact(
-            slave=slave_body,
-            master=master_obj,
-            slave_nodes=slave_nodes,
-            k_penalty=k_penalty,
-            c_damping=c_damping,
-            friction=friction,
-            dof_offset=dof_offset,
-            dofs_per_node=dofs_per_node,
-            domain=self,
-            **kwargs,
+        # Detect whether master is a flexible continuum Domain
+        is_deformable_master = (
+            hasattr(master_obj, "mesh")
+            and hasattr(master_obj.mesh, "surface")
+            and hasattr(master_obj, "n_dofs")
         )
+
+        if is_deformable_master:
+            master_idx = (
+                self.get_body_index(master_obj) if master_obj in self else None
+            )
+            master_offset = (
+                int(self._dof_offsets[master_idx]) if master_idx is not None else 0
+            )
+
+            if formulation == "augmented_lagrangian":
+                contact = AugmentedLagrangianContact(
+                    slave=slave_body,
+                    master=master_obj,
+                    slave_nodes=slave_nodes,
+                    k_penalty=k_penalty,
+                    c_damping=c_damping,
+                    friction=friction,
+                    slave_offset=slave_offset,
+                    master_offset=master_offset,
+                    domain=self,
+                    **kwargs,
+                )
+            else:
+                contact = DeformableContact(
+                    slave=slave_body,
+                    master=master_obj,
+                    slave_nodes=slave_nodes,
+                    k_penalty=k_penalty,
+                    c_damping=c_damping,
+                    friction=friction,
+                    slave_offset=slave_offset,
+                    master_offset=master_offset,
+                    domain=self,
+                    formulation="penalty",
+                    **kwargs,
+                )
+        else:
+            # Rigid obstacle or CollisionShape
+            contact = PenaltyContact(
+                slave=slave_body,
+                master=master_obj,
+                slave_nodes=slave_nodes,
+                k_penalty=k_penalty,
+                c_damping=c_damping,
+                friction=friction,
+                dof_offset=slave_offset,
+                dofs_per_node=dofs_per_node,
+                domain=self,
+                **kwargs,
+            )
+
         self._contacts.append(contact)
         return contact
 

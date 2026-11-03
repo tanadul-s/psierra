@@ -405,6 +405,11 @@ class NonlinearDynamicAnalysis(Analysis):
             a_full[free_dofs] = a_f
             self.domain.update_state(u=u_full, v=v_full, a=a_full)
 
+            # Update Augmented Lagrangian contact multipliers if active
+            for c in contact_list:
+                if hasattr(c, "update_multipliers"):
+                    c.update_multipliers()
+
             # Save frame
             saved_current_step = False
             if (

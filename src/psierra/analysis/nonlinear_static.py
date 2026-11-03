@@ -294,6 +294,12 @@ class NonlinearStaticAnalysis(Analysis):
                     converged_step = False
                     break
 
+            if converged_step:
+                # Update Augmented Lagrangian contact multipliers if active
+                for c in contact_list:
+                    if hasattr(c, "update_multipliers"):
+                        c.update_multipliers()
+
             if not converged_step:
                 if verbose:
                     print(
