@@ -19,6 +19,7 @@ from psierra.boundary.load import (
 from psierra.boundary.contact import (
     RigidContact,
     DeformableContact,
+    SelfContact,
 )
 
 __all__ = [
@@ -34,4 +35,5 @@ __all__ = [
     "GravityLoad",
     "RigidContact",
     "DeformableContact",
+    "SelfContact",
 ]

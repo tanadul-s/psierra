@@ -7,6 +7,7 @@ deformable-to-rigid (and multi-body) interactions.
 """
 
 from __future__ import annotations
+from collections import defaultdict
 from collections.abc import Sequence
 from typing import Any, Literal
 
@@ -1020,4 +1021,630 @@ class DeformableContact:
             "potential_energy": contact_energy,
             "max_multiplier": float(np.max(self.multipliers)) if len(self.multipliers) > 0 else 0.0,
         }
+
+
+class SelfContact:
+    """
+    Self-Contact Boundary Formulation for Project Sierra.
+
+    Prevents self-intersection and interpenetration of folds, opposing lobes,
+    cavities, and complex geometry within a single deformable body:
+        f_c = f_N * n
+    where:
+        f_N = -k_p * g_N (penalty formulation, active when signed gap g_N < tolerance)
+        f_N = max(0, lambda_N - k_p * g_N) (augmented Lagrangian formulation)
+
+    Key Features:
+      - Topological Exclusion: Excludes 1-ring and 2-ring neighborhood facets
+        from self-detection to eliminate spurious self-pinning and distance singularities.
+      - Normal Direction Filtering: Skips non-opposing candidate facets
+        (n_node . n_facet >= normal_threshold) to focus strictly on colliding surfaces.
+      - Exact Voronoi Triangle Projection: Computes exact closest points and normalized
+        barycentric coordinates on candidate master triangular facets.
+      - C0-Continuous Normal Interpolation: Interpolates contact normals from vertex
+        normals using barycentric weights to prevent lateral chatter across facet edges.
+      - Action-Reaction Symmetry: Pushes slave node along +n and distributes reaction
+        equally onto master facet nodes (-xi_i * n), strictly conserving linear and angular momentum.
+      - Symmetric Tangent Stiffness: Assembles rank-1 block updates:
+            K_c = kp * (w (x) w) (x) (n (x) n)
+        with w = [1, -xi_1, -xi_2, -xi_3], ensuring exact symmetry K_c = K_c^T.
+    """
+
+    def __init__(
+        self,
+        domain: Domain,
+        contact_nodes: Sequence[int] | np.ndarray | None = None,
+        *,
+        k_penalty: float = 1e4,
+        c_damping: float = 0.0,
+        friction: float = 0.0,
+        dof_offset: int = 0,
+        formulation: Literal["penalty", "augmented_lagrangian"] = "penalty",
+        tolerance: float = 0.0,
+        search_radius: float | None = None,
+        contact_thickness: float | None = None,
+        normal_threshold: float = -0.2,
+        exclusion_rings: int = 4,
+    ) -> None:
+        """
+        Parameters:
+        -----------
+        domain : Domain
+            Deformable domain undergoing self-contact.
+        contact_nodes : Sequence[int] or np.ndarray, optional
+            Candidate contact node indices on the body (defaults to all surface nodes).
+        k_penalty : float, default=1e4
+            Normal penalty contact stiffness in N/mm.
+        c_damping : float, default=0.0
+            Contact velocity damping coefficient in N*s/mm.
+        friction : float, default=0.0
+            Tangential friction coefficient.
+        dof_offset : int, default=0
+            Global DOF offset when used within a MultiBodySystem assembly.
+        formulation : {'penalty', 'augmented_lagrangian'}, default='penalty'
+            Contact constraint enforcement scheme.
+        tolerance : float, default=0.0
+            Activation threshold (gap <= tolerance).
+        search_radius : float, optional
+            Bounding box search radius for proximity queries (mm).
+            Defaults to 20% of the bounding box diagonal.
+        contact_thickness : float, optional
+            Maximum physical proximity threshold for active self-contact (mm).
+            Prevents distant opposing body walls from triggering false interior penetrations.
+            Defaults to 0.5 * mean surface edge length.
+        normal_threshold : float, default=-0.2
+            Maximum dot product (n_node . n_facet) for opposing contact detection.
+        exclusion_rings : int, default=2
+            Number of topological vertex-face neighbor rings to exclude from self-detection.
+        """
+        self.domain = domain
+        self.k_penalty = float(k_penalty)
+        self.c_damping = float(c_damping)
+        self.friction = float(friction)
+        self.dof_offset = int(dof_offset)
+        self.formulation = formulation
+        self.tolerance = float(tolerance)
+        self.normal_threshold = float(normal_threshold)
+        self.exclusion_rings = int(exclusion_rings)
+
+        # 1. Extract surface triangulation
+        if hasattr(self.domain, "mesh") and hasattr(self.domain.mesh, "surface"):
+            surf = self.domain.mesh.surface
+            self._polydata = surf.polydata.copy(deep=True)
+            self._surf_node_idx = np.asarray(surf.node_indices, dtype=np.int64)
+        else:
+            raise TypeError("Domain must possess a surface mesh representation for SelfContact.")
+
+        if not self._polydata.is_all_triangles:
+            self._polydata = self._polydata.triangulate()
+        self._faces = self._polydata.regular_faces
+        self.n_surf_nodes = len(self._surf_node_idx)
+        self.n_faces = len(self._faces)
+
+        # Map from volume node index to surface node index
+        self._vol_to_surf_idx: dict[int, int] = {
+            int(vol_idx): surf_idx
+            for surf_idx, vol_idx in enumerate(self._surf_node_idx)
+        }
+
+        # 2. Determine candidate contact nodes
+        if contact_nodes is not None:
+            self.contact_nodes = np.asarray(contact_nodes, dtype=np.int64)
+        else:
+            self.contact_nodes = self._surf_node_idx.copy()
+
+        # Multipliers tracking
+        self.multipliers = np.zeros(len(self.contact_nodes), dtype=np.float64)
+        self._node_to_multiplier_idx: dict[int, int] = {
+            int(node): idx for idx, node in enumerate(self.contact_nodes)
+        }
+
+        # 3. Determine search radius & contact thickness
+        pts = self.domain.mesh.nodes[self._surf_node_idx]
+        bbox_span = np.ptp(pts, axis=0)
+        bbox_diag = float(np.linalg.norm(bbox_span))
+        if search_radius is None:
+            self.search_radius = max(5.0, 0.20 * bbox_diag)
+        else:
+            self.search_radius = float(search_radius)
+
+        v1 = pts[self._faces[:, 0]]
+        v2 = pts[self._faces[:, 1]]
+        v3 = pts[self._faces[:, 2]]
+        mean_edge = float(np.mean([
+            np.linalg.norm(v2 - v1, axis=1),
+            np.linalg.norm(v3 - v2, axis=1),
+            np.linalg.norm(v1 - v3, axis=1),
+        ]))
+        self.mean_edge_length = mean_edge
+        if contact_thickness is None:
+            self.contact_thickness = max(1.0, 0.5 * mean_edge)
+        else:
+            self.contact_thickness = float(contact_thickness)
+
+        # 4. Precompute topological exclusion graph
+        self._excluded_faces = self._build_exclusion_graph(self.exclusion_rings)
+
+        # 5. Build VTK StaticCellLocator for proximity queries
+        self._locator = vtk.vtkStaticCellLocator()
+        self._locator.SetDataSet(self._polydata)
+        self._locator.BuildLocator()
+
+        # 6. Precompute initial surface normals
+        self._nodal_normals, self._face_normals = self._compute_surface_normals()
+
+        # Cache for contact queries within the same state
+        self._cached_contacts: list[dict[str, Any]] | None = None
+        self._cached_key: tuple[float, float, float, int] | None = None
+
+    def _build_exclusion_graph(self, rings: int) -> dict[int, set[int]]:
+        """
+        Precomputes the topological exclusion face set for each surface node using
+        breadth-first search (BFS) up to the specified topological ring depth.
+        For a node v, excludes all faces containing v or any topological neighbor
+        within 'rings' edge hops, eliminating spurious self-detection across thin walls.
+        """
+        node_to_faces: dict[int, set[int]] = defaultdict(set)
+        for f_idx, f in enumerate(self._faces):
+            for v in f:
+                node_to_faces[v].add(f_idx)
+
+        node_adj: dict[int, set[int]] = defaultdict(set)
+        for f in self._faces:
+            u, v, w = f
+            node_adj[u].update([v, w])
+            node_adj[v].update([u, w])
+            node_adj[w].update([u, v])
+
+        excluded_faces: dict[int, set[int]] = {}
+        for i in range(self.n_surf_nodes):
+            current_ring = {i}
+            all_visited = {i}
+            for _ in range(rings):
+                next_ring: set[int] = set()
+                for v in current_ring:
+                    next_ring.update(node_adj[v])
+                current_ring = next_ring - all_visited
+                all_visited.update(current_ring)
+                if not current_ring:
+                    break
+
+            exc: set[int] = set()
+            for v in all_visited:
+                exc.update(node_to_faces[v])
+            excluded_faces[i] = exc
+
+        return excluded_faces
+
+    def _compute_surface_normals(self) -> tuple[np.ndarray, np.ndarray]:
+        """
+        Computes both face normals and area-weighted C0-continuous vertex normals
+        for the current deformed surface mesh.
+        """
+        current_pos = self.domain.current_nodes
+        f_surf = self._faces
+        m_vol = self._surf_node_idx[f_surf]
+        v1 = current_pos[m_vol[:, 0]]
+        v2 = current_pos[m_vol[:, 1]]
+        v3 = current_pos[m_vol[:, 2]]
+
+        cross_prod = np.cross(v2 - v1, v3 - v1)
+        f_norms = np.linalg.norm(cross_prod, axis=1, keepdims=True)
+        f_norms[f_norms < 1e-14] = 1.0
+        face_unit_normals = cross_prod / f_norms
+
+        nodal_normals = np.zeros((self.n_surf_nodes, 3), dtype=np.float64)
+        np.add.at(nodal_normals, f_surf[:, 0], cross_prod)
+        np.add.at(nodal_normals, f_surf[:, 1], cross_prod)
+        np.add.at(nodal_normals, f_surf[:, 2], cross_prod)
+
+        n_norms = np.linalg.norm(nodal_normals, axis=1, keepdims=True)
+        n_norms[n_norms < 1e-14] = 1.0
+        nodal_unit_normals = nodal_normals / n_norms
+
+        return nodal_unit_normals, face_unit_normals
+
+    def _update_surface(self) -> None:
+        """Synchronizes surface polydata points with current deformed domain coordinates."""
+        current_pos = self.domain.current_nodes
+        self._polydata.points = current_pos[self._surf_node_idx]
+        self._locator.BuildLocator()
+        self._nodal_normals, self._face_normals = self._compute_surface_normals()
+
+    @staticmethod
+    def closest_point_triangle(
+        p: np.ndarray, a: np.ndarray, b: np.ndarray, c: np.ndarray
+    ) -> tuple[np.ndarray, tuple[float, float, float]]:
+        """
+        Computes exact closest point on triangle (a, b, c) to query point p
+        and returns the point along with normalized barycentric coordinates (u, v, w).
+        Uses Ericson's Voronoi region method (Real-Time Collision Detection, Sec. 5.1.5).
+        """
+        ab = b - a
+        ac = c - a
+        ap = p - a
+        d1 = float(np.dot(ab, ap))
+        d2 = float(np.dot(ac, ap))
+        if d1 <= 0.0 and d2 <= 0.0:
+            return a.copy(), (1.0, 0.0, 0.0)
+
+        bp = p - b
+        d3 = float(np.dot(ab, bp))
+        d4 = float(np.dot(ac, bp))
+        if d3 >= 0.0 and d4 <= d3:
+            return b.copy(), (0.0, 1.0, 0.0)
+
+        vc = d1 * d4 - d3 * d2
+        if vc <= 0.0 and d1 >= 0.0 and d3 <= 0.0:
+            v = d1 / (d1 - d3)
+            return a + v * ab, (1.0 - v, v, 0.0)
+
+        cp = p - c
+        d5 = float(np.dot(ab, cp))
+        d6 = float(np.dot(ac, cp))
+        if d6 >= 0.0 and d5 <= d6:
+            return c.copy(), (0.0, 0.0, 1.0)
+
+        vb = d5 * d2 - d1 * d6
+        if vb <= 0.0 and d2 >= 0.0 and d6 <= 0.0:
+            w = d2 / (d2 - d6)
+            return a + w * ac, (1.0 - w, 0.0, w)
+
+        va = d3 * d6 - d5 * d4
+        if va <= 0.0 and (d4 - d3) >= 0.0 and (d5 - d6) >= 0.0:
+            w = (d4 - d3) / ((d4 - d3) + (d5 - d6))
+            return b + w * (c - b), (0.0, 1.0 - w, w)
+
+        denom = va + vb + vc
+        if abs(denom) < 1e-15:
+            return a.copy(), (1.0, 0.0, 0.0)
+
+        inv_denom = 1.0 / denom
+        v = vb * inv_denom
+        w = vc * inv_denom
+        u = 1.0 - v - w
+        return u * a + v * b + w * c, (u, v, w)
+
+    def _find_active_contacts(
+        self,
+        current_nodes: np.ndarray | None = None,
+        velocities: np.ndarray | None = None,
+    ) -> list[dict[str, Any]]:
+        """
+        Identifies all active self-contact pairs between candidate contact nodes
+        and non-excluded opposing surface facets.
+        """
+        nodes_pos = self.domain.current_nodes if current_nodes is None else current_nodes
+
+        # Check cache
+        state_key = (
+            float(np.sum(nodes_pos)),
+            float(nodes_pos[0, 0]),
+            float(nodes_pos[-1, -1]),
+            id(velocities) if velocities is not None else 0,
+        )
+        if self._cached_key == state_key and self._cached_contacts is not None:
+            return self._cached_contacts
+
+        self._update_surface()
+        r = self.search_radius
+        id_list = vtk.vtkIdList()
+        active_contacts: list[dict[str, Any]] = []
+
+        surf_pos = nodes_pos[self._surf_node_idx]
+        f_surf = self._faces
+        m_v1_all = surf_pos[f_surf[:, 0]]
+        m_v2_all = surf_pos[f_surf[:, 1]]
+        m_v3_all = surf_pos[f_surf[:, 2]]
+
+        for s_node in self.contact_nodes:
+            s_mult_idx = self._node_to_multiplier_idx.get(int(s_node), -1)
+            lam = self.multipliers[s_mult_idx] if (s_mult_idx >= 0 and self.formulation == "augmented_lagrangian") else 0.0
+
+            s_surf_idx = self._vol_to_surf_idx.get(int(s_node), -1)
+            x_s = nodes_pos[s_node]
+            n_s = self._nodal_normals[s_surf_idx] if s_surf_idx >= 0 else np.array([0.0, 0.0, 1.0])
+            exc = self._excluded_faces.get(s_surf_idx, set()) if s_surf_idx >= 0 else set()
+
+            bbox = [
+                x_s[0] - r, x_s[0] + r,
+                x_s[1] - r, x_s[1] + r,
+                x_s[2] - r, x_s[2] + r,
+            ]
+            self._locator.FindCellsWithinBounds(bbox, id_list)
+            n_cands = id_list.GetNumberOfIds()
+            if n_cands == 0:
+                continue
+
+            best_dist2 = float("inf")
+            best_cand: tuple[int, np.ndarray, float, float, float] | None = None
+
+            for c_i in range(n_cands):
+                cid = id_list.GetId(c_i)
+                if cid in exc:
+                    continue
+
+                # Filter non-opposing facets
+                if s_surf_idx >= 0 and np.dot(n_s, self._face_normals[cid]) >= self.normal_threshold:
+                    continue
+
+                v1 = m_v1_all[cid]
+                v2 = m_v2_all[cid]
+                v3 = m_v3_all[cid]
+                c_pt, (xi1, xi2, xi3) = self.closest_point_triangle(x_s, v1, v2, v3)
+                diff = x_s - c_pt
+                d2 = float(np.dot(diff, diff))
+
+                if d2 > self.contact_thickness**2:
+                    continue
+
+                if d2 < best_dist2:
+                    best_dist2 = d2
+                    best_cand = (cid, c_pt, xi1, xi2, xi3)
+
+            if best_cand is None:
+                continue
+
+            cid, c_pt, xi1, xi2, xi3 = best_cand
+            f_local = self._faces[cid]
+            m1_vol = int(self._surf_node_idx[f_local[0]])
+            m2_vol = int(self._surf_node_idx[f_local[1]])
+            m3_vol = int(self._surf_node_idx[f_local[2]])
+
+            # C0-continuous contact normal interpolated from facet vertex normals
+            n_interp = (
+                xi1 * self._nodal_normals[f_local[0]]
+                + xi2 * self._nodal_normals[f_local[1]]
+                + xi3 * self._nodal_normals[f_local[2]]
+            )
+            norm_mag = float(np.linalg.norm(n_interp))
+            if norm_mag < 1e-14:
+                continue
+            n = n_interp / norm_mag
+
+            # Signed normal gap (negative = penetration)
+            gap = float(np.dot(x_s - c_pt, n))
+
+            # Alart-Curnier contact force operator
+            f_N = float(max(0.0, lam - self.k_penalty * gap))
+
+            if f_N <= 0.0 and gap > self.tolerance:
+                continue
+
+            # Velocity damping and friction
+            f_damp = 0.0
+            f_t_s = np.zeros(3, dtype=np.float64)
+            f_t_m = np.zeros(3, dtype=np.float64)
+
+            if velocities is not None:
+                vel = np.asarray(velocities, dtype=np.float64)
+                dof_s = self.dof_offset + 3 * s_node
+                dof_m1 = self.dof_offset + 3 * m1_vol
+                dof_m2 = self.dof_offset + 3 * m2_vol
+                dof_m3 = self.dof_offset + 3 * m3_vol
+
+                v_s = vel[dof_s : dof_s + 3]
+                v_m = (
+                    xi1 * vel[dof_m1 : dof_m1 + 3]
+                    + xi2 * vel[dof_m2 : dof_m2 + 3]
+                    + xi3 * vel[dof_m3 : dof_m3 + 3]
+                )
+                v_rel = v_s - v_m
+                vn = float(np.dot(v_rel, n))
+
+                if self.c_damping > 0.0 and vn < 0.0:
+                    f_damp = -self.c_damping * vn
+
+                if self.friction > 0.0:
+                    vt_vec = v_rel - vn * n
+                    vt_mag = float(np.linalg.norm(vt_vec))
+                    if vt_mag > 1e-9:
+                        t_dir = vt_vec / vt_mag
+                        ft_mag = self.friction * f_N * np.tanh(vt_mag / 1e-3)
+                        f_t_s = -ft_mag * t_dir
+                        f_t_m = ft_mag * t_dir
+
+            active_contacts.append({
+                "slave_node": int(s_node),
+                "master_nodes": (m1_vol, m2_vol, m3_vol),
+                "barycentric": (xi1, xi2, xi3),
+                "normal": n,
+                "gap": gap,
+                "f_N": f_N,
+                "f_damp": f_damp,
+                "f_t_s": f_t_s,
+                "f_t_m": f_t_m,
+                "mult_idx": s_mult_idx,
+                "closest_point": c_pt,
+            })
+
+        self._cached_contacts = active_contacts
+        self._cached_key = state_key
+        return active_contacts
+
+    def evaluate_forces(
+        self,
+        current_nodes: np.ndarray | None = None,
+        velocities: np.ndarray | None = None,
+        n_dofs: int | None = None,
+    ) -> np.ndarray:
+        """
+        Evaluates the global self-contact force vector f_c.
+        Guarantees exact linear and angular momentum conservation: sum(f_c) == 0.
+        """
+        if n_dofs is None:
+            n_dofs = self.dof_offset + self.domain.n_dofs
+
+        f_c = np.zeros(n_dofs, dtype=np.float64)
+        active_contacts = self._find_active_contacts(current_nodes, velocities)
+
+        for c in active_contacts:
+            s_node = c["slave_node"]
+            m1, m2, m3 = c["master_nodes"]
+            xi1, xi2, xi3 = c["barycentric"]
+            n = c["normal"]
+            f_total = c["f_N"] + c["f_damp"]
+            f_t_s = c["f_t_s"]
+            f_t_m = c["f_t_m"]
+
+            # Action on slave node
+            dof_s = self.dof_offset + 3 * s_node
+            f_c[dof_s : dof_s + 3] += f_total * n + f_t_s
+
+            # Reaction on master nodes
+            dof_m1 = self.dof_offset + 3 * m1
+            dof_m2 = self.dof_offset + 3 * m2
+            dof_m3 = self.dof_offset + 3 * m3
+
+            f_c[dof_m1 : dof_m1 + 3] += -xi1 * f_total * n + xi1 * f_t_m
+            f_c[dof_m2 : dof_m2 + 3] += -xi2 * f_total * n + xi2 * f_t_m
+            f_c[dof_m3 : dof_m3 + 3] += -xi3 * f_total * n + xi3 * f_t_m
+
+        return f_c
+
+    def evaluate_stiffness(
+        self,
+        current_nodes: np.ndarray | None = None,
+        n_dofs: int | None = None,
+        a1: float = 0.0,
+    ) -> spsp.csr_matrix:
+        """
+        Assembles the sparse coupled symmetric tangent self-contact stiffness matrix K_c.
+        K_c = sum_{active} kp * (w (x) w) (x) (n (x) n).
+        """
+        if n_dofs is None:
+            n_dofs = self.dof_offset + self.domain.n_dofs
+
+        active_contacts = self._find_active_contacts(current_nodes)
+        if not active_contacts:
+            return spsp.csr_matrix((n_dofs, n_dofs), dtype=np.float64)
+
+        kp = self.k_penalty + a1 * self.c_damping
+        rows: list[int] = []
+        cols: list[int] = []
+        vals: list[float] = []
+
+        for c in active_contacts:
+            s_node = c["slave_node"]
+            m1, m2, m3 = c["master_nodes"]
+            xi1, xi2, xi3 = c["barycentric"]
+            n = c["normal"]
+
+            dof_starts = [
+                self.dof_offset + 3 * s_node,
+                self.dof_offset + 3 * m1,
+                self.dof_offset + 3 * m2,
+                self.dof_offset + 3 * m3,
+            ]
+            weights = [1.0, -xi1, -xi2, -xi3]
+            nn = np.outer(n, n)
+
+            # Assemble 16 blocks (4x4 node pairs)
+            for a in range(4):
+                w_a = weights[a]
+                dof_a = dof_starts[a]
+                for b in range(4):
+                    w_b = weights[b]
+                    dof_b = dof_starts[b]
+                    block_scale = kp * w_a * w_b
+
+                    for i in range(3):
+                        for j in range(3):
+                            rows.append(dof_a + i)
+                            cols.append(dof_b + j)
+                            vals.append(block_scale * nn[i, j])
+
+        return spsp.coo_matrix(
+            (vals, (rows, cols)), shape=(n_dofs, n_dofs), dtype=np.float64
+        ).tocsr()
+
+    def update_multipliers(self) -> dict[str, float]:
+        """
+        Updates Augmented Lagrangian contact multipliers:
+            lambda_s <- max(0, lambda_s - k_p * g_N)
+        """
+        # Force re-query
+        self._cached_contacts = None
+        self._cached_key = None
+        active_contacts = self._find_active_contacts()
+
+        max_pen = 0.0
+        num_active = 0
+        max_delta_lam = 0.0
+
+        for c in active_contacts:
+            s_mult_idx = c["mult_idx"]
+            if s_mult_idx < 0:
+                continue
+
+            gap = c["gap"]
+            old_lam = self.multipliers[s_mult_idx]
+            new_lam = float(max(0.0, old_lam - self.k_penalty * gap))
+            self.multipliers[s_mult_idx] = new_lam
+
+            delta_lam = abs(new_lam - old_lam)
+            if delta_lam > max_delta_lam:
+                max_delta_lam = delta_lam
+
+            if gap < 0.0:
+                pen = -gap
+                if pen > max_pen:
+                    max_pen = pen
+            if new_lam > 0.0:
+                num_active += 1
+
+        # Clear cache so updated multipliers are used
+        self._cached_contacts = None
+        self._cached_key = None
+
+        return {
+            "max_penetration": max_pen,
+            "max_multiplier": float(np.max(self.multipliers)) if len(self.multipliers) > 0 else 0.0,
+            "max_delta_multiplier": max_delta_lam,
+            "num_active": num_active,
+        }
+
+    def evaluate_potential_energy(
+        self, current_nodes: np.ndarray | None = None
+    ) -> float:
+        """
+        Calculates stored contact potential energy:
+        Pi_c = 1/2 * k_p * sum_{active} g_N^2
+        """
+        c_info = self.get_contact_info(current_nodes)
+        return float(c_info["potential_energy"])
+
+    def get_contact_info(
+        self, current_nodes: np.ndarray | None = None
+    ) -> dict[str, Any]:
+        """Returns structured summary of current self-contact status."""
+        active_contacts = self._find_active_contacts(current_nodes)
+
+        num_active = 0
+        max_pen = 0.0
+        active_nodes = []
+        contact_energy = 0.0
+
+        for c in active_contacts:
+            gap = c["gap"]
+            f_N = c["f_N"]
+            s_node = c["slave_node"]
+
+            if f_N > 0.0 or gap < 0.0:
+                num_active += 1
+                active_nodes.append(s_node)
+                if gap < 0.0:
+                    pen = -gap
+                    if pen > max_pen:
+                        max_pen = pen
+                    contact_energy += 0.5 * self.k_penalty * (gap**2)
+
+        return {
+            "num_active": num_active,
+            "max_penetration": max_pen,
+            "active_nodes": np.asarray(active_nodes, dtype=np.int64),
+            "potential_energy": contact_energy,
+            "max_multiplier": float(np.max(self.multipliers)) if len(self.multipliers) > 0 else 0.0,
+        }
+
 

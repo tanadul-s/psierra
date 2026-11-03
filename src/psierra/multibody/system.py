@@ -248,6 +248,7 @@ class MultiBodySystem(Domain):
         from psierra.boundary.contact import (
             RigidContact,
             DeformableContact,
+            SelfContact,
         )
 
         slave_body = self[slave] if isinstance(slave, (str, int)) else slave
@@ -256,6 +257,18 @@ class MultiBodySystem(Domain):
             if (isinstance(master, (str, int)) and master in self)
             else master
         )
+
+        # Route slave == master to SelfContact
+        if slave_body is master_obj:
+            return self.add_self_contact(
+                body=slave_body,
+                contact_nodes=slave_nodes,
+                k_penalty=k_penalty,
+                c_damping=c_damping,
+                friction=friction,
+                formulation=formulation,
+                **kwargs,
+            )
 
         slave_idx = self.get_body_index(slave_body)
         slave_offset = int(self._dof_offsets[slave_idx])
@@ -304,6 +317,59 @@ class MultiBodySystem(Domain):
                 formulation=formulation,
                 **kwargs,
             )
+
+        self._contacts.append(contact)
+        return contact
+
+    def add_self_contact(
+        self,
+        body: str | int | Domain,
+        contact_nodes: Sequence[int] | np.ndarray | None = None,
+        k_penalty: float = 1e4,
+        c_damping: float = 0.0,
+        friction: float = 0.0,
+        formulation: Literal["penalty", "augmented_lagrangian"] = "penalty",
+        **kwargs: Any,
+    ) -> Any:
+        """
+        Defines and registers a self-contact interaction constraint on an assembly body.
+
+        Parameters:
+        -----------
+        body : str, int, or Domain
+            Deformable body undergoing self-contact (name, index, or domain).
+        contact_nodes : Sequence[int] or np.ndarray, optional
+            Candidate contact nodes on the body (defaults to all surface nodes).
+        k_penalty : float, default=1e4
+            Normal penalty contact stiffness in N/mm.
+        c_damping : float, default=0.0
+            Contact velocity damping coefficient in N*s/mm.
+        friction : float, default=0.0
+            Friction coefficient.
+        formulation : {'penalty', 'augmented_lagrangian'}, default='penalty'
+            Contact formulation method.
+
+        Returns:
+        --------
+        contact : SelfContact
+            The registered self-contact constraint.
+        """
+        from psierra.boundary.contact import SelfContact
+
+        target_body = self[body] if isinstance(body, (str, int)) else body
+        body_idx = self.get_body_index(target_body)
+        dof_offset = int(self._dof_offsets[body_idx])
+
+        contact = SelfContact(
+            domain=target_body,
+            contact_nodes=contact_nodes,
+            k_penalty=k_penalty,
+            c_damping=c_damping,
+            friction=friction,
+            dof_offset=dof_offset,
+            formulation=formulation,
+            **kwargs,
+        )
 
         self._contacts.append(contact)
         return contact

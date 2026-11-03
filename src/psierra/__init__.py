@@ -7,6 +7,7 @@ from psierra.multibody import MultiDomain
 from psierra.boundary.contact import (
     RigidContact,
     DeformableContact,
+    SelfContact,
 )
 from psierra.collision import (
     CollisionShape,
@@ -23,6 +24,7 @@ __all__ = [
     "MultiDomain",
     "RigidContact",
     "DeformableContact",
+    "SelfContact",
     "CollisionShape",
     "RigidPlane",
     "RigidSphere",

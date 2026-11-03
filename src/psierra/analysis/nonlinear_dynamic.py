@@ -8,7 +8,7 @@ from rich import print
 
 from psierra.domain.base import Domain
 from psierra.boundary.dirichlet import DirichletManager, DirichletConstraint
-from psierra.boundary.contact import RigidContact, DeformableContact
+from psierra.boundary.contact import RigidContact, DeformableContact, SelfContact
 from psierra.damping.rayleigh import RayleighDamping
 from psierra.solver.base import SparseLinearSolver
 from psierra.solver.sparse_linear_solver import DirectSolver
@@ -97,7 +97,13 @@ class NonlinearDynamicAnalysis(Analysis):
         f_ext: np.ndarray,
         dt: float,
         n_steps: int,
-        contact: RigidContact | DeformableContact | Sequence[RigidContact | DeformableContact] | None = None,
+        contact: (
+            RigidContact
+            | DeformableContact
+            | SelfContact
+            | Sequence[RigidContact | DeformableContact | SelfContact]
+            | None
+        ) = None,
         nr_iterations: int = 15,
         nr_tol: float = 1e-4,
         include_stresses: bool = False,
@@ -190,7 +196,7 @@ class NonlinearDynamicAnalysis(Analysis):
                 contact_list = list(self.domain.contacts)
             else:
                 contact_list = []
-        elif isinstance(contact, (RigidContact, DeformableContact)):
+        elif isinstance(contact, (RigidContact, DeformableContact, SelfContact)):
             contact_list = [contact]
         else:
             contact_list = list(contact)

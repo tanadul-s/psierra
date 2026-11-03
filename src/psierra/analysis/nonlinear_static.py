@@ -13,6 +13,7 @@ from psierra.boundary import (
     DirichletBoundaryCondition,
     RigidContact,
     DeformableContact,
+    SelfContact,
 )
 from psierra.solver.sparse_linear_solver import SparseLinearSolver, DirectSolver
 from psierra.analysis.base import Analysis
@@ -57,7 +58,13 @@ class NonlinearStaticAnalysis(Analysis):
             | Callable[[int, int], DirichletManager | list[DirichletBoundaryCondition]]
         ),
         f_ext: np.ndarray | None = None,
-        contact: RigidContact | DeformableContact | Sequence[RigidContact | DeformableContact] | None = None,
+        contact: (
+            RigidContact
+            | DeformableContact
+            | SelfContact
+            | Sequence[RigidContact | DeformableContact | SelfContact]
+            | None
+        ) = None,
         n_steps: int = 10,
         nr_iterations: int = 25,
         nr_tol: float = 1e-4,
@@ -111,7 +118,7 @@ class NonlinearStaticAnalysis(Analysis):
                 contact_list = list(self.domain.contacts)
             else:
                 contact_list = []
-        elif isinstance(contact, (RigidContact, DeformableContact)):
+        elif isinstance(contact, (RigidContact, DeformableContact, SelfContact)):
             contact_list = [contact]
         else:
             contact_list = list(contact)
