@@ -446,22 +446,27 @@ class RigidContact:
         max_delta_lam = 0.0
         num_active = 0
 
-        if query_res.num_active > 0:
-            for idx in query_res.active_indices:
+        active_set = (
+            set(query_res.active_indices) if query_res.num_active > 0 else set()
+        )
+        for idx in range(len(s_nodes)):
+            old_lam = self.multipliers[idx]
+            if idx in active_set:
                 gap = query_res.gaps[idx]
-                old_lam = self.multipliers[idx]
                 new_lam = float(max(0.0, old_lam - self.k_penalty * gap))
-                self.multipliers[idx] = new_lam
-
-                d_lam = abs(new_lam - old_lam)
-                if d_lam > max_delta_lam:
-                    max_delta_lam = d_lam
                 if gap < 0.0:
                     pen = -gap
                     if pen > max_pen:
                         max_pen = pen
-                if new_lam > 0.0:
-                    num_active += 1
+            else:
+                new_lam = 0.0
+            self.multipliers[idx] = new_lam
+
+            d_lam = abs(new_lam - old_lam)
+            if d_lam > max_delta_lam:
+                max_delta_lam = d_lam
+            if new_lam > 0.0:
+                num_active += 1
 
         return {
             "max_penetration": max_pen,
@@ -576,6 +581,31 @@ class DeformableContact:
 
         # Augmented Lagrangian multipliers (one per slave node)
         self.multipliers = np.zeros(len(self.slave_nodes), dtype=np.float64)
+        self._master_nodal_normals = self._compute_master_nodal_normals()
+
+    def _compute_master_nodal_normals(self) -> np.ndarray:
+        """
+        Computes area-weighted C0-continuous vertex normals for the master surface mesh.
+        Interpolating contact normals from vertex normals prevents discontinuous force jumps
+        and contact chatter across facet edges.
+        """
+        master_pos = self.master.current_nodes
+        f_surf = self._master_faces
+        m_vol = self._master_surf_node_idx[f_surf]
+        v1 = master_pos[m_vol[:, 0]]
+        v2 = master_pos[m_vol[:, 1]]
+        v3 = master_pos[m_vol[:, 2]]
+        face_normals = np.cross(v2 - v1, v3 - v1)
+
+        n_surf_nodes = len(self._master_surf_node_idx)
+        nodal_normals = np.zeros((n_surf_nodes, 3), dtype=np.float64)
+        np.add.at(nodal_normals, f_surf[:, 0], face_normals)
+        np.add.at(nodal_normals, f_surf[:, 1], face_normals)
+        np.add.at(nodal_normals, f_surf[:, 2], face_normals)
+
+        norms = np.linalg.norm(nodal_normals, axis=1, keepdims=True)
+        norms[norms < 1e-14] = 1.0
+        return nodal_normals / norms
 
     @staticmethod
     def compute_barycentric(
@@ -616,6 +646,7 @@ class DeformableContact:
         current_m_nodes = self.master.current_nodes
         self._master_polydata.points = current_m_nodes[self._master_surf_node_idx]
         self._locator.BuildLocator()
+        self._master_nodal_normals = self._compute_master_nodal_normals()
 
     def evaluate_forces(
         self,
@@ -661,26 +692,29 @@ class DeformableContact:
             v2 = master_nodes_pos[m2_vol]
             v3 = master_nodes_pos[m3_vol]
 
-            # Outward normal of master triangle
-            e1 = v2 - v1
-            e2 = v3 - v1
-            n_unnorm = np.cross(e1, e2)
-            norm_mag = np.linalg.norm(n_unnorm)
-            if norm_mag < 1e-14:
-                continue
-            n = n_unnorm / norm_mag
-
             # Barycentric coordinates of c_pt on triangle
             xi1, xi2, xi3 = self.compute_barycentric(c_pt, v1, v2, v3)
+
+            # C0-continuous contact normal interpolated from master vertex normals
+            n_interp = (
+                xi1 * self._master_nodal_normals[f_local[0]]
+                + xi2 * self._master_nodal_normals[f_local[1]]
+                + xi3 * self._master_nodal_normals[f_local[2]]
+            )
+            norm_mag = float(np.linalg.norm(n_interp))
+            if norm_mag < 1e-14:
+                continue
+            n = n_interp / norm_mag
 
             # Signed normal gap (negative = penetration)
             gap = float(np.dot(x_s - c_pt, n))
 
-            lam = self.multipliers[s_idx]
-            if self.formulation == "augmented_lagrangian":
-                f_N = float(max(0.0, lam - self.k_penalty * gap))
-            else:
-                f_N = float(-self.k_penalty * gap) if gap <= self.tolerance else 0.0
+            lam = (
+                self.multipliers[s_idx]
+                if self.formulation == "augmented_lagrangian"
+                else 0.0
+            )
+            f_N = float(max(0.0, lam - self.k_penalty * gap))
 
             if f_N <= 0.0:
                 continue
@@ -782,22 +816,27 @@ class DeformableContact:
             v2 = master_nodes_pos[m2_vol]
             v3 = master_nodes_pos[m3_vol]
 
-            e1 = v2 - v1
-            e2 = v3 - v1
-            n_unnorm = np.cross(e1, e2)
-            norm_mag = np.linalg.norm(n_unnorm)
+            xi1, xi2, xi3 = self.compute_barycentric(c_pt, v1, v2, v3)
+
+            # C0-continuous contact normal interpolated from master vertex normals
+            n_interp = (
+                xi1 * self._master_nodal_normals[f_local[0]]
+                + xi2 * self._master_nodal_normals[f_local[1]]
+                + xi3 * self._master_nodal_normals[f_local[2]]
+            )
+            norm_mag = float(np.linalg.norm(n_interp))
             if norm_mag < 1e-14:
                 continue
-            n = n_unnorm / norm_mag
+            n = n_interp / norm_mag
 
-            xi1, xi2, xi3 = self.compute_barycentric(c_pt, v1, v2, v3)
             gap = float(np.dot(x_s - c_pt, n))
 
-            lam = self.multipliers[s_idx]
-            if self.formulation == "augmented_lagrangian":
-                f_N = float(max(0.0, lam - self.k_penalty * gap))
-            else:
-                f_N = float(-self.k_penalty * gap) if gap <= self.tolerance else 0.0
+            lam = (
+                self.multipliers[s_idx]
+                if self.formulation == "augmented_lagrangian"
+                else 0.0
+            )
+            f_N = float(max(0.0, lam - self.k_penalty * gap))
 
             if f_N <= 0.0:
                 continue
@@ -866,13 +905,18 @@ class DeformableContact:
             v2 = master_nodes_pos[m2_vol]
             v3 = master_nodes_pos[m3_vol]
 
-            e1 = v2 - v1
-            e2 = v3 - v1
-            n_unnorm = np.cross(e1, e2)
-            norm_mag = np.linalg.norm(n_unnorm)
+            xi1, xi2, xi3 = self.compute_barycentric(c_pt, v1, v2, v3)
+
+            # C0-continuous contact normal interpolated from master vertex normals
+            n_interp = (
+                xi1 * self._master_nodal_normals[f_local[0]]
+                + xi2 * self._master_nodal_normals[f_local[1]]
+                + xi3 * self._master_nodal_normals[f_local[2]]
+            )
+            norm_mag = float(np.linalg.norm(n_interp))
             if norm_mag < 1e-14:
                 continue
-            n = n_unnorm / norm_mag
+            n = n_interp / norm_mag
 
             gap = float(np.dot(x_s - c_pt, n))
             old_lam = self.multipliers[s_idx]
@@ -939,20 +983,26 @@ class DeformableContact:
             v2 = master_nodes_pos[m2_vol]
             v3 = master_nodes_pos[m3_vol]
 
-            e1 = v2 - v1
-            e2 = v3 - v1
-            n_unnorm = np.cross(e1, e2)
-            norm_mag = np.linalg.norm(n_unnorm)
+            xi1, xi2, xi3 = self.compute_barycentric(c_pt, v1, v2, v3)
+
+            # C0-continuous contact normal interpolated from master vertex normals
+            n_interp = (
+                xi1 * self._master_nodal_normals[f_local[0]]
+                + xi2 * self._master_nodal_normals[f_local[1]]
+                + xi3 * self._master_nodal_normals[f_local[2]]
+            )
+            norm_mag = float(np.linalg.norm(n_interp))
             if norm_mag < 1e-14:
                 continue
-            n = n_unnorm / norm_mag
+            n = n_interp / norm_mag
 
             gap = float(np.dot(x_s - c_pt, n))
-            lam = self.multipliers[s_idx]
-            if self.formulation == "augmented_lagrangian":
-                f_N = float(max(0.0, lam - self.k_penalty * gap))
-            else:
-                f_N = float(-self.k_penalty * gap) if gap <= self.tolerance else 0.0
+            lam = (
+                self.multipliers[s_idx]
+                if self.formulation == "augmented_lagrangian"
+                else 0.0
+            )
+            f_N = float(max(0.0, lam - self.k_penalty * gap))
 
             if f_N > 0.0 or gap < 0.0:
                 num_active += 1

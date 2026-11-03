@@ -68,8 +68,8 @@ def parse_arguments() -> argparse.Namespace:
     parser.add_argument(
         "--steps",
         type=int,
-        default=45,
-        help="Number of dynamic time steps (default: 45 steps = 0.09 s)",
+        default=60,
+        help="Number of dynamic time steps (default: 60 steps = 0.12 s)",
     )
     parser.add_argument(
         "--gap",
