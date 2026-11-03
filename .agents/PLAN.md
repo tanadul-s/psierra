@@ -222,12 +222,25 @@ $$\text{Forward Continuum Mechanics} \longrightarrow \text{Contact Mechanics} \l
 ---
 
 ### Phase 3 Loop 3: Flagship Biomechanical Multi-Mesh Contact & Self-Contact
-*Objective*: High-fidelity anatomical simulation of brain tissue interacting with rigid skull and surgical instruments.
+*Objective*: High-fidelity anatomical simulation of multi-body and self-contacting biological and geometric domains.
 
-* [ ] **Deformable Self-Contact**:
-  * Autonomous contact between boundary facets of the same physical domain (essential for sulcal folding and tissue invaginations).
-* [ ] **Flagship Biomechanical Multi-Mesh Demonstration**:
-  * `examples/05_simulation/sim23_contact_brain_skull_tool.py`:
+* [x] **Deformable Self-Contact (`SelfContact` in `psierra/boundary/contact.py`)**:
+  * Autonomous contact between boundary facets of the same physical domain (essential for sulcal folding, ear compression, tissue invaginations, and geometric self-collision).
+  * **Topological Star BFS Graph Expansion**: Multi-ring breadth-first search graph expansion excluding 1-ring through 5-ring topological neighbors, completely eliminating spurious false detections across thin walls/membranes.
+  * **C0-Continuous Vertex Normal Interpolation**: Area-weighted vertex normal interpolation on deformed surface triangulation, preventing discontinuous force jumps and lateral chatter across facet boundaries.
+  * **Exact Voronoi Triangle Projection**: Ericson's closed-form point-to-triangle projection calculating exact closest surface points and normalized barycentric coordinates.
+  * **Strict Action-Reaction Momentum Conservation**: Equal and opposite action on slave node and barycentrically distributed reaction on master facet vertices ($\boldsymbol{f}_s + \sum_{i=1}^3 \boldsymbol{f}_{m_i} = \mathbf{0}$).
+  * **Symmetric Positive Semi-Definite Tangent Stiffness**: Rank-1 block updates $\boldsymbol{K}_c = k_p^* (\boldsymbol{w} \otimes \boldsymbol{w}) \otimes (\boldsymbol{n} \otimes \boldsymbol{n})$, strictly symmetric ($\boldsymbol{K}_c = \boldsymbol{K}_c^T$) and translation-invariant.
+  * **Uzawa Augmented Lagrangian & Penalty Schemes**: Supports both adaptive multiplier accumulation and virtual elastic penalty springs.
+  * **MultiBodySystem Integration**: `MultiBodySystem.add_self_contact(body, ...)` and automatic routing in `add_contact_pair(b, b, ...)` when slave and master bodies coincide.
+  * **Automated Unit & Physics Test Suite (`tests/test_self_contact.py`)**: 7 tests validating topological exclusion, exact Voronoi projections, linear momentum conservation ($< 10^{-14}$ relative error), stiffness symmetry ($< 10^{-14}$), Uzawa multiplier updates, and multi-body assembly routing (100% passing).
+* [x] **Stanford Bunny Self-Contact Demonstration (`examples/05_simulation/sim23_contact_self_bunny.py`)**:
+  * Volumetric tetrahedralization of user-provided `data/bunny1/scan/bunny1.stl` to high-quality watertight mesh `data/bunny1/mesh/bunny1.vtk` (1,419 nodes, 3,852 elements).
+  * Canonical workflow blueprint: flat base pedestal clamped on the XY plane ($Z = 0.0$), pure self-weight gravity body load (`GravityLoad`) causing physical downward sagging of the torso, belly, and head, with the slender ears drooping and flopping backwards/downwards ($-54.2\text{ mm}$ mean, $-90.2\text{ mm}$ peak) onto the body surface without any artificial push/squeeze forces or prescribed displacements.
+  * Verified robust 5/5 load-step convergence in 21.2s under pure gravity sag and self-contact (Node 766 and Node 828 contacting the body at $Z \approx 28\text{--}33\text{ mm}$, interface penetration restricted to $0.048\text{ mm}$ via Uzawa augmented Lagrangian multipliers).
+  * ParaView PVD collection export with strict `factor=0.0` rule and attached 3D `"Displacement"` vector array (`active_scalars = "Displacement"`).
+* [ ] **Biomechanical Brain-Skull Multi-Mesh Demonstration**:
+  * `examples/05_simulation/sim24_contact_brain_skull_tool.py`:
     * Brain parenchyma (hyperelastic solid domain) resting inside imported rigid skull boundary (`skull.vtk`).
     * Rigid surgical probe / indenter pressing into brain tissue with contact reaction force feedback.
     * Multi-mesh interactive visualization in PyVista and time-series PVD collection for ParaView.
