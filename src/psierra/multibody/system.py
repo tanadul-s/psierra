@@ -50,7 +50,7 @@ class MultiBodySystem(Domain):
             {name: domain} or as an ordered sequence of domains.
         names : Sequence[str], optional
             Descriptive names for each body (when bodies is a sequence).
-        contacts : Sequence[PenaltyContact], optional
+        contacts : Sequence[RigidContact | DeformableContact | Any], optional
             Contact interaction constraints defined between bodies or obstacles.
         named_bodies : Domain
             Additional body domains passed as keyword arguments:
@@ -242,13 +242,12 @@ class MultiBodySystem(Domain):
 
         Returns:
         --------
-        contact : PenaltyContact or DeformableContact
+        contact : RigidContact or DeformableContact
             The registered contact interaction constraint.
         """
         from psierra.boundary.contact import (
-            PenaltyContact,
+            RigidContact,
             DeformableContact,
-            AugmentedLagrangianContact,
         )
 
         slave_body = self[slave] if isinstance(slave, (str, int)) else slave
@@ -277,36 +276,22 @@ class MultiBodySystem(Domain):
                 int(self._dof_offsets[master_idx]) if master_idx is not None else 0
             )
 
-            if formulation == "augmented_lagrangian":
-                contact = AugmentedLagrangianContact(
-                    slave=slave_body,
-                    master=master_obj,
-                    slave_nodes=slave_nodes,
-                    k_penalty=k_penalty,
-                    c_damping=c_damping,
-                    friction=friction,
-                    slave_offset=slave_offset,
-                    master_offset=master_offset,
-                    domain=self,
-                    **kwargs,
-                )
-            else:
-                contact = DeformableContact(
-                    slave=slave_body,
-                    master=master_obj,
-                    slave_nodes=slave_nodes,
-                    k_penalty=k_penalty,
-                    c_damping=c_damping,
-                    friction=friction,
-                    slave_offset=slave_offset,
-                    master_offset=master_offset,
-                    domain=self,
-                    formulation="penalty",
-                    **kwargs,
-                )
+            contact = DeformableContact(
+                slave=slave_body,
+                master=master_obj,
+                slave_nodes=slave_nodes,
+                k_penalty=k_penalty,
+                c_damping=c_damping,
+                friction=friction,
+                slave_offset=slave_offset,
+                master_offset=master_offset,
+                domain=self,
+                formulation=formulation,
+                **kwargs,
+            )
         else:
             # Rigid obstacle or CollisionShape
-            contact = PenaltyContact(
+            contact = RigidContact(
                 slave=slave_body,
                 master=master_obj,
                 slave_nodes=slave_nodes,
@@ -316,6 +301,7 @@ class MultiBodySystem(Domain):
                 dof_offset=slave_offset,
                 dofs_per_node=dofs_per_node,
                 domain=self,
+                formulation=formulation,
                 **kwargs,
             )
 

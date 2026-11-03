@@ -8,7 +8,7 @@ from rich import print
 
 from psierra.domain.base import Domain
 from psierra.boundary.dirichlet import DirichletManager, DirichletConstraint
-from psierra.boundary.contact import PenaltyContact
+from psierra.boundary.contact import RigidContact, DeformableContact
 from psierra.damping.rayleigh import RayleighDamping
 from psierra.solver.base import SparseLinearSolver
 from psierra.solver.sparse_linear_solver import DirectSolver
@@ -97,7 +97,7 @@ class NonlinearDynamicAnalysis(Analysis):
         f_ext: np.ndarray,
         dt: float,
         n_steps: int,
-        contact: PenaltyContact | Sequence[PenaltyContact] | None = None,
+        contact: RigidContact | DeformableContact | Sequence[RigidContact | DeformableContact] | None = None,
         nr_iterations: int = 15,
         nr_tol: float = 1e-4,
         include_stresses: bool = False,
@@ -124,8 +124,8 @@ class NonlinearDynamicAnalysis(Analysis):
             Time increment in seconds.
         n_steps : int
             Maximum number of time steps to compute.
-        contact : PenaltyContact or Sequence[PenaltyContact], optional
-            Boundary contact condition(s) enforcing non-penetration against rigid obstacles.
+        contact : RigidContact, DeformableContact, or Sequence, optional
+            Boundary contact condition(s) enforcing non-penetration against rigid obstacles or deformable bodies.
         nr_iterations : int, default=15
             Maximum Newton-Raphson iterations per time step.
         nr_tol : float, default=1e-4
@@ -190,7 +190,7 @@ class NonlinearDynamicAnalysis(Analysis):
                 contact_list = list(self.domain.contacts)
             else:
                 contact_list = []
-        elif isinstance(contact, PenaltyContact):
+        elif isinstance(contact, (RigidContact, DeformableContact)):
             contact_list = [contact]
         else:
             contact_list = list(contact)

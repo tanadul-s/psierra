@@ -17,9 +17,8 @@ from psierra.boundary.load import (
     GravityLoad,
 )
 from psierra.boundary.contact import (
-    PenaltyContact,
+    RigidContact,
     DeformableContact,
-    AugmentedLagrangianContact,
 )
 
 __all__ = [
@@ -33,7 +32,6 @@ __all__ = [
     "DirichletManager",
     "NodalForce",
     "GravityLoad",
-    "PenaltyContact",
+    "RigidContact",
     "DeformableContact",
-    "AugmentedLagrangianContact",
 ]

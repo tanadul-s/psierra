@@ -11,7 +11,8 @@ from psierra.boundary import (
     DirichletManager,
     DirichletConstraint,
     DirichletBoundaryCondition,
-    PenaltyContact,
+    RigidContact,
+    DeformableContact,
 )
 from psierra.solver.sparse_linear_solver import SparseLinearSolver, DirectSolver
 from psierra.analysis.base import Analysis
@@ -56,7 +57,7 @@ class NonlinearStaticAnalysis(Analysis):
             | Callable[[int, int], DirichletManager | list[DirichletBoundaryCondition]]
         ),
         f_ext: np.ndarray | None = None,
-        contact: PenaltyContact | Sequence[PenaltyContact] | None = None,
+        contact: RigidContact | DeformableContact | Sequence[RigidContact | DeformableContact] | None = None,
         n_steps: int = 10,
         nr_iterations: int = 25,
         nr_tol: float = 1e-4,
@@ -77,8 +78,8 @@ class NonlinearStaticAnalysis(Analysis):
             Essential boundary conditions. Can be a static constraint manager or a step-dependent callable.
         f_ext : np.ndarray of shape (n_dofs,), optional
             Total external load vector to be reached at lambda = 1.0. Defaults to zero vector for displacement control.
-        contact : PenaltyContact or Sequence[PenaltyContact], optional
-            Boundary contact condition(s) enforcing non-penetration against rigid obstacles.
+        contact : RigidContact, DeformableContact, or Sequence, optional
+            Boundary contact condition(s) enforcing non-penetration against rigid obstacles or deformable bodies.
         n_steps : int, default=10
             Number of incremental load steps.
         nr_iterations : int, default=25
@@ -110,7 +111,7 @@ class NonlinearStaticAnalysis(Analysis):
                 contact_list = list(self.domain.contacts)
             else:
                 contact_list = []
-        elif isinstance(contact, PenaltyContact):
+        elif isinstance(contact, (RigidContact, DeformableContact)):
             contact_list = [contact]
         else:
             contact_list = list(contact)

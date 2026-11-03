@@ -20,17 +20,17 @@ from psierra.collision.raytrace import RayMeshObstacle
 from psierra.collision.detector import CollisionDetector, ContactQueryResult
 
 
-class PenaltyContact:
+class RigidContact:
     """
-    Penalty Contact Formulation for Deformable-to-Rigid and Multi-Body Contact.
+    Deformable-to-Rigid Contact Formulation for Project Sierra.
 
-    Enforces the non-penetration condition via a virtual elastic normal spring
-    at active contacting nodes:
-        f_c = -k_p * g_N * n   (active when signed gap g_N < 0)
+    Enforces the non-penetration condition between a deformable body (slave)
+    and an analytical or 3D mesh rigid obstacle (master) via virtual elastic normal springs
+    (penalty formulation) or adaptive Uzawa multipliers (augmented Lagrangian formulation):
+        f_c = f_N * n
     where:
-        - g_N < 0 is the penetration depth into the obstacle.
-        - n is the unit normal pointing outward from the obstacle into the deformable body.
-        - -g_N * n is directed away from the obstacle (repulsive).
+        f_N = -k_p * g_N (penalty formulation, active when signed gap g_N < tolerance)
+        f_N = max(0, lambda_N - k_p * g_N) (augmented Lagrangian formulation)
 
     Also incorporates contact velocity damping:
         f_d = -c_p * (v . n) * n  (active when v . n < 0, penetrating velocity)
@@ -54,6 +54,8 @@ class PenaltyContact:
         friction: float = 0.0,
         dof_offset: int = 0,
         dofs_per_node: int = 3,
+        formulation: Literal["penalty", "augmented_lagrangian"] = "penalty",
+        tolerance: float = 0.0,
     ) -> None:
         """
         Parameters:
@@ -80,6 +82,10 @@ class PenaltyContact:
             Global DOF offset when used within a MultiBodySystem assembly.
         dofs_per_node : int, default=3
             Degrees of freedom per node (3 for solid continuum, 6 for shell).
+        formulation : {'penalty', 'augmented_lagrangian'}, default='penalty'
+            Contact constraint enforcement scheme.
+        tolerance : float, default=0.0
+            Penetration activation threshold (gap <= tolerance).
         """
         # Resolve master / obstacle
         if master is None and obstacle is not None:
@@ -88,7 +94,7 @@ class PenaltyContact:
         if slave is None and domain is not None:
             slave = domain
 
-        # Handle positional legacy PenaltyContact(obstacle, domain)
+        # Handle positional legacy RigidContact(obstacle, domain)
         if (
             isinstance(slave, (CollisionShape, RayMeshObstacle))
             and obstacle is None
@@ -97,7 +103,7 @@ class PenaltyContact:
             slave, master = master, slave
 
         if master is None:
-            raise ValueError("PenaltyContact requires a master obstacle or interacting body.")
+            raise ValueError("RigidContact requires a master obstacle or interacting body.")
 
         # Resolve target body within MultiBodySystem if slave is MultiBodySystem
         self._target_body: Domain | None = None
@@ -148,10 +154,13 @@ class PenaltyContact:
         self.friction = float(friction)
         self.dof_offset = int(dof_offset)
         self.dofs_per_node = int(dofs_per_node)
+        self.formulation = formulation
+        self.tolerance = float(tolerance)
 
         # Determine candidate slave nodes
         if slave_nodes is not None:
             self.slave_nodes = np.asarray(slave_nodes, dtype=np.int64)
+            self.multipliers = np.zeros(len(self.slave_nodes), dtype=np.float64)
         elif self._target_body is not None:
             if (
                 hasattr(self._target_body, "mesh")
@@ -167,6 +176,7 @@ class PenaltyContact:
                 self.slave_nodes = np.arange(
                     self._target_body.n_dofs // self.dofs_per_node, dtype=np.int64
                 )
+            self.multipliers = np.zeros(len(self.slave_nodes), dtype=np.float64)
         elif self.domain is not None:
             if (
                 hasattr(self.domain, "mesh")
@@ -182,8 +192,10 @@ class PenaltyContact:
                 self.slave_nodes = np.arange(
                     self.domain.n_dofs // self.dofs_per_node, dtype=np.int64
                 )
+            self.multipliers = np.zeros(len(self.slave_nodes), dtype=np.float64)
         else:
             self.slave_nodes = None
+            self.multipliers = np.zeros(0, dtype=np.float64)
 
     # =========================================================================
     # Contact Evaluation
@@ -213,13 +225,16 @@ class PenaltyContact:
         if self.domain is not None and hasattr(self.domain, "current_nodes"):
             return self.domain.current_nodes
         raise ValueError(
-            "PenaltyContact requires current_nodes or a domain with current_nodes property."
+            "RigidContact requires current_nodes or a domain with current_nodes property."
         )
 
     def _resolve_slave_nodes(self, all_nodes: np.ndarray) -> np.ndarray:
         if self.slave_nodes is not None:
             return self.slave_nodes
-        return np.arange(len(all_nodes), dtype=np.int64)
+        s_nodes = np.arange(len(all_nodes), dtype=np.int64)
+        if len(self.multipliers) != len(s_nodes):
+            self.multipliers = np.zeros(len(s_nodes), dtype=np.float64)
+        return s_nodes
 
     def query_contact(
         self,
@@ -267,7 +282,7 @@ class PenaltyContact:
         f_c = np.zeros(n_dofs, dtype=np.float64)
 
         # Query proximity
-        query_res = self.detector.query(nodes[s_nodes], tolerance=0.0)
+        query_res = self.detector.query(nodes[s_nodes], tolerance=self.tolerance)
         if query_res.num_active == 0:
             return f_c
 
@@ -276,9 +291,14 @@ class PenaltyContact:
         gaps = query_res.gaps[active_idx]  # strictly <= 0
         normals = query_res.normals[active_idx]
 
-        # Elastic penalty force: f_c = -k_p * g * n = k_p * |g| * n
-        # Since g <= 0, -k_p * g is strictly non-negative
-        spring_forces = -self.k_penalty * gaps[:, None] * normals  # (M, 3)
+        if self.formulation == "augmented_lagrangian" and len(self.multipliers) >= len(s_nodes):
+            lams = self.multipliers[active_idx]
+            f_N = np.maximum(0.0, lams - self.k_penalty * gaps)
+            spring_forces = f_N[:, None] * normals
+        else:
+            # Elastic penalty force: f_c = -k_p * g * n = k_p * |g| * n
+            # Since g <= 0, -k_p * g is strictly non-negative
+            spring_forces = -self.k_penalty * gaps[:, None] * normals  # (M, 3)
 
         # Contact damping force: f_d = -c_p * (v . n) * n (when v . n < 0)
         if self.c_damping > 0.0 and velocities is not None:
@@ -392,7 +412,7 @@ class PenaltyContact:
         """Returns structured summary of current contact status."""
         nodes = self._resolve_nodes(current_nodes)
         s_nodes = self._resolve_slave_nodes(nodes)
-        query_res = self.detector.query(nodes[s_nodes], tolerance=0.0)
+        query_res = self.detector.query(nodes[s_nodes], tolerance=self.tolerance)
 
         num_active = query_res.num_active
         max_pen = query_res.max_penetration
@@ -408,6 +428,46 @@ class PenaltyContact:
             "max_penetration": max_pen,
             "active_nodes": active_nodes,
             "potential_energy": energy,
+            "max_multiplier": float(np.max(self.multipliers)) if len(self.multipliers) > 0 else 0.0,
+        }
+
+    def update_multipliers(self) -> dict[str, float]:
+        """
+        Updates Augmented Lagrangian contact multipliers:
+            lambda_s <- max(0, lambda_s - k_p * g_N)
+        """
+        nodes = self._resolve_nodes()
+        s_nodes = self._resolve_slave_nodes(nodes)
+        if len(self.multipliers) != len(s_nodes):
+            self.multipliers = np.zeros(len(s_nodes), dtype=np.float64)
+
+        query_res = self.detector.query(nodes[s_nodes], tolerance=self.tolerance)
+        max_pen = 0.0
+        max_delta_lam = 0.0
+        num_active = 0
+
+        if query_res.num_active > 0:
+            for idx in query_res.active_indices:
+                gap = query_res.gaps[idx]
+                old_lam = self.multipliers[idx]
+                new_lam = float(max(0.0, old_lam - self.k_penalty * gap))
+                self.multipliers[idx] = new_lam
+
+                d_lam = abs(new_lam - old_lam)
+                if d_lam > max_delta_lam:
+                    max_delta_lam = d_lam
+                if gap < 0.0:
+                    pen = -gap
+                    if pen > max_pen:
+                        max_pen = pen
+                if new_lam > 0.0:
+                    num_active += 1
+
+        return {
+            "max_penetration": max_pen,
+            "max_multiplier": float(np.max(self.multipliers)) if len(self.multipliers) > 0 else 0.0,
+            "max_delta_multiplier": max_delta_lam,
+            "num_active": num_active,
         }
 
 
@@ -910,42 +970,4 @@ class DeformableContact:
             "potential_energy": contact_energy,
             "max_multiplier": float(np.max(self.multipliers)) if len(self.multipliers) > 0 else 0.0,
         }
-
-
-class AugmentedLagrangianContact(DeformableContact):
-    """
-    Augmented Lagrangian Multiplier Contact Formulation.
-
-    Decouples penetration error from penalty stiffness by introducing
-    nodal contact Lagrange multipliers lambda_N:
-        f_N = max(0, lambda_N - k_p * g_N)
-    driving penetration to zero (g_N -> 0) without penalty-induced matrix ill-conditioning.
-    """
-
-    def __init__(
-        self,
-        slave: Domain,
-        master: Domain,
-        slave_nodes: Sequence[int] | np.ndarray | None = None,
-        k_penalty: float = 1e4,
-        c_damping: float = 0.0,
-        friction: float = 0.0,
-        slave_offset: int = 0,
-        master_offset: int = 0,
-        domain: Domain | None = None,
-        tolerance: float = 0.0,
-    ) -> None:
-        super().__init__(
-            slave=slave,
-            master=master,
-            slave_nodes=slave_nodes,
-            k_penalty=k_penalty,
-            c_damping=c_damping,
-            friction=friction,
-            slave_offset=slave_offset,
-            master_offset=master_offset,
-            domain=domain,
-            formulation="augmented_lagrangian",
-            tolerance=tolerance,
-        )
 
