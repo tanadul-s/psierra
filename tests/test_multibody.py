@@ -192,7 +192,7 @@ class TestMultiBodySolverIntegration:
     def test_multi_body_contact_registration(
         self, five_tet_cube_mesh: VolumetricMesh
     ) -> None:
-        from psierra.boundary.contact import PenaltyContact
+        from psierra.boundary.contact import RigidContact
         from psierra.collision import RigidPlane
 
         params = IsotropicElasticParameters()
@@ -205,7 +205,7 @@ class TestMultiBodySolverIntegration:
         system = MultiBodySystem([body_1, body_2], names=["BodyA", "BodyB"])
 
         floor = RigidPlane(origin=[0.0, -1.0, 0.0], normal=[0.0, 1.0, 0.0])
-        contact = PenaltyContact(
+        contact = RigidContact(
             obstacle=floor, domain=system, body="BodyA", k_penalty=1e4
         )
         system.add_contact(contact)

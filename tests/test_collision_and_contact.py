@@ -18,7 +18,7 @@ from psierra.collision import (
     RayMeshObstacle,
     CollisionDetector,
 )
-from psierra.boundary.contact import PenaltyContact
+from psierra.boundary.contact import RigidContact
 from psierra.boundary.dirichlet import DirichletManager, DirichletConstraint
 from psierra.boundary.load import GravityLoad
 from psierra.material import NeoHookean
@@ -166,7 +166,7 @@ def test_penalty_contact_forces_and_stiffness() -> None:
         0.0, -10.0, 0.0,   # Node 1: moving down into floor at 10 mm/s
     ])
 
-    contact = PenaltyContact(
+    contact = RigidContact(
         obstacle=plane,
         slave_nodes=[0, 1],
         k_penalty=kp,
@@ -211,7 +211,7 @@ def test_penalty_contact_linearization_consistency() -> None:
 
     # Penetrated node by 0.1 mm behind the plane
     nodes = np.array([[-0.1 * normal[0], -0.1 * normal[1], -0.1 * normal[2]]])
-    contact = PenaltyContact(obstacle=plane, slave_nodes=[0], k_penalty=kp, c_damping=0.0)
+    contact = RigidContact(obstacle=plane, slave_nodes=[0], k_penalty=kp, c_damping=0.0)
 
     K_ana = contact.evaluate_stiffness(current_nodes=nodes, n_dofs=3).toarray()
     f0 = contact.evaluate_forces(current_nodes=nodes, n_dofs=3)
@@ -249,7 +249,7 @@ def test_static_cantilever_resting_on_floor(
 
     # Rigid plane placed at Y = -0.1 mm
     floor = RigidPlane(origin=[0.0, -0.1, 0.0], normal=[0.0, 1.0, 0.0])
-    contact = PenaltyContact(
+    contact = RigidContact(
         obstacle=floor,
         domain=domain,
         k_penalty=1e5,
@@ -297,7 +297,7 @@ def test_dynamic_bouncing_cube(
 
     # Rigid floor at Y = 0.0
     floor = RigidPlane(origin=[0.0, 0.0, 0.0], normal=[0.0, 1.0, 0.0])
-    contact = PenaltyContact(
+    contact = RigidContact(
         obstacle=floor,
         domain=domain,
         k_penalty=2e6,
@@ -327,3 +327,39 @@ def test_dynamic_bouncing_cube(
     # The cube fell, impacted, and rebounded: min Y must stay non-penetrating
     min_y = np.min(domain.current_nodes[:, 1])
     assert min_y >= -0.01
+
+
+def test_rigid_contact_augmented_lagrangian(
+    five_tet_cube_mesh: VolumetricMesh,
+    neohookean_material: NeoHookean,
+) -> None:
+    """Tests that RigidContact supports Augmented Lagrangian formulation."""
+    mesh = five_tet_cube_mesh.copy()
+    elem = Tet4Linear(neohookean_material)
+    domain = SolidDomain(mesh, neohookean_material, elem)
+
+    # Move node 0 to penetrate Y = 0 floor by -0.05
+    u = np.zeros(domain.n_dofs)
+    u[1] = -0.05
+    domain.update_state(u=u)
+
+    floor = RigidPlane(origin=[0.0, 0.0, 0.0], normal=[0.0, 1.0, 0.0])
+    contact = RigidContact(
+        obstacle=floor,
+        domain=domain,
+        slave_nodes=[0],
+        k_penalty=1000.0,
+        formulation="augmented_lagrangian",
+    )
+
+    f1 = contact.evaluate_forces()
+    assert f1[1] > 0.0  # upward penalty repulsive force
+
+    # Update multipliers
+    stats = contact.update_multipliers()
+    assert stats["num_active"] == 1
+    assert stats["max_multiplier"] > 0.0
+
+    # Force now incorporates multiplier
+    f2 = contact.evaluate_forces()
+    assert f2[1] > f1[1]

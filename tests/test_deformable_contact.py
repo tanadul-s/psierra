@@ -6,7 +6,7 @@ Verifies:
 2. Exact Newtonian action-reaction interface force balance (sum(f_c) == 0).
 3. Exact symmetry of coupled tangent stiffness matrix (K_c == K_c^T) and cross-body coupling.
 4. Positive semi-definiteness of the contact tangent operator.
-5. MultiBodySystem automatic routing to DeformableContact and AugmentedLagrangianContact.
+5. MultiBodySystem automatic routing to DeformableContact.
 6. Augmented Lagrangian multiplier update driving penetration error g_N -> 0.
 7. End-to-end static two-body flexible contact equilibrium.
 """
@@ -26,10 +26,7 @@ from psierra.boundary import (
     DirichletManager,
     NodalForce,
 )
-from psierra.boundary.contact import (
-    DeformableContact,
-    AugmentedLagrangianContact,
-)
+from psierra.boundary.contact import DeformableContact
 from psierra.analysis import NonlinearStaticAnalysis
 
 
@@ -183,7 +180,7 @@ class TestDeformableContactMechanics:
         assert len(system.contacts) == 1
 
 
-class TestAugmentedLagrangianContact:
+class TestAugmentedLagrangianFormulation:
     """Tests multiplier updates and zero penetration enforcement."""
 
     def test_multiplier_convergence(
@@ -207,12 +204,13 @@ class TestAugmentedLagrangianContact:
         u_upper[1::3] = -0.1
         upper.update_state(u=u_upper)
 
-        contact = AugmentedLagrangianContact(
+        contact = DeformableContact(
             slave=upper,
             master=lower,
             k_penalty=5000.0,
             slave_offset=0,
             master_offset=upper.n_dofs,
+            formulation="augmented_lagrangian",
         )
 
         assert np.all(contact.multipliers == 0.0)
