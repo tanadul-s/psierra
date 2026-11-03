@@ -28,10 +28,10 @@
      `Parameters` $\to$ `Material` $\to$ `Element` $\to$ `Domain` $\to$ `Analysis/Solver`.
    - Ensure every script authored under `examples/` functions as an intuitive user template: a user should be able to open any example, adjust their mesh file or material properties, and run without navigating tangled code or hidden dependencies.
    - Even when implementing complex multiphysics (solid-shell, fluid-solid, contact), preserve this exact simplicity: compose domains into coupled containers and plug them cleanly into the analysis solver.
-9. **Zero Aliases by Default (Clean Solutions Over Backward Compatibility)**:
-   - **Never introduce aliases** for class names, module filenames, functions, or method parameters in the first place (e.g., no `Tet4 = Tet4Linear`, no `static_residual_tol` alongside `steady_state_tol`, no `save_interval` alongside `snapshot_interval`).
-   - If an alias is ever desired, the user will explicitly ask for it.
-   - **Development time and backward compatibility are NOT the first choice**: prioritize solutions that are clean, architecturally elegant, and correct. Do not compromise code quality or maintain duplicate/legacy argument names out of fear of breaking older scripts; refactor callers cleanly across the repository.
+9. **Zero Aliases (No Backward Compatibility Concerns)**:
+   - **Never introduce aliases** for class names, module filenames, functions, or method parameters (e.g., no `PenaltyContact = RigidContact`, no `Tet4 = Tet4Linear`, no `AugmentedLagrangianContact` wrapping `DeformableContact`, no duplicate argument names).
+   - **Backward compatibility is NOT a concern**: if a class, function, or parameter needs to be renamed, fixed, or refactored, fix it directly across the entire codebase without preserving backward compatibility or leaving legacy aliases behind.
+   - Refactor all affected callers, tests, demonstration scripts, and documentation immediately to the canonical modern API. There should be only ONE clear, authoritative way to write and call any component.
 
 ---
 

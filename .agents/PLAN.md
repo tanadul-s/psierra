@@ -174,8 +174,8 @@ $$\text{Forward Continuum Mechanics} \longrightarrow \text{Contact Mechanics} \l
   * `shapes.py`: Analytical collision shapes (`CollisionShape`, `RigidPlane`, `RigidSphere`, `RigidCylinder`) with signed gap and outward normal calculation.
   * `raytrace.py`: Intel Embree BVH accelerated ray-mesh obstacle (`RayMeshObstacle`) and PyVista cell locator for imported 3D VTK meshes (`floor1.vtk`).
   * `detector.py`: Proximity and closest-point projection (`CollisionDetector`) computing signed gaps $g_N$ and surface normals $\boldsymbol{n}$.
-* [x] **Penalty Contact Formulation (`psierra/boundary/contact.py`)**:
-  * `PenaltyContact`:
+* [x] **Contact Formulation (`psierra/boundary/contact.py`)**:
+  * `RigidContact`:
     * Normal penalty force: $\boldsymbol{f}_c = -k_p g_N \boldsymbol{n}$ (active when $g_N < 0$).
     * Contact velocity damping: $\boldsymbol{f}_d = -c_p (\dot{\boldsymbol{u}} \cdot \boldsymbol{n}) \boldsymbol{n}$ to eliminate contact chatter.
     * Symmetric tangent stiffness contribution: $\boldsymbol{K}_c = k_p (\boldsymbol{n} \otimes \boldsymbol{n})$.
@@ -201,11 +201,11 @@ $$\text{Forward Continuum Mechanics} \longrightarrow \text{Contact Mechanics} \l
   * Exact action-reaction interface equilibrium: $\boldsymbol{f}_s + \sum_{i=1}^3 \boldsymbol{f}_{m_i} = \mathbf{0}$.
   * Off-diagonal cross-body stiffness coupling blocks and symmetric 12x12 rank-1 contact element $\boldsymbol{K}_c^{(e)} = k_p^* (\boldsymbol{w} \otimes \boldsymbol{w}) \otimes (\boldsymbol{n} \otimes \boldsymbol{n})$:
     $$\boldsymbol{K}_{\text{coupled}} = \begin{bmatrix} \boldsymbol{K}_1 + \boldsymbol{K}_{c,11} & \boldsymbol{K}_{c,12} \\ \boldsymbol{K}_{c,21} & \boldsymbol{K}_2 + \boldsymbol{K}_{c,22} \end{bmatrix}, \quad \boldsymbol{K}_{c,12} = \boldsymbol{K}_{c,21}^T$$
-* [x] **Augmented Lagrangian Multiplier Method (`AugmentedLagrangianContact`)**:
+* [x] **Augmented Lagrangian Multiplier Formulation**:
   * Normal contact force: $f_N = \max(0, \lambda_N - k_p g_N)$.
   * Multiplier update at step convergence: $\lambda_N^{(k+1)} = \max(0, \lambda_N^{(k)} - k_p g_N^{(k+1)})$.
   * Decouples penetration error from penalty stiffness, achieving exact non-penetration ($g_N \to 0$) without matrix ill-conditioning.
-  * Multiplier updates hooked into `NonlinearStaticAnalysis` and `NonlinearDynamicAnalysis`.
+  * Multiplier updates hooked into `NonlinearStaticAnalysis` and `NonlinearDynamicAnalysis` for both `RigidContact` and `DeformableContact`.
 * [x] **Regularized Tangential Friction**:
   * Regularized Coulomb stick-slip friction: $\boldsymbol{f}_t = -\mu |f_N| \tanh\left(\frac{\|\boldsymbol{v}_t\|}{v_0}\right) \boldsymbol{t}$.
 * [x] **Unit & Integration Test Suite (`tests/test_deformable_contact.py`)**:
