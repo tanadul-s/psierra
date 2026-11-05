@@ -38,6 +38,17 @@ class NonlinearStaticAnalysis(Analysis):
     """
     Nonlinear Static Solver using Incremental Newton-Raphson with Backtracking Line Search.
     Solves R(U) = lambda * F_ext - F_int(U) = 0 using Total Lagrangian kinematics.
+
+    With contact, R = lambda F_ext + F_contact - F_int (force units).
+    The sparse tangent solves for displacement increments (length units).
+    Armijo backtracking uses phi = ||R_f||^2/2, coefficient 1e-4 and at most
+    16 trials with alpha halved on rejection. Contact forces are reevaluated
+    while multipliers remain fixed. Failure restores the last accepted full
+    (u, v, a), and reactions use that accepted load factor. Supplied initial
+    free displacements are retained; fixed constraints ramp with the load,
+    while callable constraints supply their own step values.
+    See docs/06_solvers_and_analysis_pipelines.md and Bathe, Finite Element
+    Procedures, ch. 6 (nonlinear solution procedures).
     """
 
     def __init__(
@@ -110,8 +121,15 @@ class NonlinearStaticAnalysis(Analysis):
         --------
         result : NonlinearStaticResult
         """
+        self._validate_count("n_steps", n_steps)
+        self._validate_count("nr_iterations", nr_iterations)
+        self._validate_count("save_interval", save_interval)
+        self._validate_scalar("nr_tol", nr_tol)
         if f_ext is None:
             f_ext = np.zeros(self.domain.n_dofs, dtype=np.float64)
+        f_ext = np.asarray(f_ext, dtype=np.float64)
+        if f_ext.shape != (self.domain.n_dofs,) or not np.all(np.isfinite(f_ext)):
+            raise ValueError("f_ext must be a finite vector of shape (n_dofs,)")
 
         if contact is None:
             if hasattr(self.domain, "contacts"):
@@ -152,10 +170,7 @@ class NonlinearStaticAnalysis(Analysis):
         if save_dir is not None:
             save_dir.mkdir(parents=True, exist_ok=True)
 
-        if save_interval < 1:
-            raise ValueError(f"save_interval must be >= 1, got {save_interval}")
-
-        u_current = np.zeros(self.domain.n_dofs, dtype=np.float64)
+        u_current = self.domain.u.copy()
         iteration_history: list[int] = []
         exported_files: list[Path] = []
         pvd_writer = (
@@ -187,6 +202,9 @@ class NonlinearStaticAnalysis(Analysis):
 
         for step in range(1, n_steps + 1):
             load_factor = step / n_steps
+            accepted_u = self.domain.u.copy()
+            accepted_v = self.domain.v.copy()
+            accepted_a = self.domain.a.copy()
 
             # Update Dirichlet constraints for the current step
             if callable(dirichlet):
@@ -200,7 +218,7 @@ class NonlinearStaticAnalysis(Analysis):
                 p_dofs = step_manager.prescribed_dofs
                 u_p = step_manager.prescribed_values
                 u_current[p_dofs] = u_p
-            elif len(p_dofs) > 0 and np.any(u_p != 0.0):
+            elif len(p_dofs) > 0:
                 u_current[p_dofs] = load_factor * u_p
 
             f_step = load_factor * f_ext
@@ -221,28 +239,37 @@ class NonlinearStaticAnalysis(Analysis):
                 # 1. Update state in domain with current displacement guess
                 self.domain.update_state(u=u_current)
 
-                # 2. Assemble internal forces F_int(U) and tangent stiffness K_tan(U)
-                f_int = self.domain.assemble_internal_forces()
-                K_tan = self.domain.assemble_tangent_stiffness_matrix()
+                try:
+                    # 2. Assemble internal forces F_int(U) and tangent stiffness K_tan(U)
+                    f_int = self.domain.assemble_internal_forces()
+                    K_tan = self.domain.assemble_tangent_stiffness_matrix()
 
-                # Contact force and tangent stiffness
-                f_contact = np.zeros(self.domain.n_dofs, dtype=np.float64)
-                K_contact = spsp.csr_matrix(
-                    (self.domain.n_dofs, self.domain.n_dofs), dtype=np.float64
-                )
-                for c in contact_list:
-                    f_contact += c.evaluate_forces(
-                        current_nodes=self.domain.current_nodes,
-                        n_dofs=self.domain.n_dofs,
+                    # Contact force and tangent stiffness
+                    f_contact = np.zeros(self.domain.n_dofs, dtype=np.float64)
+                    K_contact = spsp.csr_matrix(
+                        (self.domain.n_dofs, self.domain.n_dofs), dtype=np.float64
                     )
-                    K_contact = K_contact + c.evaluate_stiffness(
-                        current_nodes=self.domain.current_nodes,
-                        n_dofs=self.domain.n_dofs,
-                    )
+                    for c in contact_list:
+                        f_contact += c.evaluate_forces(
+                            current_nodes=self.domain.current_nodes,
+                            n_dofs=self.domain.n_dofs,
+                        )
+                        K_contact = K_contact + c.evaluate_stiffness(
+                            current_nodes=self.domain.current_nodes,
+                            n_dofs=self.domain.n_dofs,
+                        )
+
+                except (ValueError, FloatingPointError):
+                    self.domain.update_state(u=accepted_u, v=accepted_v, a=accepted_a)
+                    if pvd_writer is not None:
+                        pvd_writer.write()
+                    raise
 
                 # 3. Compute Out-of-Balance Residual Vector: R = F_ext_step + F_contact - F_int
                 r_free = f_step_free + f_contact[free_dofs] - f_int[free_dofs]
                 residual_norm = float(np.linalg.norm(r_free))
+                if not np.isfinite(residual_norm):
+                    break
 
                 if f_ref_step is None:
                     # Displacement-controlled problem without external loads:
@@ -273,31 +300,62 @@ class NonlinearStaticAnalysis(Analysis):
                 K_tan_free = K_total[free_dofs, :][:, free_dofs].tocsc()
 
                 # 5. Solve for Displacement Increment: K_tan_free * du = r_free
-                du_free = self.linear_solver.solve(K_tan_free, r_free)
+                try:
+                    du_free = self.linear_solver.solve(K_tan_free, r_free)
+                except (RuntimeError, np.linalg.LinAlgError):
+                    break
+                if not np.all(np.isfinite(du_free)):
+                    break
 
-                # 6. Backtracking Line Search (Guards against element inversion det(F) <= 0)
+                # 6. Armijo search for phi=||R||^2/2. A consistent Newton
+                # direction has phi'(0)=-||R||^2 (Bathe, ch. 6).
+                # Contact forces are reevaluated with fixed multipliers.
                 alpha = 1.0
                 line_search_success = False
 
-                for _ in range(8):
+                for _ in range(16):
                     u_candidate = u_current.copy()
                     u_candidate[free_dofs] += alpha * du_free
+                    if not np.all(np.isfinite(u_candidate)):
+                        alpha *= 0.5
+                        continue
                     self.domain.update_state(u=u_candidate)
 
                     try:
-                        # Test if deformation gradient det(F) > 0 for all elements
-                        self.domain.assemble_internal_forces()
+                        f_int_candidate = self.domain.assemble_internal_forces()
+                        f_contact_candidate = sum(
+                            (
+                                c.evaluate_forces(
+                                    current_nodes=self.domain.current_nodes,
+                                    n_dofs=self.domain.n_dofs,
+                                )
+                                for c in contact_list
+                            ),
+                            np.zeros(self.domain.n_dofs, dtype=np.float64),
+                        )
+                        r_candidate = (
+                            f_step_free + f_contact_candidate[free_dofs]
+                            - f_int_candidate[free_dofs]
+                        )
+                        candidate_norm = float(np.linalg.norm(r_candidate))
+                    except (ValueError, FloatingPointError):
+                        # Constitutive evaluation rejects an inverted trial.
+                        candidate_norm = np.inf
+                    if np.isfinite(candidate_norm) and (
+                        candidate_norm <= nr_tol * f_ref_step
+                        or candidate_norm**2
+                        <= (1.0 - 2.0e-4 * alpha) * residual_norm**2
+                    ):
                         u_current = u_candidate
                         line_search_success = True
                         break
-                    except ValueError:
-                        # Element inversion detected, backtrack step size
+                    else:
                         alpha *= 0.5
 
                 if not line_search_success:
                     if verbose:
                         print(
-                            f"  [bold red]Step {step:2d}/{n_steps}: Line search failed due to element inversion.[/bold red]"
+                            f"  [bold red]Step {step:2d}/{n_steps}: No admissible residual-reducing trial found.[/bold red]"
                         )
                     converged_step = False
                     break
@@ -313,7 +371,8 @@ class NonlinearStaticAnalysis(Analysis):
                     print(
                         f"[bold red]✗ Step {step} failed to converge after {nr_iterations} iterations![/bold red]"
                     )
-                self.domain.update_state(u=u_current)
+                u_current = accepted_u
+                self.domain.update_state(u=accepted_u, v=accepted_v, a=accepted_a)
                 if save_dir is not None and pvd_writer is not None:
                     pvd_writer.write()
                 f_contact_step = sum(
@@ -327,7 +386,9 @@ class NonlinearStaticAnalysis(Analysis):
                     np.zeros(self.domain.n_dofs, dtype=np.float64),
                 )
                 reactions = (
-                    self.domain.assemble_internal_forces() - f_step - f_contact_step
+                    self.domain.assemble_internal_forces()
+                    - ((step - 1) / n_steps) * f_ext
+                    - f_contact_step
                 )
                 return NonlinearStaticResult(
                     displacement=u_current,

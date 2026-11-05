@@ -35,6 +35,12 @@ class LinearDynamicAnalysis(Analysis):
     The Generalized-alpha scheme unifies Newmark-beta, HHT-alpha, and Bossak-alpha into a single
     unconditionally stable, strictly second-order accurate O(dt^2) framework controlled via the
     high-frequency spectral radius rho_infinity in [0.0, 1.0].
+
+    Constant prescribed displacements enter through F_f - K_fp u_p, with
+    v_p = a_p = 0. Initial free u and v are retained, and a follows the
+    reduced equilibrium equation. Sparse factorization is reused each step.
+    See docs/06_solvers_and_analysis_pipelines.md and Bathe, Finite Element
+    Procedures, ch. 9 (direct integration of the equations of motion).
     """
 
     def __init__(
@@ -61,8 +67,8 @@ class LinearDynamicAnalysis(Analysis):
             - rho_inf = 0.5: Moderate high-frequency dissipation (equivalent to HHT-alpha with
               alpha_f = 1/3, alpha_m = 0). Ideal for stiff structures with rapid transient shocks.
             - rho_inf = 0.0: Asymptotic annihilation / maximal dissipation (alpha_m = -1.0, alpha_f = 0.0,
-              gamma = 1.5, beta = 1.0). Annihilates highest frequency components in a single step.
-              Essential for suppressing severe contact chatter, impact shocks, and constraint switching.
+              gamma = 1.5, beta = 1.0). Spectral amplification approaches zero in the high-frequency limit.
+              Provides strong damping of high-frequency oscillations.
         """
         if not (0.0 <= spectral_radius <= 1.0):
             raise ValueError(
@@ -108,7 +114,7 @@ class LinearDynamicAnalysis(Analysis):
         dt : float
             Time step size in seconds.
         n_steps : int
-            Maximum number of time steps to compute.
+            Nonnegative number of time steps. Zero exports only the initial state.
         include_stresses : bool, default=False
             If True, calculates von Mises & principal stresses at each saved step.
         smooth_to_nodes : bool, default=False
@@ -120,7 +126,9 @@ class LinearDynamicAnalysis(Analysis):
         save_interval : int, default=1
             Number of steps between saved step_*.vtu frame files.
         steady_state_tol : float, optional
-            Relative static residual tolerance ||F_ext - K*u|| / ||F_ext||.
+            Relative static residual tolerance ||F_reduced - K_ff*u_f|| /
+            ||F_reduced||, where F_reduced = F_f - K_fp*u_p. The denominator
+            is replaced by 1 for a near-zero reduced load.
             When specified, stops the dynamic solver early once equilibrium is reached.
             If None (default), steady-state checking is ignored.
         kinetic_energy_tol : float, optional
@@ -135,6 +143,18 @@ class LinearDynamicAnalysis(Analysis):
         --------
         result : LinearDynamicResult
         """
+        self._validate_dynamic_controls(
+            dt,
+            n_steps,
+            save_interval,
+            steady_state_tol,
+            kinetic_energy_tol,
+            consecutive_hold_steps,
+        )
+        f_ext = np.asarray(f_ext, dtype=np.float64)
+        if f_ext.shape != (self.domain.n_dofs,) or not np.all(np.isfinite(f_ext)):
+            raise ValueError("f_ext must be a finite vector of shape (n_dofs,)")
+
         # Ensure DirichletManager
         if isinstance(dirichlet, list):
             manager = DirichletManager(self.domain.n_dofs)
@@ -155,9 +175,6 @@ class LinearDynamicAnalysis(Analysis):
         save_dir = Path(save_directory) if save_directory is not None else None
         if save_dir is not None:
             save_dir.mkdir(parents=True, exist_ok=True)
-
-        if save_interval < 1:
-            raise ValueError(f"save_interval must be >= 1, got {save_interval}")
 
         hold_counter = 0
         steady_state_converged = False
@@ -187,7 +204,9 @@ class LinearDynamicAnalysis(Analysis):
         K_ff = K[free_dofs, :][:, free_dofs]
         C_ff = C[free_dofs, :][:, free_dofs]
 
-        f_ext_f = f_ext[free_dofs]
+        # Constant supports have v_p = a_p = 0. Their elastic coupling
+        # contributes the reduced load F_f - K_fp u_p (Bathe, ch. 9).
+        f_ext_f = f_ext[free_dofs] - K[free_dofs, :][:, p_dofs] @ u_p
         f_ref_norm = np.linalg.norm(f_ext_f)
         if f_ref_norm < 1e-12:
             f_ref_norm = 1.0
@@ -219,6 +238,10 @@ class LinearDynamicAnalysis(Analysis):
 
         if len(p_dofs) > 0:
             u_full[p_dofs] = u_p
+        u_full[free_dofs] = u_f
+        v_full[free_dofs] = v_f
+        a_full[free_dofs] = a_f
+        self.domain.update_state(u=u_full, v=v_full, a=a_full)
 
         # 6. Time Loop Preparation
         time_points = np.linspace(0, n_steps * dt, n_steps + 1)
