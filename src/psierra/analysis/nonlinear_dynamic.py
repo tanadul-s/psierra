@@ -13,6 +13,7 @@ from psierra.damping.rayleigh import RayleighDamping
 from psierra.solver.base import SparseLinearSolver
 from psierra.solver.sparse_linear_solver import DirectSolver
 from psierra.analysis.base import Analysis
+from psierra.analysis.augmentation import ContactAugmentation
 from psierra.exchange import PvdCollectionWriter
 
 
@@ -29,6 +30,7 @@ class NonlinearDynamicResult:
     )  # Exported .vtu file paths
     steady_state_converged: bool = False  # True if early equilibrium stopping occurred
     steady_state_step: int | None = None  # Step index where steady state was reached
+    al_iterations_history: list[int] = field(default_factory=list)
 
 
 class NonlinearDynamicAnalysis(Analysis):
@@ -43,10 +45,14 @@ class NonlinearDynamicAnalysis(Analysis):
 
     Newton trials use phi = ||R_eff||^2/2 and Armijo backtracking with
     coefficient 1e-4, at most 16 trials, and alpha halved on rejection.
-    All force, inertia, and damping terms are recomputed at the generalized
-    midpoint, with contact multipliers fixed. Both the midpoint and physical
+    Bulk/penalty forces, inertia, and damping use the generalized midpoint.
+    AL contact force instead uses (1-alpha_f)*Fc_np1+alpha_f*Fc_n, where Fc_n
+    is frozen from the accepted previous endpoint. Fixed-multiplier Newton
+    solves repeat until physical endpoint penetration and projected dual
+    residuals pass. A passing state retains its equilibrated multipliers.
+    Both the midpoint and physical
     endpoint must admit constitutive evaluation. Failure restores the last
-    accepted full (u, v, a); only accepted endpoints are exported.
+    accepted multipliers and full (u, v, a); only accepted endpoints are exported.
     Displacements have length units, velocities length/time, accelerations
     length/time^2, and residuals force units. Sparse effective tangents combine
     the material/contact tangent with constant reduced mass and damping.
@@ -104,6 +110,47 @@ class NonlinearDynamicAnalysis(Analysis):
         self.gamma = 0.5 - self.alpha_m + self.alpha_f
         self.beta = 0.25 * (1.0 - self.alpha_m + self.alpha_f) ** 2
 
+    def _evaluate_contacts(
+        self,
+        contacts: list[RigidContact | DeformableContact | SelfContact],
+        old_al_force: np.ndarray,
+        midpoint: tuple[np.ndarray, np.ndarray, np.ndarray],
+        endpoint: tuple[np.ndarray, np.ndarray, np.ndarray],
+        a1: float,
+        include_stiffness: bool = True,
+    ) -> tuple[np.ndarray, spsp.csr_matrix]:
+        """Evaluate midpoint penalty and endpoint-weighted AL contact.
+
+        With w=1-alpha_f, AL force is w*Fc_np1+alpha_f*Fc_n. Fc_n is frozen
+        from the accepted old endpoint; the endpoint tangent gains the same w
+        through the surrounding effective tangent assembly. Penalty force and
+        bulk force retain midpoint geometry. Domain state is restored to the
+        midpoint even when contact evaluation fails. See Popp (2012), p. 106,
+        Eqs. 4.43-4.47, and docs/06_solvers_and_analysis_pipelines.md.
+        """
+        force = self.alpha_f * old_al_force
+        tangent = spsp.csr_matrix((self.domain.n_dofs, self.domain.n_dofs))
+        try:
+            for augmented in (False, True):
+                state = endpoint if augmented else midpoint
+                self.domain.update_state(u=state[0], v=state[1], a=state[2])
+                weight = 1.0 - self.alpha_f if augmented else 1.0
+                for contact in contacts:
+                    if (getattr(contact, "formulation", None) == "augmented_lagrangian") != augmented:
+                        continue
+                    force += weight * contact.evaluate_forces(
+                        current_nodes=self.domain.current_nodes,
+                        velocities=state[1], n_dofs=self.domain.n_dofs,
+                    )
+                    if include_stiffness:
+                        tangent += contact.evaluate_stiffness(
+                            current_nodes=self.domain.current_nodes,
+                            n_dofs=self.domain.n_dofs, a1=a1,
+                        )
+        finally:
+            self.domain.update_state(u=midpoint[0], v=midpoint[1], a=midpoint[2])
+        return force, tangent
+
     def solve(
         self,
         dirichlet: DirichletManager | list[DirichletConstraint],
@@ -129,6 +176,10 @@ class NonlinearDynamicAnalysis(Analysis):
         kinetic_energy_tol: float | None = None,
         consecutive_hold_steps: int = 3,
         verbose: bool = True,
+        *,
+        al_max_iterations: int = 50,
+        al_gap_tol: float = 1e-6,
+        al_tol: float = 1e-6,
     ) -> NonlinearDynamicResult:
         """
         Executes the nonlinear dynamic time-stepping integration.
@@ -172,6 +223,14 @@ class NonlinearDynamicAnalysis(Analysis):
             Number of consecutive steps that steady-state criteria must hold before stopping.
         verbose : bool, default=True
             Print time step progress and Newton-Raphson residual history.
+        al_max_iterations : int, default=50, keyword-only
+            Maximum fixed-multiplier equilibrium solves per physical time step.
+        al_gap_tol : float, default=1e-6, keyword-only
+            Maximum accepted physical endpoint AL penetration [length].
+        al_tol : float, default=1e-6, keyword-only
+            Relative infinity-norm projected multiplier tolerance. Inner force
+            accuracy is tightened for both dual and gap-force targets. Small
+            time steps can require more outer solves as inertial stiffness grows.
 
         Returns:
         --------
@@ -186,6 +245,9 @@ class NonlinearDynamicAnalysis(Analysis):
             consecutive_hold_steps,
         )
         self._validate_count("nr_iterations", nr_iterations)
+        self._validate_count("al_max_iterations", al_max_iterations)
+        self._validate_scalar("al_gap_tol", al_gap_tol)
+        self._validate_scalar("al_tol", al_tol)
         self._validate_scalar("nr_tol", nr_tol)
         f_ext = np.asarray(f_ext, dtype=np.float64)
         if f_ext.shape != (self.domain.n_dofs,) or not np.all(np.isfinite(f_ext)):
@@ -226,6 +288,10 @@ class NonlinearDynamicAnalysis(Analysis):
             contact_list = [contact]
         else:
             contact_list = list(contact)
+
+        augmentation = ContactAugmentation(
+            contact_list, al_max_iterations, al_gap_tol, al_tol
+        )
 
         # 1. Generalized-alpha Integration Constants
         gamma = self.gamma
@@ -290,6 +356,7 @@ class NonlinearDynamicAnalysis(Analysis):
         time_points = np.linspace(0, n_steps * dt, n_steps + 1)
         exported_files: list[Path] = []
         iteration_history: list[int] = []
+        al_iterations_history: list[int] = []
         pvd_writer = (
             PvdCollectionWriter(save_dir / f"{output_name}.pvd")
             if save_dir is not None
@@ -323,190 +390,234 @@ class NonlinearDynamicAnalysis(Analysis):
             accepted_u = self.domain.u.copy()
             accepted_v = self.domain.v.copy()
             accepted_a = self.domain.a.copy()
+            multiplier_snapshot = augmentation.snapshot(self.domain.current_nodes)
+            old_al_force = sum(
+                (c.evaluate_forces(
+                    current_nodes=self.domain.current_nodes,
+                    velocities=accepted_v,
+                    n_dofs=self.domain.n_dofs,
+                ) for c in augmentation.contacts),
+                np.zeros(self.domain.n_dofs, dtype=np.float64),
+            )
 
             # Initial trial state for step n+1 starts at previous displacement u_n
             u_f_i = u_f.copy()
             step_converged = False
+            total_iterations = 0
 
-            # Newton-Raphson equilibrium iterations within the time step
-            for iteration in range(1, nr_iterations + 1):
-                # Kinematic accelerations and velocities at t_{n+1} from Newmark relations
-                a_f_i = a0 * (u_f_i - u_f) - a2 * v_f - a3 * a_f
-                v_f_i = a1 * (u_f_i - u_f) - a4 * v_f - a5 * a_f
+            for al_iteration in range(1, augmentation.max_iterations + 1):
+                # Newton-Raphson equilibrium iterations within the time step
+                for iteration in range(1, nr_iterations + 1):
+                    # Kinematic accelerations and velocities at t_{n+1} from Newmark relations
+                    a_f_i = a0 * (u_f_i - u_f) - a2 * v_f - a3 * a_f
+                    v_f_i = a1 * (u_f_i - u_f) - a4 * v_f - a5 * a_f
 
-                # Generalized midpoint kinematics for dynamic balance
-                u_mid_f = (1.0 - alpha_f) * u_f_i + alpha_f * u_f
-                v_mid_f = (1.0 - alpha_f) * v_f_i + alpha_f * v_f
-                a_mid_f = (1.0 - alpha_m) * a_f_i + alpha_m * a_f
+                    # Generalized midpoint kinematics for dynamic balance
+                    u_mid_f = (1.0 - alpha_f) * u_f_i + alpha_f * u_f
+                    v_mid_f = (1.0 - alpha_f) * v_f_i + alpha_f * v_f
+                    a_mid_f = (1.0 - alpha_m) * a_f_i + alpha_m * a_f
 
-                # Full vectors for internal force evaluation at midpoint
-                u_full[free_dofs] = u_mid_f
-                v_full[free_dofs] = v_mid_f
-                a_full[free_dofs] = a_mid_f
-                self.domain.update_state(u=u_full, v=v_full, a=a_full)
+                    # Full vectors for internal force evaluation at midpoint
+                    u_full[free_dofs] = u_mid_f
+                    v_full[free_dofs] = v_mid_f
+                    a_full[free_dofs] = a_mid_f
+                    self.domain.update_state(u=u_full, v=v_full, a=a_full)
 
-                try:
-                    # Assemble nonlinear internal forces F_int(u_mid)
-                    f_int = self.domain.assemble_internal_forces()
-
-                    # Contact forces and tangent stiffness at midpoint
-                    f_contact = np.zeros(self.domain.n_dofs, dtype=np.float64)
-                    K_contact = spsp.csr_matrix(
-                        (self.domain.n_dofs, self.domain.n_dofs), dtype=np.float64
-                    )
-                    for c in contact_list:
-                        f_contact += c.evaluate_forces(
-                            current_nodes=self.domain.current_nodes,
-                            velocities=v_full,
-                            n_dofs=self.domain.n_dofs,
-                        )
-                        K_contact = K_contact + c.evaluate_stiffness(
-                            current_nodes=self.domain.current_nodes,
-                            n_dofs=self.domain.n_dofs,
-                            a1=a1,
-                        )
-
-                except (ValueError, FloatingPointError):
-                    self.domain.update_state(u=accepted_u, v=accepted_v, a=accepted_a)
-                    if pvd_writer is not None:
-                        pvd_writer.write()
-                    raise
-
-                # Dynamic out-of-balance residual: R = F_ext + F_contact - M*a_mid - C*v_mid - F_int
-                inertia_f = M_ff @ a_mid_f
-                damping_f = C_ff @ v_mid_f
-                r_eff = (
-                    f_ext_f
-                    + f_contact[free_dofs]
-                    - inertia_f
-                    - damping_f
-                    - f_int[free_dofs]
-                )
-
-                res_norm = float(np.linalg.norm(r_eff))
-                residual_scale = max(
-                    f_ref_norm, np.linalg.norm(f_contact[free_dofs])
-                )
-                rel_res = res_norm / residual_scale
-
-                if not np.isfinite(res_norm):
-                    break
-
-                if rel_res < nr_tol:
-                    step_converged = True
-                    iteration_history.append(iteration - 1)
-                    break
-
-                # Assemble Tangent Stiffness K_tan(u_mid) and Effective Dynamic Tangent Matrix
-                try:
-                    K_tan = self.domain.assemble_tangent_stiffness_matrix()
-                except (ValueError, FloatingPointError):
-                    self.domain.update_state(u=accepted_u, v=accepted_v, a=accepted_a)
-                    if pvd_writer is not None:
-                        pvd_writer.write()
-                    raise
-                K_tan_ff = (K_tan + K_contact)[free_dofs, :][:, free_dofs]
-                K_eff = (
-                    (1.0 - alpha_f) * K_tan_ff
-                    + (1.0 - alpha_m) * a0 * M_ff
-                    + (1.0 - alpha_f) * a1 * C_ff
-                ).tocsc()
-
-                # Solve for displacement increment: K_eff * du = R_eff
-                try:
-                    du_f = self.linear_solver.solve(K_eff, r_eff)
-                except (RuntimeError, np.linalg.LinAlgError):
-                    break
-                if not np.all(np.isfinite(du_f)):
-                    break
-
-                # Armijo merit phi=||R_eff||^2/2, with Newton directional
-                # derivative -||R_eff||^2. Reevaluate all midpoint terms,
-                # including velocity-dependent contact; keep multipliers fixed.
-                alpha = 1.0
-                line_search_ok = False
-                for _ in range(16):
-                    u_cand = u_f_i + alpha * du_f
-                    a_cand = a0 * (u_cand - u_f) - a2 * v_f - a3 * a_f
-                    v_cand = a1 * (u_cand - u_f) - a4 * v_f - a5 * a_f
-                    u_cand_mid = (1.0 - alpha_f) * u_cand + alpha_f * u_f
-                    u_full[free_dofs] = u_cand_mid
-                    v_full[free_dofs] = (1.0 - alpha_f) * v_cand + alpha_f * v_f
-                    a_full[free_dofs] = (1.0 - alpha_m) * a_cand + alpha_m * a_f
-                    if not all(
-                        np.all(np.isfinite(state))
-                        for state in (u_full, v_full, a_full)
-                    ):
-                        alpha *= 0.5
-                        continue
                     try:
-                        # A valid generalized midpoint need not imply a valid
-                        # physical endpoint. Guard both before accepting a trial.
+                        # Assemble nonlinear internal forces F_int(u_mid)
+                        f_int = self.domain.assemble_internal_forces()
+
                         u_endpoint = u_full.copy()
                         v_endpoint = v_full.copy()
                         a_endpoint = a_full.copy()
-                        u_endpoint[free_dofs] = u_cand
-                        v_endpoint[free_dofs] = v_cand
-                        a_endpoint[free_dofs] = a_cand
-                        self.domain.update_state(
-                            u=u_endpoint, v=v_endpoint, a=a_endpoint
+                        u_endpoint[free_dofs] = u_f_i
+                        v_endpoint[free_dofs] = v_f_i
+                        a_endpoint[free_dofs] = a_f_i
+                        f_contact, K_contact = self._evaluate_contacts(
+                            contact_list, old_al_force,
+                            (u_full, v_full, a_full),
+                            (u_endpoint, v_endpoint, a_endpoint), a1,
                         )
-                        f_int_endpoint = self.domain.assemble_internal_forces()
-                        if not np.all(np.isfinite(f_int_endpoint)):
+
+                    except (ValueError, FloatingPointError):
+                        self.domain.update_state(u=accepted_u, v=accepted_v, a=accepted_a)
+                        augmentation.restore(multiplier_snapshot)
+                        if pvd_writer is not None:
+                            pvd_writer.write()
+                        raise
+
+                    # Dynamic out-of-balance residual: R = F_ext + F_contact - M*a_mid - C*v_mid - F_int
+                    inertia_f = M_ff @ a_mid_f
+                    damping_f = C_ff @ v_mid_f
+                    r_eff = (
+                        f_ext_f
+                        + f_contact[free_dofs]
+                        - inertia_f
+                        - damping_f
+                        - f_int[free_dofs]
+                    )
+
+                    res_norm = float(np.linalg.norm(r_eff))
+                    residual_scale = max(
+                        f_ref_norm, np.linalg.norm(f_contact[free_dofs])
+                    )
+                    rel_res = res_norm / residual_scale
+                    inner_tolerance = augmentation.inner_force_tolerance(
+                        nr_tol * residual_scale, residual_scale
+                    )
+
+                    if not np.isfinite(res_norm):
+                        break
+
+                    if res_norm < inner_tolerance:
+                        step_converged = True
+                        break
+
+                    # Assemble Tangent Stiffness K_tan(u_mid) and Effective Dynamic Tangent Matrix
+                    try:
+                        K_tan = self.domain.assemble_tangent_stiffness_matrix()
+                    except (ValueError, FloatingPointError):
+                        self.domain.update_state(u=accepted_u, v=accepted_v, a=accepted_a)
+                        augmentation.restore(multiplier_snapshot)
+                        if pvd_writer is not None:
+                            pvd_writer.write()
+                        raise
+                    K_tan_ff = (K_tan + K_contact)[free_dofs, :][:, free_dofs]
+                    K_eff = (
+                        (1.0 - alpha_f) * K_tan_ff
+                        + (1.0 - alpha_m) * a0 * M_ff
+                        + (1.0 - alpha_f) * a1 * C_ff
+                    ).tocsc()
+
+                    # Solve for displacement increment: K_eff * du = R_eff
+                    try:
+                        du_f = self.linear_solver.solve(K_eff, r_eff)
+                    except (RuntimeError, np.linalg.LinAlgError):
+                        break
+                    if not np.all(np.isfinite(du_f)):
+                        break
+
+                    # Armijo merit phi=||R_eff||^2/2, with Newton directional
+                    # derivative -||R_eff||^2. Reevaluate all midpoint terms,
+                    # including velocity-dependent contact; keep multipliers fixed.
+                    alpha = 1.0
+                    line_search_ok = False
+                    for _ in range(16):
+                        u_cand = u_f_i + alpha * du_f
+                        a_cand = a0 * (u_cand - u_f) - a2 * v_f - a3 * a_f
+                        v_cand = a1 * (u_cand - u_f) - a4 * v_f - a5 * a_f
+                        u_cand_mid = (1.0 - alpha_f) * u_cand + alpha_f * u_f
+                        u_full[free_dofs] = u_cand_mid
+                        v_full[free_dofs] = (1.0 - alpha_f) * v_cand + alpha_f * v_f
+                        a_full[free_dofs] = (1.0 - alpha_m) * a_cand + alpha_m * a_f
+                        if not all(
+                            np.all(np.isfinite(state))
+                            for state in (u_full, v_full, a_full)
+                        ):
                             alpha *= 0.5
                             continue
-                        self.domain.update_state(u=u_full, v=v_full, a=a_full)
-                        f_int_cand = self.domain.assemble_internal_forces()
-                        f_contact_cand = sum(
-                            (
-                                c.evaluate_forces(
-                                    current_nodes=self.domain.current_nodes,
-                                    velocities=v_full,
-                                    n_dofs=self.domain.n_dofs,
-                                )
-                                for c in contact_list
-                            ),
-                            np.zeros(self.domain.n_dofs, dtype=np.float64),
-                        )
-                        r_cand = (
-                            f_ext_f + f_contact_cand[free_dofs]
-                            - M_ff @ a_full[free_dofs]
-                            - C_ff @ v_full[free_dofs] - f_int_cand[free_dofs]
-                        )
-                        cand_norm = float(np.linalg.norm(r_cand))
-                    except (ValueError, FloatingPointError):
-                        # Constitutive evaluation rejects an inverted trial.
-                        cand_norm = np.inf
-                    if np.isfinite(cand_norm) and (
-                        cand_norm <= nr_tol * residual_scale
-                        or cand_norm**2 <= (1.0 - 2.0e-4 * alpha) * res_norm**2
-                    ):
-                        u_f_i = u_cand
-                        line_search_ok = True
-                        break
-                    else:
-                        alpha *= 0.5
+                        try:
+                            # A valid generalized midpoint need not imply a valid
+                            # physical endpoint. Guard both before accepting a trial.
+                            u_endpoint = u_full.copy()
+                            v_endpoint = v_full.copy()
+                            a_endpoint = a_full.copy()
+                            u_endpoint[free_dofs] = u_cand
+                            v_endpoint[free_dofs] = v_cand
+                            a_endpoint[free_dofs] = a_cand
+                            self.domain.update_state(
+                                u=u_endpoint, v=v_endpoint, a=a_endpoint
+                            )
+                            f_int_endpoint = self.domain.assemble_internal_forces()
+                            if not np.all(np.isfinite(f_int_endpoint)):
+                                alpha *= 0.5
+                                continue
+                            self.domain.update_state(u=u_full, v=v_full, a=a_full)
+                            f_int_cand = self.domain.assemble_internal_forces()
+                            f_contact_cand, _ = self._evaluate_contacts(
+                                contact_list, old_al_force,
+                                (u_full, v_full, a_full),
+                                (u_endpoint, v_endpoint, a_endpoint), a1,
+                                include_stiffness=False,
+                            )
+                            r_cand = (
+                                f_ext_f + f_contact_cand[free_dofs]
+                                - M_ff @ a_full[free_dofs]
+                                - C_ff @ v_full[free_dofs] - f_int_cand[free_dofs]
+                            )
+                            cand_norm = float(np.linalg.norm(r_cand))
+                        except (ValueError, FloatingPointError):
+                            # Constitutive evaluation rejects an inverted trial.
+                            cand_norm = np.inf
+                        if np.isfinite(cand_norm) and (
+                            cand_norm <= inner_tolerance
+                            or cand_norm**2 <= (1.0 - 2.0e-4 * alpha) * res_norm**2
+                        ):
+                            u_f_i = u_cand
+                            line_search_ok = True
+                            break
+                        else:
+                            alpha *= 0.5
 
-                if not line_search_ok:
-                    if verbose:
-                        print(
-                            f"  [bold red]Step {step:4d}: No admissible residual-reducing trial found.[/bold red]"
-                        )
+                    if not line_search_ok:
+                        if verbose:
+                            print(
+                                f"  [bold red]Step {step:4d}: No admissible residual-reducing trial found.[/bold red]"
+                            )
+                        break
+
+                total_iterations += iteration - 1
+                if not step_converged:
                     break
+                # Assess endpoint constraints; the old Newmark state and old
+                # endpoint force remain frozen across every augmentation.
+                a_endpoint_f = a0 * (u_f_i - u_f) - a2 * v_f - a3 * a_f
+                v_endpoint_f = a1 * (u_f_i - u_f) - a4 * v_f - a5 * a_f
+                u_endpoint = u_full.copy()
+                v_endpoint = v_full.copy()
+                a_endpoint = a_full.copy()
+                u_endpoint[free_dofs] = u_f_i
+                v_endpoint[free_dofs] = v_endpoint_f
+                a_endpoint[free_dofs] = a_endpoint_f
+                self.domain.update_state(u=u_endpoint, v=v_endpoint, a=a_endpoint)
+                try:
+                    status = augmentation.assess(self.domain.current_nodes)
+                except (ValueError, FloatingPointError):
+                    self.domain.update_state(u=accepted_u, v=accepted_v, a=accepted_a)
+                    augmentation.restore(multiplier_snapshot)
+                    if pvd_writer is not None:
+                        pvd_writer.write()
+                    raise
+                if verbose and augmentation.contacts:
+                    print(
+                        f"  Augmentation {al_iteration}/{augmentation.max_iterations} | "
+                        f"Endpoint penetration = {status.max_penetration:.4e} | "
+                        f"Projected multiplier residual = {status.relative_multiplier_residual:.4e}"
+                    )
+                if status.converged:
+                    iteration_history.append(total_iterations)
+                    al_iterations_history.append(al_iteration if augmentation.contacts else 0)
+                    break
+                step_converged = False
+                if al_iteration < augmentation.max_iterations:
+                    augmentation.commit(status)
 
             if not step_converged:
                 self.domain.update_state(u=accepted_u, v=accepted_v, a=accepted_a)
+                augmentation.restore(multiplier_snapshot)
                 if pvd_writer is not None:
                     pvd_writer.write()
                 if verbose:
                     print(
-                        f"[bold red]✗ Step {step} (t={t_current:.4f}s) failed to converge in {nr_iterations} iterations![/bold red]"
+                        f"[bold red]✗ Step {step} (t={t_current:.4f}s) failed Newton/contact "
+                        f"acceptance within {al_iteration} equilibrium solve(s).[/bold red]"
                     )
                 return NonlinearDynamicResult(
                     time=time_points[:step],
                     converged=False,
                     steps_completed=step - 1,
                     iteration_history=iteration_history,
+                    al_iterations_history=al_iterations_history,
                     time_series_files=exported_files,
                 )
 
@@ -521,11 +632,6 @@ class NonlinearDynamicAnalysis(Analysis):
             v_full[free_dofs] = v_f
             a_full[free_dofs] = a_f
             self.domain.update_state(u=u_full, v=v_full, a=a_full)
-
-            # Update Augmented Lagrangian contact multipliers if active
-            for c in contact_list:
-                if hasattr(c, "update_multipliers"):
-                    c.update_multipliers()
 
             # Save frame
             saved_current_step = False
@@ -629,6 +735,7 @@ class NonlinearDynamicAnalysis(Analysis):
             converged=True,
             steps_completed=steps_done,
             iteration_history=iteration_history,
+            al_iterations_history=al_iterations_history,
             time_series_files=exported_files,
             steady_state_converged=steady_state_converged,
             steady_state_step=steady_state_step,

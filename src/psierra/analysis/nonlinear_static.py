@@ -17,6 +17,7 @@ from psierra.boundary import (
 )
 from psierra.solver.sparse_linear_solver import SparseLinearSolver, DirectSolver
 from psierra.analysis.base import Analysis
+from psierra.analysis.augmentation import ContactAugmentation
 from psierra.exchange import PvdCollectionWriter
 
 
@@ -32,6 +33,7 @@ class NonlinearStaticResult:
     time_series_files: list[Path] = field(
         default_factory=list
     )  # Exported .vtu file paths
+    al_iterations_history: list[int] = field(default_factory=list)
 
 
 class NonlinearStaticAnalysis(Analysis):
@@ -43,8 +45,11 @@ class NonlinearStaticAnalysis(Analysis):
     The sparse tangent solves for displacement increments (length units).
     Armijo backtracking uses phi = ||R_f||^2/2, coefficient 1e-4 and at most
     16 trials with alpha halved on rejection. Contact forces are reevaluated
-    while multipliers remain fixed. Failure restores the last accepted full
-    (u, v, a), and reactions use that accepted load factor. Supplied initial
+    while multipliers remain fixed. AL outer iterations repeat equilibrium
+    after projected multiplier updates until penetration and relative projected
+    multiplier defects pass their tolerances. A passing state retains its solved
+    multipliers without another update. Failure restores accepted multipliers
+    and full (u, v, a); reactions use that accepted load factor. Supplied initial
     free displacements are retained; fixed constraints ramp with the load,
     while callable constraints supply their own step values.
     See docs/06_solvers_and_analysis_pipelines.md and Bathe, Finite Element
@@ -86,6 +91,10 @@ class NonlinearStaticAnalysis(Analysis):
         save_interval: int = 1,
         factor: float = 0.0,
         verbose: bool = True,
+        *,
+        al_max_iterations: int = 50,
+        al_gap_tol: float = 1e-6,
+        al_tol: float = 1e-6,
     ) -> NonlinearStaticResult:
         """
         Solves the nonlinear equilibrium equation incrementally.
@@ -116,6 +125,13 @@ class NonlinearStaticAnalysis(Analysis):
             Number of steps between saved step_*.vtu frame files.
         verbose : bool, default=True
             Print step-by-step residual and convergence reports.
+        al_max_iterations : int, default=50, keyword-only
+            Maximum fixed-multiplier equilibrium solves per load increment.
+        al_gap_tol : float, default=1e-6, keyword-only
+            Maximum accepted AL penetration [length].
+        al_tol : float, default=1e-6, keyword-only
+            Relative infinity-norm projected multiplier tolerance. Inner force
+            accuracy is tightened to resolve both dual and gap-force targets.
 
         Returns:
         --------
@@ -123,6 +139,9 @@ class NonlinearStaticAnalysis(Analysis):
         """
         self._validate_count("n_steps", n_steps)
         self._validate_count("nr_iterations", nr_iterations)
+        self._validate_count("al_max_iterations", al_max_iterations)
+        self._validate_scalar("al_gap_tol", al_gap_tol)
+        self._validate_scalar("al_tol", al_tol)
         self._validate_count("save_interval", save_interval)
         self._validate_scalar("nr_tol", nr_tol)
         if f_ext is None:
@@ -140,6 +159,10 @@ class NonlinearStaticAnalysis(Analysis):
             contact_list = [contact]
         else:
             contact_list = list(contact)
+
+        augmentation = ContactAugmentation(
+            contact_list, al_max_iterations, al_gap_tol, al_tol
+        )
 
         # Initialize DirichletManager
         if callable(dirichlet):
@@ -172,6 +195,7 @@ class NonlinearStaticAnalysis(Analysis):
 
         u_current = self.domain.u.copy()
         iteration_history: list[int] = []
+        al_iterations_history: list[int] = []
         exported_files: list[Path] = []
         pvd_writer = (
             PvdCollectionWriter(save_dir / f"{output_name}.pvd")
@@ -205,6 +229,7 @@ class NonlinearStaticAnalysis(Analysis):
             accepted_u = self.domain.u.copy()
             accepted_v = self.domain.v.copy()
             accepted_a = self.domain.a.copy()
+            multiplier_snapshot = augmentation.snapshot(self.domain.current_nodes)
 
             # Update Dirichlet constraints for the current step
             if callable(dirichlet):
@@ -234,145 +259,173 @@ class NonlinearStaticAnalysis(Analysis):
                 )
 
             converged_step = False
+            total_iterations = 0
 
-            for iteration in range(1, nr_iterations + 1):
-                # 1. Update state in domain with current displacement guess
-                self.domain.update_state(u=u_current)
+            for al_iteration in range(1, augmentation.max_iterations + 1):
+                for iteration in range(1, nr_iterations + 1):
+                    # 1. Update state in domain with current displacement guess
+                    self.domain.update_state(u=u_current)
 
-                try:
-                    # 2. Assemble internal forces F_int(U) and tangent stiffness K_tan(U)
-                    f_int = self.domain.assemble_internal_forces()
-                    K_tan = self.domain.assemble_tangent_stiffness_matrix()
+                    try:
+                        # 2. Assemble internal forces F_int(U) and tangent stiffness K_tan(U)
+                        f_int = self.domain.assemble_internal_forces()
+                        K_tan = self.domain.assemble_tangent_stiffness_matrix()
 
-                    # Contact force and tangent stiffness
-                    f_contact = np.zeros(self.domain.n_dofs, dtype=np.float64)
-                    K_contact = spsp.csr_matrix(
-                        (self.domain.n_dofs, self.domain.n_dofs), dtype=np.float64
+                        # Contact force and tangent stiffness
+                        f_contact = np.zeros(self.domain.n_dofs, dtype=np.float64)
+                        K_contact = spsp.csr_matrix(
+                            (self.domain.n_dofs, self.domain.n_dofs), dtype=np.float64
+                        )
+                        for c in contact_list:
+                            f_contact += c.evaluate_forces(
+                                current_nodes=self.domain.current_nodes,
+                                n_dofs=self.domain.n_dofs,
+                            )
+                            K_contact = K_contact + c.evaluate_stiffness(
+                                current_nodes=self.domain.current_nodes,
+                                n_dofs=self.domain.n_dofs,
+                            )
+
+                    except (ValueError, FloatingPointError):
+                        self.domain.update_state(u=accepted_u, v=accepted_v, a=accepted_a)
+                        augmentation.restore(multiplier_snapshot)
+                        if pvd_writer is not None:
+                            pvd_writer.write()
+                        raise
+
+                    # 3. Compute Out-of-Balance Residual Vector: R = F_ext_step + F_contact - F_int
+                    r_free = f_step_free + f_contact[free_dofs] - f_int[free_dofs]
+                    residual_norm = float(np.linalg.norm(r_free))
+                    if not np.isfinite(residual_norm):
+                        break
+
+                    if f_ref_step is None:
+                        # Displacement-controlled problem without external loads:
+                        # normalize against the step's initial unbalance or internal force scale
+                        f_ref_step = max(
+                            residual_norm, float(np.linalg.norm(f_int[free_dofs])), 1.0
+                        )
+
+                    rel_residual = residual_norm / f_ref_step
+                    inner_tolerance = augmentation.inner_force_tolerance(
+                        nr_tol * f_ref_step, f_ref_step
                     )
-                    for c in contact_list:
-                        f_contact += c.evaluate_forces(
-                            current_nodes=self.domain.current_nodes,
-                            n_dofs=self.domain.n_dofs,
-                        )
-                        K_contact = K_contact + c.evaluate_stiffness(
-                            current_nodes=self.domain.current_nodes,
-                            n_dofs=self.domain.n_dofs,
+
+                    if verbose:
+                        print(
+                            f"  Iter {iteration:2d} | ||R|| = {residual_norm:.4e} | Rel = {rel_residual:.4e}"
                         )
 
+                    # Check Convergence
+                    if residual_norm < inner_tolerance:
+                        converged_step = True
+                        if verbose:
+                            print(
+                                    f"  Newton equilibrium converged in {iteration} iteration(s)."
+                            )
+                        break
+
+                    # 4. Partition Tangent Stiffness to Free DOFs
+                    K_total = K_tan + K_contact
+                    K_tan_free = K_total[free_dofs, :][:, free_dofs].tocsc()
+
+                    # 5. Solve for Displacement Increment: K_tan_free * du = r_free
+                    try:
+                        du_free = self.linear_solver.solve(K_tan_free, r_free)
+                    except (RuntimeError, np.linalg.LinAlgError):
+                        break
+                    if not np.all(np.isfinite(du_free)):
+                        break
+
+                    # 6. Armijo search for phi=||R||^2/2. A consistent Newton
+                    # direction has phi'(0)=-||R||^2 (Bathe, ch. 6).
+                    # Contact forces are reevaluated with fixed multipliers.
+                    alpha = 1.0
+                    line_search_success = False
+
+                    for _ in range(16):
+                        u_candidate = u_current.copy()
+                        u_candidate[free_dofs] += alpha * du_free
+                        if not np.all(np.isfinite(u_candidate)):
+                            alpha *= 0.5
+                            continue
+                        self.domain.update_state(u=u_candidate)
+
+                        try:
+                            f_int_candidate = self.domain.assemble_internal_forces()
+                            f_contact_candidate = sum(
+                                (
+                                    c.evaluate_forces(
+                                        current_nodes=self.domain.current_nodes,
+                                        n_dofs=self.domain.n_dofs,
+                                    )
+                                    for c in contact_list
+                                ),
+                                np.zeros(self.domain.n_dofs, dtype=np.float64),
+                            )
+                            r_candidate = (
+                                f_step_free + f_contact_candidate[free_dofs]
+                                - f_int_candidate[free_dofs]
+                            )
+                            candidate_norm = float(np.linalg.norm(r_candidate))
+                        except (ValueError, FloatingPointError):
+                            # Constitutive evaluation rejects an inverted trial.
+                            candidate_norm = np.inf
+                        if np.isfinite(candidate_norm) and (
+                            candidate_norm <= inner_tolerance
+                            or candidate_norm**2
+                            <= (1.0 - 2.0e-4 * alpha) * residual_norm**2
+                        ):
+                            u_current = u_candidate
+                            line_search_success = True
+                            break
+                        else:
+                            alpha *= 0.5
+
+                    if not line_search_success:
+                        if verbose:
+                            print(
+                                f"  [bold red]Step {step:2d}/{n_steps}: No admissible residual-reducing trial found.[/bold red]"
+                            )
+                        converged_step = False
+                        break
+
+                total_iterations += iteration
+                if not converged_step:
+                    break
+                try:
+                    status = augmentation.assess(self.domain.current_nodes)
                 except (ValueError, FloatingPointError):
                     self.domain.update_state(u=accepted_u, v=accepted_v, a=accepted_a)
+                    augmentation.restore(multiplier_snapshot)
                     if pvd_writer is not None:
                         pvd_writer.write()
                     raise
-
-                # 3. Compute Out-of-Balance Residual Vector: R = F_ext_step + F_contact - F_int
-                r_free = f_step_free + f_contact[free_dofs] - f_int[free_dofs]
-                residual_norm = float(np.linalg.norm(r_free))
-                if not np.isfinite(residual_norm):
-                    break
-
-                if f_ref_step is None:
-                    # Displacement-controlled problem without external loads:
-                    # normalize against the step's initial unbalance or internal force scale
-                    f_ref_step = max(
-                        residual_norm, float(np.linalg.norm(f_int[free_dofs])), 1.0
-                    )
-
-                rel_residual = residual_norm / f_ref_step
-
-                if verbose:
+                if verbose and augmentation.contacts:
                     print(
-                        f"  Iter {iteration:2d} | ||R|| = {residual_norm:.4e} | Rel = {rel_residual:.4e}"
+                        f"  Augmentation {al_iteration}/{augmentation.max_iterations} | "
+                        f"Penetration = {status.max_penetration:.4e} | "
+                        f"Projected multiplier residual = {status.relative_multiplier_residual:.4e}"
                     )
-
-                # Check Convergence
-                if rel_residual < nr_tol:
-                    converged_step = True
-                    iteration_history.append(iteration)
+                if status.converged:
+                    iteration_history.append(total_iterations)
+                    al_iterations_history.append(al_iteration if augmentation.contacts else 0)
                     if verbose:
-                        print(
-                            f"  [bold green]✓ Step {step} converged in {iteration} iteration(s)![/bold green]\n"
-                        )
+                        print(f"  [bold green]✓ Step {step} accepted.[/bold green]\n")
                     break
-
-                # 4. Partition Tangent Stiffness to Free DOFs
-                K_total = K_tan + K_contact
-                K_tan_free = K_total[free_dofs, :][:, free_dofs].tocsc()
-
-                # 5. Solve for Displacement Increment: K_tan_free * du = r_free
-                try:
-                    du_free = self.linear_solver.solve(K_tan_free, r_free)
-                except (RuntimeError, np.linalg.LinAlgError):
-                    break
-                if not np.all(np.isfinite(du_free)):
-                    break
-
-                # 6. Armijo search for phi=||R||^2/2. A consistent Newton
-                # direction has phi'(0)=-||R||^2 (Bathe, ch. 6).
-                # Contact forces are reevaluated with fixed multipliers.
-                alpha = 1.0
-                line_search_success = False
-
-                for _ in range(16):
-                    u_candidate = u_current.copy()
-                    u_candidate[free_dofs] += alpha * du_free
-                    if not np.all(np.isfinite(u_candidate)):
-                        alpha *= 0.5
-                        continue
-                    self.domain.update_state(u=u_candidate)
-
-                    try:
-                        f_int_candidate = self.domain.assemble_internal_forces()
-                        f_contact_candidate = sum(
-                            (
-                                c.evaluate_forces(
-                                    current_nodes=self.domain.current_nodes,
-                                    n_dofs=self.domain.n_dofs,
-                                )
-                                for c in contact_list
-                            ),
-                            np.zeros(self.domain.n_dofs, dtype=np.float64),
-                        )
-                        r_candidate = (
-                            f_step_free + f_contact_candidate[free_dofs]
-                            - f_int_candidate[free_dofs]
-                        )
-                        candidate_norm = float(np.linalg.norm(r_candidate))
-                    except (ValueError, FloatingPointError):
-                        # Constitutive evaluation rejects an inverted trial.
-                        candidate_norm = np.inf
-                    if np.isfinite(candidate_norm) and (
-                        candidate_norm <= nr_tol * f_ref_step
-                        or candidate_norm**2
-                        <= (1.0 - 2.0e-4 * alpha) * residual_norm**2
-                    ):
-                        u_current = u_candidate
-                        line_search_success = True
-                        break
-                    else:
-                        alpha *= 0.5
-
-                if not line_search_success:
-                    if verbose:
-                        print(
-                            f"  [bold red]Step {step:2d}/{n_steps}: No admissible residual-reducing trial found.[/bold red]"
-                        )
-                    converged_step = False
-                    break
-
-            if converged_step:
-                # Update Augmented Lagrangian contact multipliers if active
-                for c in contact_list:
-                    if hasattr(c, "update_multipliers"):
-                        c.update_multipliers()
+                converged_step = False
+                if al_iteration < augmentation.max_iterations:
+                    augmentation.commit(status)
 
             if not converged_step:
                 if verbose:
                     print(
-                        f"[bold red]✗ Step {step} failed to converge after {nr_iterations} iterations![/bold red]"
+                        f"[bold red]✗ Step {step} failed Newton/contact acceptance "
+                        f"within {al_iteration} equilibrium solve(s).[/bold red]"
                     )
                 u_current = accepted_u
                 self.domain.update_state(u=accepted_u, v=accepted_v, a=accepted_a)
+                augmentation.restore(multiplier_snapshot)
                 if save_dir is not None and pvd_writer is not None:
                     pvd_writer.write()
                 f_contact_step = sum(
@@ -396,6 +449,7 @@ class NonlinearStaticAnalysis(Analysis):
                     converged=False,
                     steps_completed=step - 1,
                     iteration_history=iteration_history,
+                    al_iterations_history=al_iterations_history,
                     time_series_files=exported_files,
                 )
 
@@ -444,5 +498,6 @@ class NonlinearStaticAnalysis(Analysis):
             converged=True,
             steps_completed=n_steps,
             iteration_history=iteration_history,
+            al_iterations_history=al_iterations_history,
             time_series_files=exported_files,
         )
