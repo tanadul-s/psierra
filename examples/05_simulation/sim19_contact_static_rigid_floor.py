@@ -56,8 +56,8 @@ def parse_arguments() -> argparse.Namespace:
     parser.add_argument(
         "--steps",
         type=int,
-        default=10,
-        help="Number of incremental Newton-Raphson load steps (default: 10)",
+        default=20,
+        help="Number of incremental Newton-Raphson load steps (default: 20)",
     )
     parser.add_argument(
         "--gap",
@@ -74,8 +74,8 @@ def parse_arguments() -> argparse.Namespace:
     parser.add_argument(
         "--load",
         type=float,
-        default=1.2e6,
-        help="Total downward tip load in N (default: 1.2e6 N = 1.2 MN)",
+        default=2.0e5,
+        help="Total downward tip load in N (default: 2.0e5 N = 200 kN)",
     )
     parser.add_argument(
         "--output-dir",
@@ -163,7 +163,7 @@ def main() -> None:
 
     console.print(f"  Assembly Bodies : {system.names} (Total DOFs: {system.n_dofs})")
     console.print(
-        f"  Registered Contact: RigidContact(slave='Beam', master='Floor', k_p = {args.kp:.1e} N/mm)"
+        f"  Registered Contact: {type(contact).__name__}(slave='Beam', master='Floor', k_p = {args.kp:.1e} N/mm)"
     )
 
     # Boundary conditions:

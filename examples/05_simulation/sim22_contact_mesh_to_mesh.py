@@ -68,20 +68,38 @@ def parse_arguments() -> argparse.Namespace:
     parser.add_argument(
         "--steps",
         type=int,
-        default=60,
-        help="Number of dynamic time steps (default: 60 steps = 0.12 s)",
+        default=15,
+        help="Number of dynamic time steps (default: 15 steps = 0.03 s, through impact & contact)",
     )
     parser.add_argument(
         "--gap",
         type=float,
-        default=0.0,
-        help="Initial vertical gap between beam bottom and floor top in mm (default: 0.0 mm)",
+        default=1.0,
+        help="Initial vertical gap between cantilever beam bottom and floor top in mm (default: 1.0 mm)",
     )
     parser.add_argument(
         "--kp",
         type=float,
-        default=50000.0,
-        help="Normal penalty contact stiffness in N/mm (default: 50000.0 N/mm)",
+        default=200000.0,
+        help="Normal penalty contact stiffness in N/mm (default: 200000.0 N/mm)",
+    )
+    parser.add_argument(
+        "--al-gap-tol",
+        type=float,
+        default=1e-3,
+        help="Maximum allowable penetration in mm under Augmented Lagrangian (default: 1e-3 mm = 1 um)",
+    )
+    parser.add_argument(
+        "--al-tol",
+        type=float,
+        default=1e-3,
+        help="Relative projected multiplier convergence tolerance under Augmented Lagrangian (default: 1e-3)",
+    )
+    parser.add_argument(
+        "--al-max-iter",
+        type=int,
+        default=50,
+        help="Maximum Augmented Lagrangian Uzawa iterations per step (default: 50)",
     )
     parser.add_argument(
         "--formulation",
@@ -135,7 +153,11 @@ def main() -> None:
         raise FileNotFoundError(f"Beam mesh file not found: {beam_path}")
 
     beam_mesh = VolumetricMesh(beam_path)
-    beam_bottom_y = float(beam_mesh.bounds[2])  # -60.0 mm
+    # The beam mesh consists of a fixed mounting block at Z in [-30, 0] with Y in [-60, 60] mm
+    # and a cantilever arm at Z in [0, 200] with Y in [-25, 25] mm.
+    # The floor is positioned under the cantilever landing zone (Z = 150 mm).
+    cantilever_mask = beam_mesh.nodes[:, 2] > 0.0
+    beam_bottom_y = float(beam_mesh.nodes[cantilever_mask, 1].min())  # -25.0 mm
     beam_top_y = float(beam_mesh.bounds[3])
     min_z = float(beam_mesh.bounds[4])
     max_z = float(beam_mesh.bounds[5])
@@ -281,6 +303,9 @@ def main() -> None:
         dt=args.dt,
         n_steps=args.steps,
         nr_tol=1e-3,
+        al_gap_tol=args.al_gap_tol,
+        al_tol=args.al_tol,
+        al_max_iterations=args.al_max_iter,
         factor=0.0,  # factor=0.0 exports reference mesh with 'Displacement' array for manual ParaView Warp by Vector
         save_directory=output_dir,
         output_name="sim22_contact_mesh_to_mesh",

@@ -321,8 +321,14 @@ def main() -> None:
         "YES (Touchdown & Rebound)" if contact_occurred else "NO (Free Swing)",
         "",
     )
-    has_embree = any(
-        getattr(s, "has_embree", False) for s in getattr(contact.detector, "shapes", [])
+    detector = getattr(contact, "detector", None)
+    has_embree = (
+        any(
+            getattr(s, "has_embree", False)
+            for s in getattr(detector, "shapes", [])
+        )
+        if detector is not None
+        else False
     )
     table.add_row(
         "RayMesh BVH Engine", "Intel Embree BVH" if has_embree else "VTK Locator", ""

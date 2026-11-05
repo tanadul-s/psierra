@@ -166,6 +166,18 @@ def parse_arguments() -> argparse.Namespace:
         help="Newton-Raphson relative convergence tolerance (default: 1e-3)",
     )
     parser.add_argument(
+        "--al-gap-tol",
+        type=float,
+        default=1e-3,
+        help="Augmented Lagrangian penetration tolerance in mm (default: 1e-3 mm = 1 um)",
+    )
+    parser.add_argument(
+        "--al-tol",
+        type=float,
+        default=1e-3,
+        help="Augmented Lagrangian multiplier convergence tolerance (default: 1e-3)",
+    )
+    parser.add_argument(
         "--nr-max",
         type=int,
         default=25,
@@ -174,8 +186,8 @@ def parse_arguments() -> argparse.Namespace:
     parser.add_argument(
         "--export-dir",
         type=str,
-        default="results/sim23_contact_self_bunny",
-        help="Directory to save ParaView .pvd and .vtu time series (default: results/sim23_contact_self_bunny)",
+        default="examples/05_simulation/sim23_output",
+        help="Directory to save ParaView .pvd and .vtu time series (default: examples/05_simulation/sim23_output)",
     )
     parser.add_argument(
         "--no-export",
@@ -392,6 +404,8 @@ def main() -> None:
         n_steps=args.steps,
         nr_iterations=args.nr_max,
         nr_tol=args.tol,
+        al_gap_tol=args.al_gap_tol,
+        al_tol=args.al_tol,
         save_directory=save_dir,
         output_name="bunny_self_contact",
         factor=0.0,  # Strictly factor=0.0 for ParaView WarpByVector
