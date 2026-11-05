@@ -9,6 +9,7 @@ deformable-to-rigid (and multi-body) interactions.
 from __future__ import annotations
 from collections import defaultdict
 from collections.abc import Sequence
+from dataclasses import dataclass
 from typing import Any, Literal
 
 import numpy as np
@@ -19,9 +20,74 @@ from psierra.domain.base import Domain
 from psierra.collision.shapes import CollisionShape
 from psierra.collision.raytrace import RayMeshObstacle
 from psierra.collision.detector import CollisionDetector, ContactQueryResult
+from psierra.collision.triangle import TriangleContactGeometry, TriangleGap
 
 
-class RigidContact:
+class ContactMultiplierState:
+    """Explicit normal-multiplier state shared by contact formulations.
+
+    Multipliers have force units and are aligned with ``evaluate_gaps()``.
+    Candidate gaps may be +infinity when no self-contact feature is admissible;
+    their projected multiplier is zero. State restoration invalidates derived
+    contact data, so rejected solver increments cannot leak trial history.
+    """
+
+    multipliers: np.ndarray
+    k_penalty: float
+    formulation: str
+
+    def evaluate_gaps(self, current_nodes: np.ndarray | None = None) -> np.ndarray:
+        """Return candidate-aligned signed normal constraint gaps [length]."""
+        raise NotImplementedError
+
+    def snapshot_multipliers(self) -> np.ndarray:
+        """Copy the current accepted normal multipliers [force]."""
+        return self.multipliers.copy()
+
+    def invalidate_state(self) -> None:
+        """Invalidate derived queries after a multiplier/state transaction."""
+
+    def set_multipliers(self, values: np.ndarray) -> None:
+        """Set finite nonnegative multipliers [force] and invalidate queries."""
+        values = np.asarray(values, dtype=np.float64)
+        if (
+            values.shape != self.multipliers.shape
+            or not np.all(np.isfinite(values))
+            or np.any(values < 0.0)
+        ):
+            raise ValueError(
+                "Multipliers must be a finite nonnegative candidate-aligned vector"
+            )
+        self.multipliers[:] = values
+        self.invalidate_state()
+
+    def update_multipliers(self) -> dict[str, float]:
+        """Project lambda<-max(0,lambda-kp*g); penalty formulation is a no-op.
+
+        This updates dual state only; it does not establish equilibrium.
+        Batch analyses solve equilibrium again after every committed update.
+        """
+        if self.formulation != "augmented_lagrangian":
+            return {
+                "max_penetration": 0.0,
+                "max_multiplier": float(np.max(self.multipliers, initial=0.0)),
+                "max_delta_multiplier": 0.0,
+                "num_active": int(np.count_nonzero(self.multipliers > 0.0)),
+            }
+        gaps = self.evaluate_gaps()
+        previous = self.snapshot_multipliers()
+        self.set_multipliers(np.maximum(0.0, previous - self.k_penalty * gaps))
+        return {
+            "max_penetration": float(np.max(np.maximum(-gaps, 0.0), initial=0.0)),
+            "max_multiplier": float(np.max(self.multipliers, initial=0.0)),
+            "max_delta_multiplier": float(
+                np.max(np.abs(self.multipliers - previous), initial=0.0)
+            ),
+            "num_active": int(np.count_nonzero(self.multipliers > 0.0)),
+        }
+
+
+class RigidContact(ContactMultiplierState):
     """
     Deformable-to-Rigid Contact Formulation for Project Sierra.
 
@@ -37,8 +103,12 @@ class RigidContact:
         f_d = -c_p * (v . n) * n  (active when v . n < 0, penetrating velocity)
     to eliminate high-frequency contact chatter and control impact restitution.
 
-    Linearization yields a symmetric positive semi-definite tangent stiffness contribution:
-        K_c = k_p * (n (x) n)
+    The planar normal tangent is K_c=kp*(n tensor n). Curved-obstacle normal
+    variation and dissipative geometric derivatives remain approximate. AL
+    activity follows max(0,lambda-kp*g)>0, including positive-gap opening while
+    stored pressure remains. Fixed-lambda potential is (p^2-lambda^2)/(2*kp).
+    Batch analyses enforce the outer multiplier/equilibrium lifecycle described
+    in docs/06_solvers_and_analysis_pipelines.md.
     """
 
     def __init__(
@@ -150,6 +220,8 @@ class RigidContact:
             else CollisionDetector(master_obstacle)
         )
 
+        if not np.isfinite(k_penalty) or k_penalty <= 0.0:
+            raise ValueError("k_penalty must be finite and positive")
         self.k_penalty = float(k_penalty)
         self.c_damping = float(c_damping)
         self.friction = float(friction)
@@ -248,6 +320,16 @@ class RigidContact:
         slave_pts = nodes[s_nodes]
         return self.detector.query(slave_pts, tolerance=tolerance)
 
+    def evaluate_gaps(self, current_nodes: np.ndarray | None = None) -> np.ndarray:
+        """Return all candidate signed gaps [length], including opening nodes."""
+        return self.query_contact(current_nodes).gaps.copy()
+
+    def _active_indices(self, query: ContactQueryResult) -> np.ndarray:
+        """AL activity uses projected pressure, including stored opening force."""
+        if self.formulation == "augmented_lagrangian":
+            return np.flatnonzero(self.multipliers - self.k_penalty * query.gaps > 0.0)
+        return query.active_indices
+
     def evaluate_forces(
         self,
         current_nodes: np.ndarray | None = None,
@@ -284,10 +366,10 @@ class RigidContact:
 
         # Query proximity
         query_res = self.detector.query(nodes[s_nodes], tolerance=self.tolerance)
-        if query_res.num_active == 0:
+        active_idx = self._active_indices(query_res)
+        if len(active_idx) == 0:
             return f_c
 
-        active_idx = query_res.active_indices
         active_nodes = s_nodes[active_idx]
         gaps = query_res.gaps[active_idx]  # strictly <= 0
         normals = query_res.normals[active_idx]
@@ -344,7 +426,7 @@ class RigidContact:
             Global system DOF count.
         a1 : float, default=0.0
             Dynamic integration parameter gamma / (beta * dt). When c_damping > 0,
-            incorporates velocity damping linearization for exact Newton convergence.
+            incorporates the retained rank-one normal damping approximation.
         """
         nodes = self._resolve_nodes(current_nodes)
         s_nodes = self._resolve_slave_nodes(nodes)
@@ -356,10 +438,10 @@ class RigidContact:
                 n_dofs = len(nodes) * self.dofs_per_node + self.dof_offset
 
         query_res = self.detector.query(nodes[s_nodes], tolerance=0.0)
-        if query_res.num_active == 0:
+        active_idx = self._active_indices(query_res)
+        if len(active_idx) == 0:
             return spsp.csr_matrix((n_dofs, n_dofs), dtype=np.float64)
 
-        active_idx = query_res.active_indices
         active_nodes = s_nodes[active_idx]
         normals = query_res.normals[active_idx]
 
@@ -395,12 +477,16 @@ class RigidContact:
         self, current_nodes: np.ndarray | None = None
     ) -> float:
         """
-        Calculates the stored contact elastic potential energy:
-        Pi_c = 1/2 * k_p * sum_{active} g_N^2
+        Return normal potential [force*length]. For AL at fixed stored lambda,
+        Pi_c=sum((max(0,lambda-kp*g)^2-lambda^2)/(2*kp)); penalty lambda=0
+        gives 1/2*kp*min(g,0)^2. Curved normal tangent limitations remain.
         """
         nodes = self._resolve_nodes(current_nodes)
         s_nodes = self._resolve_slave_nodes(nodes)
         query_res = self.detector.query(nodes[s_nodes], tolerance=0.0)
+        if self.formulation == "augmented_lagrangian":
+            pressure = np.maximum(0.0, self.multipliers - self.k_penalty * query_res.gaps)
+            return float(np.sum((pressure**2 - self.multipliers**2) / (2.0 * self.k_penalty)))
         if query_res.num_active == 0:
             return 0.0
 
@@ -415,14 +501,11 @@ class RigidContact:
         s_nodes = self._resolve_slave_nodes(nodes)
         query_res = self.detector.query(nodes[s_nodes], tolerance=self.tolerance)
 
-        num_active = query_res.num_active
-        max_pen = query_res.max_penetration
-        active_nodes = s_nodes[query_res.active_indices]
-        energy = (
-            float(0.5 * self.k_penalty * np.sum(query_res.gaps[query_res.active_indices] ** 2))
-            if num_active > 0
-            else 0.0
-        )
+        active_idx = self._active_indices(query_res)
+        num_active = len(active_idx)
+        max_pen = float(np.max(np.maximum(-query_res.gaps, 0.0), initial=0.0))
+        active_nodes = s_nodes[active_idx]
+        energy = self.evaluate_potential_energy(current_nodes)
 
         return {
             "num_active": num_active,
@@ -432,68 +515,45 @@ class RigidContact:
             "max_multiplier": float(np.max(self.multipliers)) if len(self.multipliers) > 0 else 0.0,
         }
 
-    def update_multipliers(self) -> dict[str, float]:
-        """
-        Updates Augmented Lagrangian contact multipliers:
-            lambda_s <- max(0, lambda_s - k_p * g_N)
-        """
-        nodes = self._resolve_nodes()
-        s_nodes = self._resolve_slave_nodes(nodes)
-        if len(self.multipliers) != len(s_nodes):
-            self.multipliers = np.zeros(len(s_nodes), dtype=np.float64)
+@dataclass(frozen=True)
+class _DeformableContactQuery:
+    """One slave node and its exact closest master feature in current geometry."""
 
-        query_res = self.detector.query(nodes[s_nodes], tolerance=self.tolerance)
-        max_pen = 0.0
-        max_delta_lam = 0.0
-        num_active = 0
-
-        active_set = (
-            set(query_res.active_indices) if query_res.num_active > 0 else set()
-        )
-        for idx in range(len(s_nodes)):
-            old_lam = self.multipliers[idx]
-            if idx in active_set:
-                gap = query_res.gaps[idx]
-                new_lam = float(max(0.0, old_lam - self.k_penalty * gap))
-                if gap < 0.0:
-                    pen = -gap
-                    if pen > max_pen:
-                        max_pen = pen
-            else:
-                new_lam = 0.0
-            self.multipliers[idx] = new_lam
-
-            d_lam = abs(new_lam - old_lam)
-            if d_lam > max_delta_lam:
-                max_delta_lam = d_lam
-            if new_lam > 0.0:
-                num_active += 1
-
-        return {
-            "max_penetration": max_pen,
-            "max_multiplier": float(np.max(self.multipliers)) if len(self.multipliers) > 0 else 0.0,
-            "max_delta_multiplier": max_delta_lam,
-            "num_active": num_active,
-        }
+    slave_index: int
+    slave_node: int
+    master_nodes: np.ndarray
+    geometry: TriangleGap
 
 
-class DeformableContact:
-    """
-    Two-Way Deformable-to-Deformable (Mesh-to-Mesh) Contact Formulation.
+class DeformableContact(ContactMultiplierState):
+    """Conservative two-body node-to-triangle normal contact.
 
-    Enforces non-penetration and contact equilibrium between two independent
-    flexible continuum bodies (Slave Body A and Master Body B) with exact
-    Newtonian action-reaction interface balance:
-        f_s + sum_{i=1}^3 f_{m_i} = 0
-    and symmetric cross-body tangent stiffness coupling:
-        K_coupled = [ K_A + K_c,AA   K_c,AB ]
-                    [ K_c,BA         K_B + K_c,BB ]
-    where K_c,AB = K_c,BA^T.
+    For local coordinates q=[x_s,x_m1,x_m2,x_m3], let g be oriented signed
+    closest-feature distance [length], b=grad(g), H=Hess(g), and
+    p=max(0,lambda-kp*g) [force]. Normal forces and the RHS force tangent are
+    f_c=p*b and K_c=-df_c/dq=kp*b*b.T-p*H. Differentiating feature projection
+    weights and face normals yields a symmetric, possibly indefinite tangent.
+    The fixed-multiplier potential is (p*p-lambda*lambda)/(2*kp).
 
-    Each active slave node s penetrating master facet (m_1, m_2, m_3) with
-    barycentric weights (xi_1, xi_2, xi_3) generates the 12x12 rank-1 contact element:
-        K_c^(e) = k_p^* (w (x) w) (x) (n (x) n)
-    where w = [1, -xi_1, -xi_2, -xi_3]^T.
+    Triangles remain piecewise planar: face interiors use oriented face normals;
+    edge/vertex pseudonormals determine only the signed Euclidean distance sign.
+    Exact derivatives hold on a fixed smooth feature/sign branch. At zero
+    edge/vertex distance, use the selected incident face's finite one-sided
+    derivatives. Feature/facet/sign switches and activation can be nonsmooth.
+    Global inside/outside requires consistently oriented closed manifold masters.
+
+    The bound slave/master domains are the geometry authority for every method.
+    The optional current_nodes argument is retained for the common contact API;
+    callers must update the domains to evaluate alternative geometry. No private
+    geometry or velocity checksum cache is used. Query geometry is rebuilt per
+    call, with VTK proximity search and sparse COO matrix assembly.
+
+    Existing damping/friction forces remain available. Their tangent retains
+    only the normal velocity rank-one approximation; friction and dissipative
+    geometry derivatives are omitted. Exact energy/force/tangent claims concern
+    c_damping=friction=0. See
+    docs/05_system_assembly_boundaries_and_domain_coupling.md and Wriggers,
+    Computational Contact Mechanics, chs. 2 and 6.
     """
 
     def __init__(
@@ -510,32 +570,23 @@ class DeformableContact:
         formulation: Literal["penalty", "augmented_lagrangian"] = "penalty",
         tolerance: float = 0.0,
     ) -> None:
+        """Bind body geometry and interface parameters.
+
+        kp [force/length] must be positive. Damping [force*time/length] and
+        Coulomb friction coefficient are nonnegative. Body DOF offsets use
+        three translational DOFs per node. Tolerance [length] is retained
+        interface metadata; signed gaps and force activation use physical zero.
         """
-        Parameters:
-        -----------
-        slave : Domain
-            Deformable slave continuum domain.
-        master : Domain
-            Deformable master continuum domain.
-        slave_nodes : Sequence[int] or np.ndarray, optional
-            Candidate contact node indices on the slave body (defaults to surface nodes).
-        k_penalty : float, default=1e4
-            Normal penalty contact stiffness in N/mm.
-        c_damping : float, default=0.0
-            Contact velocity damping coefficient in N*s/mm.
-        friction : float, default=0.0
-            Coulomb tangential friction coefficient.
-        slave_offset : int, default=0
-            Global DOF offset for slave body within multi-body system.
-        master_offset : int, default=0
-            Global DOF offset for master body within multi-body system.
-        domain : Domain, optional
-            Parent MultiBodySystem domain.
-        formulation : {'penalty', 'augmented_lagrangian'}, default='penalty'
-            Contact enforcement scheme.
-        tolerance : float, default=0.0
-            Penetration activation threshold (gap <= tolerance).
-        """
+        if not np.isfinite(k_penalty) or k_penalty <= 0.0:
+            raise ValueError("k_penalty must be finite and positive")
+        if not np.isfinite(c_damping) or c_damping < 0.0:
+            raise ValueError("c_damping must be finite and nonnegative")
+        if not np.isfinite(friction) or friction < 0.0:
+            raise ValueError("friction must be finite and nonnegative")
+        if not np.isfinite(tolerance) or tolerance < 0.0:
+            raise ValueError("tolerance must be finite and nonnegative")
+        if formulation not in ("penalty", "augmented_lagrangian"):
+            raise ValueError("formulation must be 'penalty' or 'augmented_lagrangian'")
         self.slave = slave
         self.master = master
         self.k_penalty = float(k_penalty)
@@ -547,7 +598,6 @@ class DeformableContact:
         self.formulation = formulation
         self.tolerance = float(tolerance)
 
-        # 1. Determine candidate slave nodes
         if slave_nodes is not None:
             self.slave_nodes = np.asarray(slave_nodes, dtype=np.int64)
         elif (
@@ -563,91 +613,120 @@ class DeformableContact:
         else:
             self.slave_nodes = np.arange(self.slave.n_dofs // 3, dtype=np.int64)
 
-        # 2. Extract and configure master surface triangulation
-        if hasattr(self.master, "mesh") and hasattr(self.master.mesh, "surface"):
-            m_surf = self.master.mesh.surface
-            self._master_polydata = m_surf.polydata.copy(deep=True)
-            self._master_surf_node_idx = np.asarray(m_surf.node_indices, dtype=np.int64)
-        else:
+        if not hasattr(self.master, "mesh") or not hasattr(self.master.mesh, "surface"):
             raise TypeError("Master domain must possess a surface mesh representation.")
-
+        surface = self.master.mesh.surface
+        self._master_polydata = surface.polydata.copy(deep=True)
+        self._master_surf_node_idx = np.asarray(surface.node_indices, dtype=np.int64)
         if not self._master_polydata.is_all_triangles:
             self._master_polydata = self._master_polydata.triangulate()
         self._master_faces = self._master_polydata.regular_faces
-
-        # VTK StaticCellLocator for master surface proximity
+        if len(self._master_faces) == 0:
+            raise ValueError("Master surface must contain at least one triangle")
+        self._edge_faces: dict[tuple[int, int], list[int]] = defaultdict(list)
+        for face_index, face in enumerate(self._master_faces):
+            for i, j in ((0, 1), (1, 2), (2, 0)):
+                edge = tuple(sorted((int(face[i]), int(face[j]))))
+                self._edge_faces[edge].append(face_index)
         self._locator = vtk.vtkStaticCellLocator()
         self._locator.SetDataSet(self._master_polydata)
-        self._locator.BuildLocator()
-
-        # Augmented Lagrangian multipliers (one per slave node)
         self.multipliers = np.zeros(len(self.slave_nodes), dtype=np.float64)
-        self._master_nodal_normals = self._compute_master_nodal_normals()
-
-    def _compute_master_nodal_normals(self) -> np.ndarray:
-        """
-        Computes area-weighted C0-continuous vertex normals for the master surface mesh.
-        Interpolating contact normals from vertex normals prevents discontinuous force jumps
-        and contact chatter across facet edges.
-        """
-        master_pos = self.master.current_nodes
-        f_surf = self._master_faces
-        m_vol = self._master_surf_node_idx[f_surf]
-        v1 = master_pos[m_vol[:, 0]]
-        v2 = master_pos[m_vol[:, 1]]
-        v3 = master_pos[m_vol[:, 2]]
-        face_normals = np.cross(v2 - v1, v3 - v1)
-
-        n_surf_nodes = len(self._master_surf_node_idx)
-        nodal_normals = np.zeros((n_surf_nodes, 3), dtype=np.float64)
-        np.add.at(nodal_normals, f_surf[:, 0], face_normals)
-        np.add.at(nodal_normals, f_surf[:, 1], face_normals)
-        np.add.at(nodal_normals, f_surf[:, 2], face_normals)
-
-        norms = np.linalg.norm(nodal_normals, axis=1, keepdims=True)
-        norms[norms < 1e-14] = 1.0
-        return nodal_normals / norms
+        self._update_master_surface()
 
     @staticmethod
     def compute_barycentric(
         p: np.ndarray, v1: np.ndarray, v2: np.ndarray, v3: np.ndarray
     ) -> tuple[float, float, float]:
-        """
-        Computes normalized barycentric coordinates (xi1, xi2, xi3) of point p
-        projected onto triangle (v1, v2, v3) such that:
-            p = xi1 * v1 + xi2 * v2 + xi3 * v3, with sum(xi) = 1 and xi_i in [0, 1].
-        """
-        e1 = v2 - v1
-        e2 = v3 - v1
-        d = p - v1
-        d00 = float(np.dot(e1, e1))
-        d01 = float(np.dot(e1, e2))
-        d11 = float(np.dot(e2, e2))
-        d20 = float(np.dot(d, e1))
-        d21 = float(np.dot(d, e2))
-        denom = d00 * d11 - d01 * d01
-        if abs(denom) < 1e-15:
-            return 1.0, 0.0, 0.0
+        """Return exact closest-feature barycentrics for point p [length].
 
-        xi2 = (d11 * d20 - d01 * d21) / denom
-        xi3 = (d00 * d21 - d01 * d20) / denom
-        xi1 = 1.0 - xi2 - xi3
-
-        # Clamp to [0, 1] and renormalize
-        xi1 = max(0.0, min(1.0, xi1))
-        xi2 = max(0.0, min(1.0, xi2))
-        xi3 = max(0.0, min(1.0, xi3))
-        s = xi1 + xi2 + xi3
-        if s > 0.0:
-            return xi1 / s, xi2 / s, xi3 / s
-        return 1.0, 0.0, 0.0
+        Face, edge, and vertex projection use Euclidean closest distance;
+        outside-point coordinates are not independently clipped/renormalized.
+        """
+        weights = TriangleContactGeometry.closest_barycentric(p, np.array([v1, v2, v3]))
+        return float(weights[0]), float(weights[1]), float(weights[2])
 
     def _update_master_surface(self) -> None:
-        """Synchronizes master surface polydata coordinates with current deformed nodes."""
-        current_m_nodes = self.master.current_nodes
-        self._master_polydata.points = current_m_nodes[self._master_surf_node_idx]
+        """Rebuild proximity geometry and outward feature sign pseudonormals.
+
+        Vertex pseudonormals sum corner-angle-weighted unit face normals.
+        Edge pseudonormals sum incident unit face normals. These vectors choose
+        only distance signs; force directions come from exact gap gradients.
+        """
+        nodes = self.master.current_nodes[self._master_surf_node_idx]
+        self._master_polydata.points = nodes
+        self._face_normals = np.empty((len(self._master_faces), 3))
+        self._vertex_pseudonormals = np.zeros_like(nodes)
+        for face_index, face in enumerate(self._master_faces):
+            vertices = nodes[face]
+            normal, _ = TriangleContactGeometry._face_normal(vertices)
+            self._face_normals[face_index] = normal
+            for i in range(3):
+                e1 = vertices[(i + 1) % 3] - vertices[i]
+                e2 = vertices[(i + 2) % 3] - vertices[i]
+                angle = np.arctan2(np.linalg.norm(np.cross(e1, e2)), e1 @ e2)
+                self._vertex_pseudonormals[face[i]] += angle * normal
         self._locator.BuildLocator()
-        self._master_nodal_normals = self._compute_master_nodal_normals()
+
+    def _queries(self) -> list[_DeformableContactQuery]:
+        """Query all slave nodes using one consistent closest-feature definition."""
+        self._update_master_surface()
+        slave_positions = self.slave.current_nodes
+        master_positions = self.master.current_nodes
+        closest = np.zeros(3, dtype=np.float64)
+        cell_id, sub_id, distance_squared = vtk.mutable(0), vtk.mutable(0), vtk.mutable(0.0)
+        queries: list[_DeformableContactQuery] = []
+        for index, node in enumerate(self.slave_nodes):
+            point = slave_positions[node]
+            self._locator.FindClosestPoint(point, closest, cell_id, sub_id, distance_squared)
+            face_index = int(cell_id)
+            face = self._master_faces[face_index]
+            master_nodes = self._master_surf_node_idx[face]
+            vertices = master_positions[master_nodes]
+            weights = TriangleContactGeometry.closest_barycentric(point, vertices)
+            active = np.flatnonzero(weights > 0.0)
+            if len(active) == 3:
+                pseudonormal = self._face_normals[face_index]
+            elif len(active) == 2:
+                edge = tuple(sorted((int(face[active[0]]), int(face[active[1]]))))
+                pseudonormal = self._face_normals[self._edge_faces[edge]].sum(axis=0)
+            else:
+                pseudonormal = self._vertex_pseudonormals[face[active[0]]]
+            if np.linalg.norm(pseudonormal) <= TriangleContactGeometry._relative_tolerance:
+                raise ValueError("Undefined master feature pseudonormal: check surface orientation")
+            geometry = TriangleContactGeometry.evaluate(point, vertices, pseudonormal)
+            queries.append(_DeformableContactQuery(index, int(node), master_nodes, geometry))
+        return queries
+
+    def _resolve_n_dofs(self, n_dofs: int | None) -> int:
+        """Resolve global translational vector size from body offsets or assembly."""
+        if n_dofs is not None:
+            return n_dofs
+        if self.domain is not None:
+            return self.domain.n_dofs
+        return max(
+            self.slave_offset + self.slave.n_dofs,
+            self.master_offset + self.master.n_dofs,
+        )
+
+    def evaluate_gaps(self, current_nodes: np.ndarray | None = None) -> np.ndarray:
+        """Return candidate-aligned exact signed gaps from bound body geometry."""
+        return np.array([query.geometry.gap for query in self._queries()])
+
+    def _dof_indices(self, query: _DeformableContactQuery) -> np.ndarray:
+        """Map local (slave, master triangle) coordinates into global DOFs."""
+        return np.r_[
+            self.slave_offset + 3 * query.slave_node + np.arange(3),
+            (self.master_offset + 3 * query.master_nodes[:, None] + np.arange(3)).ravel(),
+        ]
+
+    def _pressure(self, query: _DeformableContactQuery) -> tuple[float, float]:
+        """Return active p=max(0,lambda-kp*g) and fixed stored lambda [force]."""
+        multiplier = (
+            float(self.multipliers[query.slave_index])
+            if self.formulation == "augmented_lagrangian" else 0.0
+        )
+        pressure = max(0.0, multiplier - self.k_penalty * query.geometry.gap)
+        return pressure, multiplier
 
     def evaluate_forces(
         self,
@@ -655,119 +734,41 @@ class DeformableContact:
         velocities: np.ndarray | None = None,
         n_dofs: int | None = None,
     ) -> np.ndarray:
+        """Assemble f_c=p*grad(g) [force] using bound domain geometry.
+
+        Equal-and-opposite frictionless force and moment follow from translation
+        and rotation invariance of signed distance. Optional normal damping and
+        regularized Coulomb friction preserve the existing dissipative laws;
+        their full derivatives are outside this conservative validation stage.
         """
-        Evaluates the global two-way contact force vector f_c.
-        """
-        self._update_master_surface()
-
-        slave_nodes_pos = self.slave.current_nodes
-        master_nodes_pos = self.master.current_nodes
-
-        if n_dofs is None:
-            if self.domain is not None:
-                n_dofs = self.domain.n_dofs
-            else:
-                n_dofs = max(
-                    self.slave_offset + self.slave.n_dofs,
-                    self.master_offset + self.master.n_dofs,
-                )
-
-        f_c = np.zeros(n_dofs, dtype=np.float64)
-
-        c_pt = np.zeros(3, dtype=np.float64)
-        cid = vtk.mutable(0)
-        subid = vtk.mutable(0)
-        d2 = vtk.mutable(0.0)
-
-        for s_idx, s_node in enumerate(self.slave_nodes):
-            x_s = slave_nodes_pos[s_node]
-            self._locator.FindClosestPoint(x_s, c_pt, cid, subid, d2)
-            cell_id = int(cid)
-
-            f_local = self._master_faces[cell_id]
-            m1_vol = int(self._master_surf_node_idx[f_local[0]])
-            m2_vol = int(self._master_surf_node_idx[f_local[1]])
-            m3_vol = int(self._master_surf_node_idx[f_local[2]])
-
-            v1 = master_nodes_pos[m1_vol]
-            v2 = master_nodes_pos[m2_vol]
-            v3 = master_nodes_pos[m3_vol]
-
-            # Barycentric coordinates of c_pt on triangle
-            xi1, xi2, xi3 = self.compute_barycentric(c_pt, v1, v2, v3)
-
-            # C0-continuous contact normal interpolated from master vertex normals
-            n_interp = (
-                xi1 * self._master_nodal_normals[f_local[0]]
-                + xi2 * self._master_nodal_normals[f_local[1]]
-                + xi3 * self._master_nodal_normals[f_local[2]]
-            )
-            norm_mag = float(np.linalg.norm(n_interp))
-            if norm_mag < 1e-14:
+        forces = np.zeros(self._resolve_n_dofs(n_dofs), dtype=np.float64)
+        velocity = (
+            None if velocities is None
+            else np.asarray(velocities, dtype=np.float64).reshape(-1)
+        )
+        for query in self._queries():
+            pressure, _ = self._pressure(query)
+            if pressure <= 0.0:
                 continue
-            n = n_interp / norm_mag
-
-            # Signed normal gap (negative = penetration)
-            gap = float(np.dot(x_s - c_pt, n))
-
-            lam = (
-                self.multipliers[s_idx]
-                if self.formulation == "augmented_lagrangian"
-                else 0.0
-            )
-            f_N = float(max(0.0, lam - self.k_penalty * gap))
-
-            if f_N <= 0.0:
-                continue
-
-            f_damp = 0.0
-            f_t_s = np.zeros(3, dtype=np.float64)
-            f_t_m = np.zeros(3, dtype=np.float64)
-
-            if velocities is not None:
-                vel = np.asarray(velocities, dtype=np.float64)
-                dof_s = self.slave_offset + 3 * s_node
-                dof_m1 = self.master_offset + 3 * m1_vol
-                dof_m2 = self.master_offset + 3 * m2_vol
-                dof_m3 = self.master_offset + 3 * m3_vol
-
-                v_s = vel[dof_s : dof_s + 3]
-                v_m = (
-                    xi1 * vel[dof_m1 : dof_m1 + 3]
-                    + xi2 * vel[dof_m2 : dof_m2 + 3]
-                    + xi3 * vel[dof_m3 : dof_m3 + 3]
-                )
-                v_rel = v_s - v_m
-                vn = float(np.dot(v_rel, n))
-
-                if self.c_damping > 0.0 and vn < 0.0:
-                    f_damp = -self.c_damping * vn
-
-                if self.friction > 0.0:
-                    vt_vec = v_rel - vn * n
-                    vt_mag = float(np.linalg.norm(vt_vec))
-                    if vt_mag > 1e-9:
-                        t_dir = vt_vec / vt_mag
-                        ft_mag = self.friction * f_N * np.tanh(vt_mag / 1e-3)
-                        f_t_s = -ft_mag * t_dir
-                        f_t_m = ft_mag * t_dir
-
-            f_total = f_N + f_damp
-
-            # Action on slave node
-            dof_s = self.slave_offset + 3 * s_node
-            f_c[dof_s : dof_s + 3] += f_total * n + f_t_s
-
-            # Reaction on master nodes (distributed via barycentric weights)
-            dof_m1 = self.master_offset + 3 * m1_vol
-            dof_m2 = self.master_offset + 3 * m2_vol
-            dof_m3 = self.master_offset + 3 * m3_vol
-
-            f_c[dof_m1 : dof_m1 + 3] += -xi1 * f_total * n + xi1 * f_t_m
-            f_c[dof_m2 : dof_m2 + 3] += -xi2 * f_total * n + xi2 * f_t_m
-            f_c[dof_m3 : dof_m3 + 3] += -xi3 * f_total * n + xi3 * f_t_m
-
-        return f_c
+            geometry = query.geometry
+            indices = self._dof_indices(query)
+            local_force = pressure * geometry.gradient
+            if velocity is not None:
+                weights = np.r_[1.0, -geometry.barycentric]
+                relative_velocity = weights @ velocity[indices].reshape(4, 3)
+                normal_velocity = float(relative_velocity @ geometry.normal)
+                if self.c_damping > 0.0 and normal_velocity < 0.0:
+                    local_force += -self.c_damping * normal_velocity * geometry.gradient
+                tangential_velocity = relative_velocity - normal_velocity * geometry.normal
+                speed = float(np.linalg.norm(tangential_velocity))
+                if self.friction > 0.0 and speed > 1e-9:
+                    friction_force = (
+                        -self.friction * pressure * np.tanh(speed / 1e-3)
+                        * tangential_velocity / speed
+                    )
+                    local_force += np.kron(weights, friction_force)
+            np.add.at(forces, indices, local_force)
+        return forces
 
     def evaluate_stiffness(
         self,
@@ -775,279 +776,117 @@ class DeformableContact:
         n_dofs: int | None = None,
         a1: float = 0.0,
     ) -> spsp.csr_matrix:
+        """Assemble K_c=kp*b*b.T-p*H=-df_c/dq [force/length].
+
+        Sparse COO scatter retains all cross-body and geometric terms; the
+        conservative tangent is symmetric but may be indefinite. With damping,
+        add the retained approximate a1*c*b*b.T term (a1 [1/time]); damping
+        geometry and friction derivatives are not included.
         """
-        Assembles the sparse coupled symmetric tangent contact stiffness matrix K_c.
-        """
-        self._update_master_surface()
-
-        slave_nodes_pos = self.slave.current_nodes
-        master_nodes_pos = self.master.current_nodes
-
-        if n_dofs is None:
-            if self.domain is not None:
-                n_dofs = self.domain.n_dofs
-            else:
-                n_dofs = max(
-                    self.slave_offset + self.slave.n_dofs,
-                    self.master_offset + self.master.n_dofs,
-                )
-
-        kp = self.k_penalty + a1 * self.c_damping
-
-        c_pt = np.zeros(3, dtype=np.float64)
-        cid = vtk.mutable(0)
-        subid = vtk.mutable(0)
-        d2 = vtk.mutable(0.0)
-
-        rows: list[int] = []
-        cols: list[int] = []
-        vals: list[float] = []
-
-        for s_idx, s_node in enumerate(self.slave_nodes):
-            x_s = slave_nodes_pos[s_node]
-            self._locator.FindClosestPoint(x_s, c_pt, cid, subid, d2)
-            cell_id = int(cid)
-
-            f_local = self._master_faces[cell_id]
-            m1_vol = int(self._master_surf_node_idx[f_local[0]])
-            m2_vol = int(self._master_surf_node_idx[f_local[1]])
-            m3_vol = int(self._master_surf_node_idx[f_local[2]])
-
-            v1 = master_nodes_pos[m1_vol]
-            v2 = master_nodes_pos[m2_vol]
-            v3 = master_nodes_pos[m3_vol]
-
-            xi1, xi2, xi3 = self.compute_barycentric(c_pt, v1, v2, v3)
-
-            # C0-continuous contact normal interpolated from master vertex normals
-            n_interp = (
-                xi1 * self._master_nodal_normals[f_local[0]]
-                + xi2 * self._master_nodal_normals[f_local[1]]
-                + xi3 * self._master_nodal_normals[f_local[2]]
-            )
-            norm_mag = float(np.linalg.norm(n_interp))
-            if norm_mag < 1e-14:
+        size = self._resolve_n_dofs(n_dofs)
+        rows: list[np.ndarray] = []
+        columns: list[np.ndarray] = []
+        values: list[np.ndarray] = []
+        for query in self._queries():
+            pressure, _ = self._pressure(query)
+            if pressure <= 0.0:
                 continue
-            n = n_interp / norm_mag
-
-            gap = float(np.dot(x_s - c_pt, n))
-
-            lam = (
-                self.multipliers[s_idx]
-                if self.formulation == "augmented_lagrangian"
-                else 0.0
+            geometry = query.geometry
+            gradient = geometry.gradient
+            tangent = (
+                (self.k_penalty + a1 * self.c_damping) * np.outer(gradient, gradient)
+                - pressure * geometry.hessian
             )
-            f_N = float(max(0.0, lam - self.k_penalty * gap))
-
-            if f_N <= 0.0:
-                continue
-
-            dof_starts = [
-                self.slave_offset + 3 * s_node,
-                self.master_offset + 3 * m1_vol,
-                self.master_offset + 3 * m2_vol,
-                self.master_offset + 3 * m3_vol,
-            ]
-            weights = [1.0, -xi1, -xi2, -xi3]
-            nn = np.outer(n, n)
-
-            # Assemble 16 blocks (4x4 node pairs)
-            for a in range(4):
-                w_a = weights[a]
-                dof_a = dof_starts[a]
-                for b in range(4):
-                    w_b = weights[b]
-                    dof_b = dof_starts[b]
-                    block_scale = kp * w_a * w_b
-
-                    for i in range(3):
-                        for j in range(3):
-                            rows.append(dof_a + i)
-                            cols.append(dof_b + j)
-                            vals.append(block_scale * nn[i, j])
-
-        if not rows:
-            return spsp.csr_matrix((n_dofs, n_dofs), dtype=np.float64)
-
-        K_c = spsp.coo_matrix(
-            (vals, (rows, cols)), shape=(n_dofs, n_dofs), dtype=np.float64
+            indices = self._dof_indices(query)
+            rows.append(np.repeat(indices, 12))
+            columns.append(np.tile(indices, 12))
+            values.append(tangent.ravel())
+        if not values:
+            return spsp.csr_matrix((size, size), dtype=np.float64)
+        return spsp.coo_matrix(
+            (np.concatenate(values), (np.concatenate(rows), np.concatenate(columns))),
+            shape=(size, size),
         ).tocsr()
-        return K_c
 
-    def update_multipliers(self) -> dict[str, float]:
-        """
-        Updates Augmented Lagrangian contact multipliers:
-            lambda_s <- max(0, lambda_s - k_p * g_N)
-        """
-        self._update_master_surface()
-        slave_nodes_pos = self.slave.current_nodes
-        master_nodes_pos = self.master.current_nodes
-
-        c_pt = np.zeros(3, dtype=np.float64)
-        cid = vtk.mutable(0)
-        subid = vtk.mutable(0)
-        d2 = vtk.mutable(0.0)
-
-        max_pen = 0.0
-        num_active = 0
-        max_delta_lam = 0.0
-
-        for s_idx, s_node in enumerate(self.slave_nodes):
-            x_s = slave_nodes_pos[s_node]
-            self._locator.FindClosestPoint(x_s, c_pt, cid, subid, d2)
-            cell_id = int(cid)
-
-            f_local = self._master_faces[cell_id]
-            m1_vol = int(self._master_surf_node_idx[f_local[0]])
-            m2_vol = int(self._master_surf_node_idx[f_local[1]])
-            m3_vol = int(self._master_surf_node_idx[f_local[2]])
-
-            v1 = master_nodes_pos[m1_vol]
-            v2 = master_nodes_pos[m2_vol]
-            v3 = master_nodes_pos[m3_vol]
-
-            xi1, xi2, xi3 = self.compute_barycentric(c_pt, v1, v2, v3)
-
-            # C0-continuous contact normal interpolated from master vertex normals
-            n_interp = (
-                xi1 * self._master_nodal_normals[f_local[0]]
-                + xi2 * self._master_nodal_normals[f_local[1]]
-                + xi3 * self._master_nodal_normals[f_local[2]]
-            )
-            norm_mag = float(np.linalg.norm(n_interp))
-            if norm_mag < 1e-14:
-                continue
-            n = n_interp / norm_mag
-
-            gap = float(np.dot(x_s - c_pt, n))
-            old_lam = self.multipliers[s_idx]
-            new_lam = float(max(0.0, old_lam - self.k_penalty * gap))
-            self.multipliers[s_idx] = new_lam
-
-            delta_lam = abs(new_lam - old_lam)
-            if delta_lam > max_delta_lam:
-                max_delta_lam = delta_lam
-
-            if gap < 0.0:
-                pen = -gap
-                if pen > max_pen:
-                    max_pen = pen
-            if new_lam > 0.0:
-                num_active += 1
-
-        return {
-            "max_penetration": max_pen,
-            "max_multiplier": float(np.max(self.multipliers)) if len(self.multipliers) > 0 else 0.0,
-            "max_delta_multiplier": max_delta_lam,
-            "num_active": num_active,
-        }
 
     def evaluate_potential_energy(
         self, current_nodes: np.ndarray | None = None
     ) -> float:
+        """Return sum((p^2-lambda^2)/(2*kp)) [force*length] at fixed lambda.
+
+        Geometry comes from bound domains. Dissipative forces have no stored
+        potential and are excluded. Penalty energy is 0.5*kp*min(g,0)^2.
         """
-        Calculates stored contact potential energy:
-        Pi_c = 1/2 * k_p * sum_{active} g_N^2
-        """
-        c_info = self.get_contact_info()
-        return float(c_info["potential_energy"])
+        return float(self.get_contact_info(current_nodes)["potential_energy"])
 
     def get_contact_info(
         self, current_nodes: np.ndarray | None = None
     ) -> dict[str, Any]:
-        """Returns structured summary of current contact status."""
-        self._update_master_surface()
-        slave_nodes_pos = self.slave.current_nodes
-        master_nodes_pos = self.master.current_nodes
+        """Report active nodes, penetration [length], force multiplier, and energy.
 
-        c_pt = np.zeros(3, dtype=np.float64)
-        cid = vtk.mutable(0)
-        subid = vtk.mutable(0)
-        d2 = vtk.mutable(0.0)
-
-        num_active = 0
-        max_pen = 0.0
-        active_nodes = []
-        contact_energy = 0.0
-
-        for s_idx, s_node in enumerate(self.slave_nodes):
-            x_s = slave_nodes_pos[s_node]
-            self._locator.FindClosestPoint(x_s, c_pt, cid, subid, d2)
-            cell_id = int(cid)
-
-            f_local = self._master_faces[cell_id]
-            m1_vol = int(self._master_surf_node_idx[f_local[0]])
-            m2_vol = int(self._master_surf_node_idx[f_local[1]])
-            m3_vol = int(self._master_surf_node_idx[f_local[2]])
-
-            v1 = master_nodes_pos[m1_vol]
-            v2 = master_nodes_pos[m2_vol]
-            v3 = master_nodes_pos[m3_vol]
-
-            xi1, xi2, xi3 = self.compute_barycentric(c_pt, v1, v2, v3)
-
-            # C0-continuous contact normal interpolated from master vertex normals
-            n_interp = (
-                xi1 * self._master_nodal_normals[f_local[0]]
-                + xi2 * self._master_nodal_normals[f_local[1]]
-                + xi3 * self._master_nodal_normals[f_local[2]]
-            )
-            norm_mag = float(np.linalg.norm(n_interp))
-            if norm_mag < 1e-14:
-                continue
-            n = n_interp / norm_mag
-
-            gap = float(np.dot(x_s - c_pt, n))
-            lam = (
-                self.multipliers[s_idx]
-                if self.formulation == "augmented_lagrangian"
-                else 0.0
-            )
-            f_N = float(max(0.0, lam - self.k_penalty * gap))
-
-            if f_N > 0.0 or gap < 0.0:
-                num_active += 1
-                active_nodes.append(s_node)
-                if gap < 0.0:
-                    pen = -gap
-                    if pen > max_pen:
-                        max_pen = pen
-                    contact_energy += 0.5 * self.k_penalty * (gap**2)
-
+        All diagnostics use the same domain-state geometry, gap, and pressure as
+        force/tangent evaluation. Potential is the fixed-multiplier normal
+        potential, including its constant inactive-branch offset.
+        """
+        active_nodes: list[int] = []
+        energy = 0.0
+        max_penetration = 0.0
+        for query in self._queries():
+            pressure, multiplier = self._pressure(query)
+            energy += (pressure**2 - multiplier**2) / (2.0 * self.k_penalty)
+            if pressure > 0.0 or query.geometry.gap < 0.0:
+                active_nodes.append(query.slave_node)
+                max_penetration = max(max_penetration, -query.geometry.gap)
         return {
-            "num_active": num_active,
-            "max_penetration": max_pen,
+            "num_active": len(active_nodes),
+            "max_penetration": max_penetration,
             "active_nodes": np.asarray(active_nodes, dtype=np.int64),
-            "potential_energy": contact_energy,
-            "max_multiplier": float(np.max(self.multipliers)) if len(self.multipliers) > 0 else 0.0,
+            "potential_energy": energy,
+            "max_multiplier": float(np.max(self.multipliers)) if self.multipliers.size else 0.0,
         }
 
 
-class SelfContact:
-    """
-    Self-Contact Boundary Formulation for Project Sierra.
+@dataclass(frozen=True)
+class _SelfContactQuery:
+    """One admitted slave/triangle constraint with exact local gap derivatives."""
 
-    Prevents self-intersection and interpenetration of folds, opposing lobes,
-    cavities, and complex geometry within a single deformable body:
-        f_c = f_N * n
-    where:
-        f_N = -k_p * g_N (penalty formulation, active when signed gap g_N < tolerance)
-        f_N = max(0, lambda_N - k_p * g_N) (augmented Lagrangian formulation)
+    slave_index: int
+    slave_node: int
+    master_nodes: np.ndarray
+    geometry: TriangleGap
 
-    Key Features:
-      - Topological Exclusion: Excludes 1-ring and 2-ring neighborhood facets
-        from self-detection to eliminate spurious self-pinning and distance singularities.
-      - Normal Direction Filtering: Skips non-opposing candidate facets
-        (n_node . n_facet >= normal_threshold) to focus strictly on colliding surfaces.
-      - Exact Voronoi Triangle Projection: Computes exact closest points and normalized
-        barycentric coordinates on candidate master triangular facets.
-      - C0-Continuous Normal Interpolation: Interpolates contact normals from vertex
-        normals using barycentric weights to prevent lateral chatter across facet edges.
-      - Action-Reaction Symmetry: Pushes slave node along +n and distributes reaction
-        equally onto master facet nodes (-xi_i * n), strictly conserving linear and angular momentum.
-      - Symmetric Tangent Stiffness: Assembles rank-1 block updates:
-            K_c = kp * (w (x) w) (x) (n (x) n)
-        with w = [1, -xi_1, -xi_2, -xi_3], ensuring exact symmetry K_c = K_c^T.
+
+class SelfContact(ContactMultiplierState):
+    """Conservative node-to-triangle mechanics on selected same-body candidates.
+
+    For local q=[x_s,x_m1,x_m2,x_m3], use signed closest-feature distance g
+    [length], b=grad(g), H=Hess(g), and p=max(0,lambda-kp*g) [force]. The
+    normal force is f=p*b and its RHS tangent K=-df/dq=kp*b*b.T-p*H. Potential
+    Pi=(p*p-lambda*lambda)/(2*kp) [force*length] matches the normal force at
+    fixed lambda. Penalty uses lambda=0. The geometric tangent is symmetric
+    on a smooth selected branch and may be indefinite. COO assembly scatters
+    all 12 local DOFs into the same body with its global offset.
+
+    ``TriangleContactGeometry`` supplies exact face/edge/vertex projection and
+    analytical derivatives. Edge sign uses incident unit-face pseudonormals;
+    vertex sign uses angle-weighted unit-face pseudonormals. These choose the
+    sign only, while force directions come from the distance gradient. The
+    shared finite selected-face convention applies at zero edge/vertex distance.
+    Differentiability is not promised across feature/facet/sign/activation or
+    candidate-filter switches. Exact conservative energy/derivative/moment
+    claims concern damping=friction=0; dissipative tangents remain approximate.
+
+    Detection retains BFS exclusions, area-weighted slave-normal opposition,
+    axis-aligned proximity search, nearest admitted facet, and a distance cutoff.
+    This is a local candidate policy, not a global self-intersection detector:
+    an undeformed convex body's remote opposite wall can have negative local
+    gap. Excluding own nearby faces invalidates global closest-surface signing.
+    No CCD, edge-edge completeness, deep-penetration guarantee, persistent pair
+    history or area-integrated pressure is provided. Multipliers remain per
+    slave node, not per persistent node/facet pair. No trial-history cache,
+    reference pair masks or example-specific detection rules are introduced.
+    See docs/05_system_assembly_boundaries_and_domain_coupling.md; Wriggers,
+    Computational Contact Mechanics, chs. 2 and 6.
     """
 
     def __init__(
@@ -1066,37 +905,48 @@ class SelfContact:
         normal_threshold: float = -0.2,
         exclusion_rings: int = 4,
     ) -> None:
+        """Bind surface candidates, material-independent contact law and search.
+
+        kp [force/length] is nodal stiffness; damping [force*time/length] and
+        friction are nonnegative. Offsets are nonnegative multiples of three.
+        Candidate indices must be unique surface node indices. Rings (default4)
+        count surface edge hops; even zero rings excludes incident facets.
+        normal_threshold [-1,1] limits the slave/face normal dot product.
+
+        search_radius [length] bounds the axis-aligned search (default
+        max(5,0.2*reference bounding-box diagonal)). contact_thickness [length]
+        is the maximum closest distance (default max(1,0.5*mean surface edge)),
+        not an offset in g. These existing dimensional defaults and filters
+        are retained, not validated as a universal collision detector.
+        tolerance [length] is retained interface metadata; pressure activation
+        uses physical zero. No AL or penalty stiffness is adjusted internally.
         """
-        Parameters:
-        -----------
-        domain : Domain
-            Deformable domain undergoing self-contact.
-        contact_nodes : Sequence[int] or np.ndarray, optional
-            Candidate contact node indices on the body (defaults to all surface nodes).
-        k_penalty : float, default=1e4
-            Normal penalty contact stiffness in N/mm.
-        c_damping : float, default=0.0
-            Contact velocity damping coefficient in N*s/mm.
-        friction : float, default=0.0
-            Tangential friction coefficient.
-        dof_offset : int, default=0
-            Global DOF offset when used within a MultiBodySystem assembly.
-        formulation : {'penalty', 'augmented_lagrangian'}, default='penalty'
-            Contact constraint enforcement scheme.
-        tolerance : float, default=0.0
-            Activation threshold (gap <= tolerance).
-        search_radius : float, optional
-            Bounding box search radius for proximity queries (mm).
-            Defaults to 20% of the bounding box diagonal.
-        contact_thickness : float, optional
-            Maximum physical proximity threshold for active self-contact (mm).
-            Prevents distant opposing body walls from triggering false interior penetrations.
-            Defaults to 0.5 * mean surface edge length.
-        normal_threshold : float, default=-0.2
-            Maximum dot product (n_node . n_facet) for opposing contact detection.
-        exclusion_rings : int, default=2
-            Number of topological vertex-face neighbor rings to exclude from self-detection.
-        """
+        for name, value in (
+            ("k_penalty", k_penalty), ("search_radius", search_radius),
+            ("contact_thickness", contact_thickness),
+        ):
+            if value is not None and (not np.isfinite(value) or value <= 0.0):
+                raise ValueError(f"{name} must be finite and positive")
+        for name, value in (
+            ("c_damping", c_damping), ("friction", friction),
+            ("tolerance", tolerance),
+        ):
+            if not np.isfinite(value) or value < 0.0:
+                raise ValueError(f"{name} must be finite and nonnegative")
+        for name, value in (("dof_offset", dof_offset), ("exclusion_rings", exclusion_rings)):
+            if (
+                isinstance(value, (bool, np.bool_))
+                or not isinstance(value, (int, np.integer))
+                or value < 0
+            ):
+                raise ValueError(f"{name} must be a nonnegative integer")
+        if dof_offset % 3:
+            raise ValueError("dof_offset must be a multiple of three")
+        if not np.isfinite(normal_threshold) or not -1.0 <= normal_threshold <= 1.0:
+            raise ValueError("normal_threshold must be finite and in [-1, 1]")
+        if formulation not in ("penalty", "augmented_lagrangian"):
+            raise ValueError("formulation must be 'penalty' or 'augmented_lagrangian'")
+
         self.domain = domain
         self.k_penalty = float(k_penalty)
         self.c_damping = float(c_damping)
@@ -1106,361 +956,268 @@ class SelfContact:
         self.tolerance = float(tolerance)
         self.normal_threshold = float(normal_threshold)
         self.exclusion_rings = int(exclusion_rings)
-
-        # 1. Extract surface triangulation
-        if hasattr(self.domain, "mesh") and hasattr(self.domain.mesh, "surface"):
-            surf = self.domain.mesh.surface
-            self._polydata = surf.polydata.copy(deep=True)
-            self._surf_node_idx = np.asarray(surf.node_indices, dtype=np.int64)
-        else:
-            raise TypeError("Domain must possess a surface mesh representation for SelfContact.")
-
+        if not hasattr(domain, "mesh") or not hasattr(domain.mesh, "surface"):
+            raise TypeError("Domain must possess a surface mesh representation for SelfContact")
+        surface = domain.mesh.surface
+        self._polydata = surface.polydata.copy(deep=True)
+        self._surf_node_idx = np.asarray(surface.node_indices, dtype=np.int64)
         if not self._polydata.is_all_triangles:
             self._polydata = self._polydata.triangulate()
         self._faces = self._polydata.regular_faces
         self.n_surf_nodes = len(self._surf_node_idx)
         self.n_faces = len(self._faces)
-
-        # Map from volume node index to surface node index
-        self._vol_to_surf_idx: dict[int, int] = {
-            int(vol_idx): surf_idx
-            for surf_idx, vol_idx in enumerate(self._surf_node_idx)
+        if self.n_faces == 0:
+            raise ValueError("SelfContact surface must contain at least one triangle")
+        self._vol_to_surf_idx = {
+            int(node): index for index, node in enumerate(self._surf_node_idx)
         }
-
-        # 2. Determine candidate contact nodes
-        if contact_nodes is not None:
-            self.contact_nodes = np.asarray(contact_nodes, dtype=np.int64)
-        else:
-            self.contact_nodes = self._surf_node_idx.copy()
-
-        # Multipliers tracking
+        raw_candidates = (
+            self._surf_node_idx if contact_nodes is None else np.asarray(contact_nodes)
+        )
+        if raw_candidates.ndim != 1 or (
+            raw_candidates.size and not np.issubdtype(raw_candidates.dtype, np.integer)
+        ):
+            raise ValueError("contact_nodes must be a one-dimensional integer vector")
+        self.contact_nodes = np.asarray(raw_candidates, dtype=np.int64).copy()
+        if len(np.unique(self.contact_nodes)) != len(self.contact_nodes):
+            raise ValueError("contact_nodes must be unique")
+        if not np.all(np.isin(self.contact_nodes, self._surf_node_idx)):
+            raise ValueError("contact_nodes must be surface node indices")
         self.multipliers = np.zeros(len(self.contact_nodes), dtype=np.float64)
-        self._node_to_multiplier_idx: dict[int, int] = {
-            int(node): idx for idx, node in enumerate(self.contact_nodes)
-        }
 
-        # 3. Determine search radius & contact thickness
-        pts = self.domain.mesh.nodes[self._surf_node_idx]
-        bbox_span = np.ptp(pts, axis=0)
-        bbox_diag = float(np.linalg.norm(bbox_span))
-        if search_radius is None:
-            self.search_radius = max(5.0, 0.20 * bbox_diag)
-        else:
-            self.search_radius = float(search_radius)
-
-        v1 = pts[self._faces[:, 0]]
-        v2 = pts[self._faces[:, 1]]
-        v3 = pts[self._faces[:, 2]]
-        mean_edge = float(np.mean([
-            np.linalg.norm(v2 - v1, axis=1),
-            np.linalg.norm(v3 - v2, axis=1),
-            np.linalg.norm(v1 - v3, axis=1),
-        ]))
-        self.mean_edge_length = mean_edge
-        if contact_thickness is None:
-            self.contact_thickness = max(1.0, 0.5 * mean_edge)
-        else:
-            self.contact_thickness = float(contact_thickness)
-
-        # 4. Precompute topological exclusion graph
+        self._edge_faces: dict[tuple[int, int], list[int]] = defaultdict(list)
+        for face_index, face in enumerate(self._faces):
+            for i, j in ((0, 1), (1, 2), (2, 0)):
+                self._edge_faces[tuple(sorted((int(face[i]), int(face[j]))))].append(face_index)
         self._excluded_faces = self._build_exclusion_graph(self.exclusion_rings)
-
-        # 5. Build VTK StaticCellLocator for proximity queries
         self._locator = vtk.vtkStaticCellLocator()
         self._locator.SetDataSet(self._polydata)
-        self._locator.BuildLocator()
+        self._update_surface()
 
-        # 6. Precompute initial surface normals
-        self._nodal_normals, self._face_normals = self._compute_surface_normals()
-
-        # Cache for contact queries within the same state
-        self._cached_contacts: list[dict[str, Any]] | None = None
-        self._cached_key: tuple[float, float, float, int] | None = None
+        points = domain.mesh.nodes[self._surf_node_idx]
+        diagonal = float(np.linalg.norm(np.ptp(points, axis=0)))
+        self.search_radius = (
+            max(5.0, 0.20 * diagonal) if search_radius is None else float(search_radius)
+        )
+        vertices = points[self._faces]
+        self.mean_edge_length = float(np.mean([
+            np.linalg.norm(vertices[:, 1] - vertices[:, 0], axis=1),
+            np.linalg.norm(vertices[:, 2] - vertices[:, 1], axis=1),
+            np.linalg.norm(vertices[:, 0] - vertices[:, 2], axis=1),
+        ]))
+        self.contact_thickness = (
+            max(1.0, 0.5 * self.mean_edge_length)
+            if contact_thickness is None else float(contact_thickness)
+        )
 
     def _build_exclusion_graph(self, rings: int) -> dict[int, set[int]]:
-        """
-        Precomputes the topological exclusion face set for each surface node using
-        breadth-first search (BFS) up to the specified topological ring depth.
-        For a node v, excludes all faces containing v or any topological neighbor
-        within 'rings' edge hops, eliminating spurious self-detection across thin walls.
-        """
-        node_to_faces: dict[int, set[int]] = defaultdict(set)
-        for f_idx, f in enumerate(self._faces):
-            for v in f:
-                node_to_faces[v].add(f_idx)
+        """Exclude incident facets of nodes within the given surface BFS depth.
 
-        node_adj: dict[int, set[int]] = defaultdict(set)
-        for f in self._faces:
-            u, v, w = f
-            node_adj[u].update([v, w])
-            node_adj[v].update([u, w])
-            node_adj[w].update([u, v])
-
-        excluded_faces: dict[int, set[int]] = {}
-        for i in range(self.n_surf_nodes):
-            current_ring = {i}
-            all_visited = {i}
+        This retains mesh-topology policy, not a proof that every remaining
+        facet is physically eligible for self-contact. Depth zero excludes only
+        incident facets; greater depth can also suppress legitimate close folds.
+        """
+        incident: dict[int, set[int]] = defaultdict(set)
+        adjacency: dict[int, set[int]] = defaultdict(set)
+        for face_index, face in enumerate(self._faces):
+            for node in face:
+                incident[int(node)].add(face_index)
+                adjacency[int(node)].update(int(other) for other in face if other != node)
+        excluded: dict[int, set[int]] = {}
+        for node in range(self.n_surf_nodes):
+            frontier, visited = {node}, {node}
             for _ in range(rings):
-                next_ring: set[int] = set()
-                for v in current_ring:
-                    next_ring.update(node_adj[v])
-                current_ring = next_ring - all_visited
-                all_visited.update(current_ring)
-                if not current_ring:
+                neighbors: set[int] = set()
+                for current in frontier:
+                    neighbors.update(adjacency[current])
+                frontier = neighbors - visited
+                visited.update(frontier)
+                if not frontier:
                     break
+            excluded[node] = set().union(*(incident[current] for current in visited))
+        return excluded
 
-            exc: set[int] = set()
-            for v in all_visited:
-                exc.update(node_to_faces[v])
-            excluded_faces[i] = exc
+    def _resolve_nodes(self, current_nodes: np.ndarray | None) -> np.ndarray:
+        """Resolve finite local geometry [length] from local or stacked input."""
+        nodes = (
+            self.domain.current_nodes if current_nodes is None
+            else np.asarray(current_nodes, dtype=np.float64)
+        )
+        count = len(self.domain.current_nodes)
+        if nodes.ndim != 2 or nodes.shape[1] != 3:
+            raise ValueError("SelfContact geometry must have shape (n_nodes, 3)")
+        if len(nodes) != count:
+            first = self.dof_offset // 3
+            nodes = nodes[first:first + count]
+        if nodes.shape != (count, 3) or not np.all(np.isfinite(nodes)):
+            raise ValueError("SelfContact geometry must contain finite bound-body coordinates")
+        return nodes
 
-        return excluded_faces
+    def _compute_surface_normals(
+        self, current_nodes: np.ndarray
+    ) -> tuple[np.ndarray, np.ndarray, np.ndarray]:
+        """Return opposition normals, unit face normals and vertex sign sums.
 
-    def _compute_surface_normals(self) -> tuple[np.ndarray, np.ndarray]:
+        Cross products/angle sums are vectorized over all facets. Area-weighted
+        vertex normals are used only by the retained opposition filter. Sign
+        pseudonormals sum corner-angle-weighted unit normals; they never define
+        the gap-gradient direction. Relative-area rejection matches the shared
+        triangular kernel, and degenerate geometry raises ValueError.
         """
-        Computes both face normals and area-weighted C0-continuous vertex normals
-        for the current deformed surface mesh.
-        """
-        current_pos = self.domain.current_nodes
-        f_surf = self._faces
-        m_vol = self._surf_node_idx[f_surf]
-        v1 = current_pos[m_vol[:, 0]]
-        v2 = current_pos[m_vol[:, 1]]
-        v3 = current_pos[m_vol[:, 2]]
+        vertices = current_nodes[self._surf_node_idx[self._faces]]
+        e1, e2 = vertices[:, 1] - vertices[:, 0], vertices[:, 2] - vertices[:, 0]
+        cross = np.cross(e1, e2)
+        areas = np.linalg.norm(cross, axis=1)
+        edge_scale = np.maximum.reduce((
+            np.sum(e1*e1, axis=1), np.sum(e2*e2, axis=1),
+            np.sum((e2-e1)**2, axis=1),
+        ))
+        if (
+            not np.all(np.isfinite(areas))
+            or not np.all(np.isfinite(edge_scale))
+            or np.any(areas <= TriangleContactGeometry._relative_tolerance * edge_scale)
+        ):
+            raise ValueError("Degenerate self-contact triangle: nonzero relative area required")
+        face_normals = cross / areas[:, None]
+        nodal = np.zeros((self.n_surf_nodes, 3))
+        vertex_sign = np.zeros_like(nodal)
+        for corner in range(3):
+            np.add.at(nodal, self._faces[:, corner], cross)
+            a = vertices[:, (corner + 1) % 3] - vertices[:, corner]
+            b = vertices[:, (corner + 2) % 3] - vertices[:, corner]
+            angle = np.arctan2(np.linalg.norm(np.cross(a, b), axis=1), np.einsum("ij,ij->i", a, b))
+            np.add.at(vertex_sign, self._faces[:, corner], angle[:, None] * face_normals)
+        lengths = np.linalg.norm(nodal, axis=1)
+        nodal = np.divide(
+            nodal, lengths[:, None], out=np.zeros_like(nodal),
+            where=lengths[:, None] > 0.0,
+        )
+        return nodal, face_normals, vertex_sign
 
-        cross_prod = np.cross(v2 - v1, v3 - v1)
-        f_norms = np.linalg.norm(cross_prod, axis=1, keepdims=True)
-        f_norms[f_norms < 1e-14] = 1.0
-        face_unit_normals = cross_prod / f_norms
-
-        nodal_normals = np.zeros((self.n_surf_nodes, 3), dtype=np.float64)
-        np.add.at(nodal_normals, f_surf[:, 0], cross_prod)
-        np.add.at(nodal_normals, f_surf[:, 1], cross_prod)
-        np.add.at(nodal_normals, f_surf[:, 2], cross_prod)
-
-        n_norms = np.linalg.norm(nodal_normals, axis=1, keepdims=True)
-        n_norms[n_norms < 1e-14] = 1.0
-        nodal_unit_normals = nodal_normals / n_norms
-
-        return nodal_unit_normals, face_unit_normals
-
-    def _update_surface(self) -> None:
-        """Synchronizes surface polydata points with current deformed domain coordinates."""
-        current_pos = self.domain.current_nodes
-        self._polydata.points = current_pos[self._surf_node_idx]
+    def _update_surface(self, current_nodes: np.ndarray | None = None) -> None:
+        """Rebuild current geometry and normals; no state checksum/history cache."""
+        nodes = self._resolve_nodes(current_nodes)
+        (
+            self._nodal_normals, self._face_normals, self._vertex_pseudonormals,
+        ) = self._compute_surface_normals(nodes)
+        self._polydata.points = nodes[self._surf_node_idx]
         self._locator.BuildLocator()
-        self._nodal_normals, self._face_normals = self._compute_surface_normals()
 
     @staticmethod
     def closest_point_triangle(
         p: np.ndarray, a: np.ndarray, b: np.ndarray, c: np.ndarray
     ) -> tuple[np.ndarray, tuple[float, float, float]]:
+        """Return exact closest point [length] and dimensionless feature weights.
+
+        Delegates face/edge/vertex mathematics and degeneracy checks to the same
+        shared kernel used by gap, force, energy, and tangent evaluation.
         """
-        Computes exact closest point on triangle (a, b, c) to query point p
-        and returns the point along with normalized barycentric coordinates (u, v, w).
-        Uses Ericson's Voronoi region method (Real-Time Collision Detection, Sec. 5.1.5).
+        vertices = np.array([a, b, c], dtype=np.float64)
+        weights = TriangleContactGeometry.closest_barycentric(p, vertices)
+        return weights @ vertices, (float(weights[0]), float(weights[1]), float(weights[2]))
+
+    def _queries(self, current_nodes: np.ndarray | None = None) -> list[_SelfContactQuery]:
+        """Select the nearest admitted feature per slave using retained filters.
+
+        This shared query serves all mechanics/lifecycle/diagnostic APIs. Exact
+        distance derivatives hold with candidate selection fixed. Equal squared
+        distances choose the lower face index, without persistent facet history.
         """
-        ab = b - a
-        ac = c - a
-        ap = p - a
-        d1 = float(np.dot(ab, ap))
-        d2 = float(np.dot(ac, ap))
-        if d1 <= 0.0 and d2 <= 0.0:
-            return a.copy(), (1.0, 0.0, 0.0)
+        nodes = self._resolve_nodes(current_nodes)
+        self._update_surface(nodes)
+        surface_positions = nodes[self._surf_node_idx]
+        vertices = surface_positions[self._faces]
+        face_minimum = vertices.min(axis=1)
+        face_maximum = vertices.max(axis=1)
+        candidates = vtk.vtkIdList()
+        queries: list[_SelfContactQuery] = []
+        radius = self.search_radius
+        for slave_index, slave_node in enumerate(self.contact_nodes):
+            surface_index = self._vol_to_surf_idx[int(slave_node)]
+            point = nodes[slave_node]
+            slave_normal = self._nodal_normals[surface_index]
+            excluded = self._excluded_faces[surface_index]
+            bounds = [point[0]-radius, point[0]+radius, point[1]-radius,
+                      point[1]+radius, point[2]-radius, point[2]+radius]
+            self._locator.FindCellsWithinBounds(bounds, candidates)
+            candidate_ids = np.fromiter(
+                (candidates.GetId(index) for index in range(candidates.GetNumberOfIds())),
+                dtype=np.int64, count=candidates.GetNumberOfIds(),
+            )
+            # Point-to-AABB distance is a rigorous lower bound on distance to
+            # its enclosed triangle. Cull distant search-box hits in one vector
+            # operation without changing any exact nearest-feature decision.
+            box_delta = np.maximum(np.maximum(
+                face_minimum[candidate_ids] - point,
+                point - face_maximum[candidate_ids],
+            ), 0.0)
+            within_cutoff = np.einsum("ij,ij->i", box_delta, box_delta) <= self.contact_thickness**2
+            best_squared = np.inf
+            best_face: int | None = None
+            for candidate_id in candidate_ids[within_cutoff]:
+                face_index = int(candidate_id)
+                if face_index in excluded:
+                    continue
+                if float(slave_normal @ self._face_normals[face_index]) >= self.normal_threshold:
+                    continue
+                weights = TriangleContactGeometry.closest_barycentric(point, vertices[face_index])
+                residual = point - weights @ vertices[face_index]
+                squared = float(residual @ residual)
+                if squared > self.contact_thickness**2:
+                    continue
+                if squared < best_squared or (
+                    squared == best_squared and best_face is not None
+                    and face_index < best_face
+                ):
+                    best_squared, best_face = squared, face_index
+            if best_face is None:
+                continue
+            face = self._faces[best_face]
+            weights = TriangleContactGeometry.closest_barycentric(point, vertices[best_face])
+            active = np.flatnonzero(weights > 0.0)
+            if len(active) == 3:
+                pseudonormal = self._face_normals[best_face]
+            elif len(active) == 2:
+                edge = tuple(sorted((int(face[active[0]]), int(face[active[1]]))))
+                pseudonormal = self._face_normals[self._edge_faces[edge]].sum(axis=0)
+            else:
+                pseudonormal = self._vertex_pseudonormals[face[active[0]]]
+            if np.linalg.norm(pseudonormal) <= TriangleContactGeometry._relative_tolerance:
+                raise ValueError("Undefined self-contact feature pseudonormal: check surface orientation")
+            geometry = TriangleContactGeometry.evaluate(point, vertices[best_face], pseudonormal)
+            queries.append(_SelfContactQuery(
+                slave_index, int(slave_node), self._surf_node_idx[face], geometry
+            ))
+        return queries
 
-        bp = p - b
-        d3 = float(np.dot(ab, bp))
-        d4 = float(np.dot(ac, bp))
-        if d3 >= 0.0 and d4 <= d3:
-            return b.copy(), (0.0, 1.0, 0.0)
-
-        vc = d1 * d4 - d3 * d2
-        if vc <= 0.0 and d1 >= 0.0 and d3 <= 0.0:
-            v = d1 / (d1 - d3)
-            return a + v * ab, (1.0 - v, v, 0.0)
-
-        cp = p - c
-        d5 = float(np.dot(ab, cp))
-        d6 = float(np.dot(ac, cp))
-        if d6 >= 0.0 and d5 <= d6:
-            return c.copy(), (0.0, 0.0, 1.0)
-
-        vb = d5 * d2 - d1 * d6
-        if vb <= 0.0 and d2 >= 0.0 and d6 <= 0.0:
-            w = d2 / (d2 - d6)
-            return a + w * ac, (1.0 - w, 0.0, w)
-
-        va = d3 * d6 - d5 * d4
-        if va <= 0.0 and (d4 - d3) >= 0.0 and (d5 - d6) >= 0.0:
-            w = (d4 - d3) / ((d4 - d3) + (d5 - d6))
-            return b + w * (c - b), (0.0, 1.0 - w, w)
-
-        denom = va + vb + vc
-        if abs(denom) < 1e-15:
-            return a.copy(), (1.0, 0.0, 0.0)
-
-        inv_denom = 1.0 / denom
-        v = vb * inv_denom
-        w = vc * inv_denom
-        u = 1.0 - v - w
-        return u * a + v * b + w * c, (u, v, w)
+    def _pressure(self, query: _SelfContactQuery) -> tuple[float, float]:
+        """Return p=max(0,lambda-kp*g) and fixed per-slave lambda [force]."""
+        multiplier = (
+            float(self.multipliers[query.slave_index])
+            if self.formulation == "augmented_lagrangian" else 0.0
+        )
+        return max(0.0, multiplier - self.k_penalty * query.geometry.gap), multiplier
 
     def _find_active_contacts(
-        self,
-        current_nodes: np.ndarray | None = None,
-        velocities: np.ndarray | None = None,
-    ) -> list[dict[str, Any]]:
-        """
-        Identifies all active self-contact pairs between candidate contact nodes
-        and non-excluded opposing surface facets.
-        """
-        nodes_pos = self.domain.current_nodes if current_nodes is None else current_nodes
+        self, current_nodes: np.ndarray | None = None
+    ) -> list[_SelfContactQuery]:
+        """Return admitted typed constraints with strictly positive pressure."""
+        return [
+            query for query in self._queries(current_nodes)
+            if self._pressure(query)[0] > 0.0
+        ]
 
-        # Check cache
-        state_key = (
-            float(np.sum(nodes_pos)),
-            float(nodes_pos[0, 0]),
-            float(nodes_pos[-1, -1]),
-            id(velocities) if velocities is not None else 0,
-        )
-        if self._cached_key == state_key and self._cached_contacts is not None:
-            return self._cached_contacts
+    def _dof_indices(self, query: _SelfContactQuery) -> np.ndarray:
+        """Map the 12 local translational coordinates into global body DOFs."""
+        nodes = np.r_[query.slave_node, query.master_nodes]
+        return (self.dof_offset + 3 * nodes[:, None] + np.arange(3)).ravel()
 
-        self._update_surface()
-        r = self.search_radius
-        id_list = vtk.vtkIdList()
-        active_contacts: list[dict[str, Any]] = []
-
-        surf_pos = nodes_pos[self._surf_node_idx]
-        f_surf = self._faces
-        m_v1_all = surf_pos[f_surf[:, 0]]
-        m_v2_all = surf_pos[f_surf[:, 1]]
-        m_v3_all = surf_pos[f_surf[:, 2]]
-
-        for s_node in self.contact_nodes:
-            s_mult_idx = self._node_to_multiplier_idx.get(int(s_node), -1)
-            lam = self.multipliers[s_mult_idx] if (s_mult_idx >= 0 and self.formulation == "augmented_lagrangian") else 0.0
-
-            s_surf_idx = self._vol_to_surf_idx.get(int(s_node), -1)
-            x_s = nodes_pos[s_node]
-            n_s = self._nodal_normals[s_surf_idx] if s_surf_idx >= 0 else np.array([0.0, 0.0, 1.0])
-            exc = self._excluded_faces.get(s_surf_idx, set()) if s_surf_idx >= 0 else set()
-
-            bbox = [
-                x_s[0] - r, x_s[0] + r,
-                x_s[1] - r, x_s[1] + r,
-                x_s[2] - r, x_s[2] + r,
-            ]
-            self._locator.FindCellsWithinBounds(bbox, id_list)
-            n_cands = id_list.GetNumberOfIds()
-            if n_cands == 0:
-                continue
-
-            best_dist2 = float("inf")
-            best_cand: tuple[int, np.ndarray, float, float, float] | None = None
-
-            for c_i in range(n_cands):
-                cid = id_list.GetId(c_i)
-                if cid in exc:
-                    continue
-
-                # Filter non-opposing facets
-                if s_surf_idx >= 0 and np.dot(n_s, self._face_normals[cid]) >= self.normal_threshold:
-                    continue
-
-                v1 = m_v1_all[cid]
-                v2 = m_v2_all[cid]
-                v3 = m_v3_all[cid]
-                c_pt, (xi1, xi2, xi3) = self.closest_point_triangle(x_s, v1, v2, v3)
-                diff = x_s - c_pt
-                d2 = float(np.dot(diff, diff))
-
-                if d2 > self.contact_thickness**2:
-                    continue
-
-                if d2 < best_dist2:
-                    best_dist2 = d2
-                    best_cand = (cid, c_pt, xi1, xi2, xi3)
-
-            if best_cand is None:
-                continue
-
-            cid, c_pt, xi1, xi2, xi3 = best_cand
-            f_local = self._faces[cid]
-            m1_vol = int(self._surf_node_idx[f_local[0]])
-            m2_vol = int(self._surf_node_idx[f_local[1]])
-            m3_vol = int(self._surf_node_idx[f_local[2]])
-
-            # C0-continuous contact normal interpolated from facet vertex normals
-            n_interp = (
-                xi1 * self._nodal_normals[f_local[0]]
-                + xi2 * self._nodal_normals[f_local[1]]
-                + xi3 * self._nodal_normals[f_local[2]]
-            )
-            norm_mag = float(np.linalg.norm(n_interp))
-            if norm_mag < 1e-14:
-                continue
-            n = n_interp / norm_mag
-
-            # Signed normal gap (negative = penetration)
-            gap = float(np.dot(x_s - c_pt, n))
-
-            # Alart-Curnier contact force operator
-            f_N = float(max(0.0, lam - self.k_penalty * gap))
-
-            if f_N <= 0.0 and gap > self.tolerance:
-                continue
-
-            # Velocity damping and friction
-            f_damp = 0.0
-            f_t_s = np.zeros(3, dtype=np.float64)
-            f_t_m = np.zeros(3, dtype=np.float64)
-
-            if velocities is not None:
-                vel = np.asarray(velocities, dtype=np.float64)
-                dof_s = self.dof_offset + 3 * s_node
-                dof_m1 = self.dof_offset + 3 * m1_vol
-                dof_m2 = self.dof_offset + 3 * m2_vol
-                dof_m3 = self.dof_offset + 3 * m3_vol
-
-                v_s = vel[dof_s : dof_s + 3]
-                v_m = (
-                    xi1 * vel[dof_m1 : dof_m1 + 3]
-                    + xi2 * vel[dof_m2 : dof_m2 + 3]
-                    + xi3 * vel[dof_m3 : dof_m3 + 3]
-                )
-                v_rel = v_s - v_m
-                vn = float(np.dot(v_rel, n))
-
-                if self.c_damping > 0.0 and vn < 0.0:
-                    f_damp = -self.c_damping * vn
-
-                if self.friction > 0.0:
-                    vt_vec = v_rel - vn * n
-                    vt_mag = float(np.linalg.norm(vt_vec))
-                    if vt_mag > 1e-9:
-                        t_dir = vt_vec / vt_mag
-                        ft_mag = self.friction * f_N * np.tanh(vt_mag / 1e-3)
-                        f_t_s = -ft_mag * t_dir
-                        f_t_m = ft_mag * t_dir
-
-            active_contacts.append({
-                "slave_node": int(s_node),
-                "master_nodes": (m1_vol, m2_vol, m3_vol),
-                "barycentric": (xi1, xi2, xi3),
-                "normal": n,
-                "gap": gap,
-                "f_N": f_N,
-                "f_damp": f_damp,
-                "f_t_s": f_t_s,
-                "f_t_m": f_t_m,
-                "mult_idx": s_mult_idx,
-                "closest_point": c_pt,
-            })
-
-        self._cached_contacts = active_contacts
-        self._cached_key = state_key
-        return active_contacts
+    def evaluate_gaps(self, current_nodes: np.ndarray | None = None) -> np.ndarray:
+        """Return candidate-aligned signed gaps [length], +inf if none admitted."""
+        gaps = np.full(len(self.contact_nodes), np.inf)
+        for query in self._queries(current_nodes):
+            gaps[query.slave_index] = query.geometry.gap
+        return gaps
 
     def evaluate_forces(
         self,
@@ -1468,39 +1225,42 @@ class SelfContact:
         velocities: np.ndarray | None = None,
         n_dofs: int | None = None,
     ) -> np.ndarray:
+        """Assemble f=p*grad(g) [force], plus optional dissipative laws.
+
+        Conservative normal forces have zero resultant and moment, following
+        rigid-motion invariance of each admitted signed-distance potential.
+        Normal damping and regularized friction remain available, with only
+        their retained approximate dissipative tangent in evaluate_stiffness.
+        Dissipative forces act only on strictly positive-pressure constraints;
+        the p=0 activation boundary uses the open branch with no damping.
         """
-        Evaluates the global self-contact force vector f_c.
-        Guarantees exact linear and angular momentum conservation: sum(f_c) == 0.
-        """
-        if n_dofs is None:
-            n_dofs = self.dof_offset + self.domain.n_dofs
-
-        f_c = np.zeros(n_dofs, dtype=np.float64)
-        active_contacts = self._find_active_contacts(current_nodes, velocities)
-
-        for c in active_contacts:
-            s_node = c["slave_node"]
-            m1, m2, m3 = c["master_nodes"]
-            xi1, xi2, xi3 = c["barycentric"]
-            n = c["normal"]
-            f_total = c["f_N"] + c["f_damp"]
-            f_t_s = c["f_t_s"]
-            f_t_m = c["f_t_m"]
-
-            # Action on slave node
-            dof_s = self.dof_offset + 3 * s_node
-            f_c[dof_s : dof_s + 3] += f_total * n + f_t_s
-
-            # Reaction on master nodes
-            dof_m1 = self.dof_offset + 3 * m1
-            dof_m2 = self.dof_offset + 3 * m2
-            dof_m3 = self.dof_offset + 3 * m3
-
-            f_c[dof_m1 : dof_m1 + 3] += -xi1 * f_total * n + xi1 * f_t_m
-            f_c[dof_m2 : dof_m2 + 3] += -xi2 * f_total * n + xi2 * f_t_m
-            f_c[dof_m3 : dof_m3 + 3] += -xi3 * f_total * n + xi3 * f_t_m
-
-        return f_c
+        size = self.dof_offset + self.domain.n_dofs if n_dofs is None else n_dofs
+        forces = np.zeros(size, dtype=np.float64)
+        velocity = (
+            None if velocities is None
+            else np.asarray(velocities, dtype=np.float64).reshape(-1)
+        )
+        for query in self._find_active_contacts(current_nodes):
+            pressure, _ = self._pressure(query)
+            geometry = query.geometry
+            indices = self._dof_indices(query)
+            local_force = pressure * geometry.gradient
+            if velocity is not None:
+                weights = np.r_[1.0, -geometry.barycentric]
+                relative_velocity = weights @ velocity[indices].reshape(4, 3)
+                normal_velocity = float(relative_velocity @ geometry.normal)
+                if self.c_damping > 0.0 and normal_velocity < 0.0:
+                    local_force -= self.c_damping * normal_velocity * geometry.gradient
+                tangential = relative_velocity - normal_velocity * geometry.normal
+                speed = float(np.linalg.norm(tangential))
+                if self.friction > 0.0 and speed > 1e-9:
+                    friction_force = (
+                        -self.friction * pressure * np.tanh(speed / 1e-3)
+                        * tangential / speed
+                    )
+                    local_force += np.kron(weights, friction_force)
+            np.add.at(forces, indices, local_force)
+        return forces
 
     def evaluate_stiffness(
         self,
@@ -1508,143 +1268,67 @@ class SelfContact:
         n_dofs: int | None = None,
         a1: float = 0.0,
     ) -> spsp.csr_matrix:
+        """Assemble K=kp*b*b.T-p*H [force/length] on selected active branches.
+
+        All analytical geometric terms enter symmetric 12x12 local blocks; the
+        global tangent need not be PSD. Sparse COO assembly uses vectorized DOF
+        indexing. Optional a1*c*b*b.T retains the approximate normal damping
+        tangent; friction and full dissipative geometry derivatives are omitted.
         """
-        Assembles the sparse coupled symmetric tangent self-contact stiffness matrix K_c.
-        K_c = sum_{active} kp * (w (x) w) (x) (n (x) n).
-        """
-        if n_dofs is None:
-            n_dofs = self.dof_offset + self.domain.n_dofs
-
-        active_contacts = self._find_active_contacts(current_nodes)
-        if not active_contacts:
-            return spsp.csr_matrix((n_dofs, n_dofs), dtype=np.float64)
-
-        kp = self.k_penalty + a1 * self.c_damping
-        rows: list[int] = []
-        cols: list[int] = []
-        vals: list[float] = []
-
-        for c in active_contacts:
-            s_node = c["slave_node"]
-            m1, m2, m3 = c["master_nodes"]
-            xi1, xi2, xi3 = c["barycentric"]
-            n = c["normal"]
-
-            dof_starts = [
-                self.dof_offset + 3 * s_node,
-                self.dof_offset + 3 * m1,
-                self.dof_offset + 3 * m2,
-                self.dof_offset + 3 * m3,
-            ]
-            weights = [1.0, -xi1, -xi2, -xi3]
-            nn = np.outer(n, n)
-
-            # Assemble 16 blocks (4x4 node pairs)
-            for a in range(4):
-                w_a = weights[a]
-                dof_a = dof_starts[a]
-                for b in range(4):
-                    w_b = weights[b]
-                    dof_b = dof_starts[b]
-                    block_scale = kp * w_a * w_b
-
-                    for i in range(3):
-                        for j in range(3):
-                            rows.append(dof_a + i)
-                            cols.append(dof_b + j)
-                            vals.append(block_scale * nn[i, j])
-
+        size = self.dof_offset + self.domain.n_dofs if n_dofs is None else n_dofs
+        rows: list[np.ndarray] = []
+        columns: list[np.ndarray] = []
+        values: list[np.ndarray] = []
+        for query in self._find_active_contacts(current_nodes):
+            pressure, _ = self._pressure(query)
+            geometry = query.geometry
+            tangent = (
+                (self.k_penalty + a1 * self.c_damping) * np.outer(geometry.gradient, geometry.gradient)
+                - pressure * geometry.hessian
+            )
+            indices = self._dof_indices(query)
+            rows.append(np.repeat(indices, 12))
+            columns.append(np.tile(indices, 12))
+            values.append(tangent.ravel())
+        if not values:
+            return spsp.csr_matrix((size, size), dtype=np.float64)
         return spsp.coo_matrix(
-            (vals, (rows, cols)), shape=(n_dofs, n_dofs), dtype=np.float64
+            (np.concatenate(values), (np.concatenate(rows), np.concatenate(columns))),
+            shape=(size, size),
         ).tocsr()
-
-    def update_multipliers(self) -> dict[str, float]:
-        """
-        Updates Augmented Lagrangian contact multipliers:
-            lambda_s <- max(0, lambda_s - k_p * g_N)
-        """
-        # Force re-query
-        self._cached_contacts = None
-        self._cached_key = None
-        active_contacts = self._find_active_contacts()
-
-        max_pen = 0.0
-        num_active = 0
-        max_delta_lam = 0.0
-
-        for c in active_contacts:
-            s_mult_idx = c["mult_idx"]
-            if s_mult_idx < 0:
-                continue
-
-            gap = c["gap"]
-            old_lam = self.multipliers[s_mult_idx]
-            new_lam = float(max(0.0, old_lam - self.k_penalty * gap))
-            self.multipliers[s_mult_idx] = new_lam
-
-            delta_lam = abs(new_lam - old_lam)
-            if delta_lam > max_delta_lam:
-                max_delta_lam = delta_lam
-
-            if gap < 0.0:
-                pen = -gap
-                if pen > max_pen:
-                    max_pen = pen
-            if new_lam > 0.0:
-                num_active += 1
-
-        # Clear cache so updated multipliers are used
-        self._cached_contacts = None
-        self._cached_key = None
-
-        return {
-            "max_penetration": max_pen,
-            "max_multiplier": float(np.max(self.multipliers)) if len(self.multipliers) > 0 else 0.0,
-            "max_delta_multiplier": max_delta_lam,
-            "num_active": num_active,
-        }
 
     def evaluate_potential_energy(
         self, current_nodes: np.ndarray | None = None
     ) -> float:
+        """Return fixed-lambda normal potential sum((p^2-lambda^2)/(2*kp)).
+
+        Potential [force*length] includes inactive AL constants; it has no
+        dissipative component. Exact derivative claims hold with the admitted
+        candidate, feature, and oriented sign branch fixed.
         """
-        Calculates stored contact potential energy:
-        Pi_c = 1/2 * k_p * sum_{active} g_N^2
-        """
-        c_info = self.get_contact_info(current_nodes)
-        return float(c_info["potential_energy"])
+        return float(self.get_contact_info(current_nodes)["potential_energy"])
 
     def get_contact_info(
         self, current_nodes: np.ndarray | None = None
     ) -> dict[str, Any]:
-        """Returns structured summary of current self-contact status."""
-        active_contacts = self._find_active_contacts(current_nodes)
+        """Report selected-candidate normal-law penetration, activity and energy.
 
-        num_active = 0
-        max_pen = 0.0
-        active_nodes = []
-        contact_energy = 0.0
-
-        for c in active_contacts:
-            gap = c["gap"]
-            f_N = c["f_N"]
-            s_node = c["slave_node"]
-
-            if f_N > 0.0 or gap < 0.0:
-                num_active += 1
-                active_nodes.append(s_node)
-                if gap < 0.0:
-                    pen = -gap
-                    if pen > max_pen:
-                        max_pen = pen
-                    contact_energy += 0.5 * self.k_penalty * (gap**2)
-
+        All fields use the same candidate gaps and projected pressures. A local
+        negative gap is not by itself proof of physical self-intersection.
+        """
+        gaps = self.evaluate_gaps(current_nodes)
+        multipliers = (
+            self.multipliers if self.formulation == "augmented_lagrangian"
+            else np.zeros_like(gaps)
+        )
+        pressure = np.maximum(0.0, multipliers - self.k_penalty * gaps)
+        active = (pressure > 0.0) | (gaps < 0.0)
         return {
-            "num_active": num_active,
-            "max_penetration": max_pen,
-            "active_nodes": np.asarray(active_nodes, dtype=np.int64),
-            "potential_energy": contact_energy,
-            "max_multiplier": float(np.max(self.multipliers)) if len(self.multipliers) > 0 else 0.0,
+            "num_active": int(np.count_nonzero(active)),
+            "max_penetration": float(np.max(np.maximum(-gaps, 0.0), initial=0.0)),
+            "active_nodes": self.contact_nodes[active],
+            "potential_energy": float(np.sum((pressure**2 - multipliers**2) / (2.0 * self.k_penalty))),
+            "max_multiplier": float(np.max(self.multipliers, initial=0.0)),
         }
 
 

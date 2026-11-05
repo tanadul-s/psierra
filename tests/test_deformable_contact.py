@@ -5,7 +5,7 @@ Verifies:
 1. Exact barycentric projection and interpolation on triangular master surface facets.
 2. Exact Newtonian action-reaction interface force balance (sum(f_c) == 0).
 3. Exact symmetry of coupled tangent stiffness matrix (K_c == K_c^T) and cross-body coupling.
-4. Positive semi-definiteness of the contact tangent operator.
+4. Rigid translation invariance of the contact tangent operator.
 5. MultiBodySystem automatic routing to DeformableContact.
 6. Augmented Lagrangian multiplier update driving penetration error g_N -> 0.
 7. End-to-end static two-body flexible contact equilibrium.
@@ -157,12 +157,14 @@ class TestDeformableContactMechanics:
         assert np.linalg.norm(K_AB) > 0.0
         assert np.allclose(K_AB, K_BA.T)
 
-        # 3. Positive semi-definiteness: v^T K_c v >= 0 for random vectors
-        np.random.seed(42)
-        for _ in range(10):
-            v = np.random.randn(n_total)
-            quad_form = v @ (K_c @ v)
-            assert quad_form >= -1e-12
+        # 3. Rigid translations leave all relative gaps/forces unchanged.
+        # The full consistent Hessian includes geometric curvature and can be
+        # indefinite; test_deformable_contact_consistency verifies that curvature
+        # against independent energy differences instead of imposing PSD.
+        for component in range(3):
+            translation = np.zeros(n_total)
+            translation[component::3] = 1.0
+            np.testing.assert_allclose(K_c @ translation, 0.0, atol=1e-10)
 
     def test_multibody_add_contact_pair_integration(
         self, touching_cubes: tuple[SolidDomain, SolidDomain]
@@ -297,3 +299,18 @@ class TestTwoBodyStaticSolve:
         assert upper.displacement[:, 1].min() < -0.05
         assert lower.displacement[:, 1].min() < 0.0
         assert lower.displacement[:, 1].min() < 0.0    # lower cube compressed
+
+        # Acceptance must satisfy equilibrium and the AL fixed-point constraint
+        # together, using the stored multipliers without an unchecked update.
+        contact_force = contact.evaluate_forces(n_dofs=system.n_dofs)
+        internal_force = system.assemble_internal_forces()
+        free = dirichlet.free_dofs
+        scale = max(np.linalg.norm(contact_force[free]), np.linalg.norm(internal_force[free]), 1.0)
+        assert np.linalg.norm((contact_force - internal_force)[free]) / scale < 1e-3
+        gaps = contact.evaluate_gaps()
+        assert np.max(np.maximum(-gaps, 0.0)) <= 1e-6
+        proposed = np.maximum(0.0, contact.multipliers - contact.k_penalty * gaps)
+        multiplier_scale = max(np.max(np.abs(proposed)), np.max(np.abs(contact.multipliers)))
+        assert multiplier_scale > 0.0
+        assert np.max(np.abs(proposed - contact.multipliers)) / multiplier_scale <= 1e-6
+        assert len(result.al_iterations_history) == 2

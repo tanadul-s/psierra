@@ -1,10 +1,9 @@
 """
 Unit & Regression Tests for Self-Contact Formulation.
 ====================================================
-Validates topological star exclusion, exact Ericson Voronoi triangle projection,
-C0-continuous vertex normal interpolation, Newton action-reaction balance
-(linear & angular momentum conservation), tangent stiffness symmetry,
-Uzawa augmented Lagrangian multipliers, and MultiBodySystem routing.
+Contains mesh/API smoke checks, projection cases and MultiBodySystem routing.
+Guaranteed-active mechanics verification belongs to
+test_self_contact_consistency.py; bunny deformations need not activate contact.
 """
 
 from pathlib import Path
@@ -78,8 +77,8 @@ def test_self_contact_initialization(test_domain: SolidDomain) -> None:
 
 def test_topological_exclusion_prevents_self_detection(test_domain: SolidDomain) -> None:
     """
-    On an un-deformed single convex or regular body, topological exclusion and normal
-    filtering must ensure zero active self-contacts occur (no false self-penetration).
+    The existing beam fixture produces no active pairs with default selectors.
+    This mesh-specific smoke check is not a global collision guarantee.
     """
     contact = SelfContact(domain=test_domain, k_penalty=1e4)
     active = contact._find_active_contacts()
@@ -120,10 +119,9 @@ def test_ericson_closest_point_triangle() -> None:
     assert np.isclose(w, 0.0)
 
 
-def test_action_reaction_momentum_conservation(bunny_mesh: VolumetricMesh) -> None:
+def test_bunny_self_contact_force_smoke(bunny_mesh: VolumetricMesh) -> None:
     """
-    Verifies that self-contact forces strictly conserve linear momentum:
-    sum(f_c) == 0 for any arbitrary deformation state with active contacts.
+    Assemble finite balanced force on a bunny perturbation, possibly inactive.
     """
     mat = make_material(5e4, 0.3, 1e-6)
     elem = Tet4Linear(mat)
@@ -145,16 +143,16 @@ def test_action_reaction_momentum_conservation(bunny_mesh: VolumetricMesh) -> No
     f_c = contact.evaluate_forces()
     c_info = contact.get_contact_info()
 
-    if c_info["num_active"] > 0:
-        # Net sum of contact forces across the entire domain must be strictly zero (Newton's 3rd law)
-        net_force = np.sum(f_c.reshape(-1, 3), axis=0)
-        assert np.allclose(net_force, 0.0, atol=1e-8)
+    assert f_c.shape == (domain.n_dofs,)
+    assert np.isfinite(f_c).all()
+    assert 0 <= c_info["num_active"] <= len(contact.contact_nodes)
+    net_force = np.sum(f_c.reshape(-1, 3), axis=0)
+    assert np.allclose(net_force, 0.0, atol=1e-8)
 
 
-def test_tangent_stiffness_symmetry(bunny_mesh: VolumetricMesh) -> None:
+def test_bunny_self_contact_tangent_smoke(bunny_mesh: VolumetricMesh) -> None:
     """
-    Verifies that the assembled tangent self-contact stiffness matrix K_c
-    is strictly symmetric: K_c == K_c.T.
+    Assemble a finite symmetric bunny contact tangent, possibly the zero matrix.
     """
     mat = make_material(5e4, 0.3, 1e-6)
     elem = Tet4Linear(mat)
@@ -176,14 +174,15 @@ def test_tangent_stiffness_symmetry(bunny_mesh: VolumetricMesh) -> None:
     K_c = contact.evaluate_stiffness()
     c_info = contact.get_contact_info()
 
-    if c_info["num_active"] > 0:
-        assert K_c.nnz > 0
-        diff = K_c - K_c.T
-        assert np.max(np.abs(diff.data)) < 1e-8
+    assert K_c.shape == (domain.n_dofs, domain.n_dofs)
+    assert np.isfinite(K_c.data).all()
+    assert 0 <= c_info["num_active"] <= len(contact.contact_nodes)
+    diff = K_c - K_c.T
+    assert np.max(np.abs(diff.data), initial=0.0) < 1e-8
 
 
-def test_augmented_lagrangian_multipliers_update(bunny_mesh: VolumetricMesh) -> None:
-    """Verifies that augmented Lagrangian updates Uzawa multipliers monotonically under penetration."""
+def test_bunny_self_contact_multiplier_smoke(bunny_mesh: VolumetricMesh) -> None:
+    """Check finite nonnegative bunny multipliers; activation is not guaranteed."""
     mat = make_material(5e4, 0.3, 1e-6)
     elem = Tet4Linear(mat)
     domain = SolidDomain(bunny_mesh, mat, elem)
@@ -202,6 +201,8 @@ def test_augmented_lagrangian_multipliers_update(bunny_mesh: VolumetricMesh) -> 
     domain.u = (nodes - domain.mesh.nodes).ravel()
 
     info1 = contact.update_multipliers()
+    assert np.isfinite(contact.multipliers).all()
+    assert np.all(contact.multipliers >= 0.0)
     if info1["num_active"] > 0:
         assert info1["max_multiplier"] > 0.0
         # Second update with same deformation increases multiplier
