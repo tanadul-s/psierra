@@ -244,25 +244,25 @@ def test_cuboid_self_contact_slit_closure() -> None:
 
     nodes = mesh.nodes
     surf_nodes = np.asarray(mesh.surface.node_indices)
-    slit_candidates = surf_nodes[(nodes[surf_nodes, 2] >= 45.0) & (np.abs(nodes[surf_nodes, 0]) <= 8.0)]
+    slit_candidates = surf_nodes[(nodes[surf_nodes, 2] >= 50.0) & (np.abs(nodes[surf_nodes, 0]) <= 7.0)]
 
     contact = SelfContact(
         domain=domain,
         contact_nodes=slit_candidates,
         k_penalty=5000.0,
-        contact_thickness=8.0,
-        search_radius=20.0,
-        exclusion_rings=3,
+        contact_thickness=12.0,
+        search_radius=25.0,
+        exclusion_rings=6,
         normal_threshold=-0.2,
     )
 
-    # Displace upper flexure prongs inward to close the 7 mm slit
-    # Left flank (X < 0, Z >= 50) moves +4.0 mm, right flank (X > 0, Z >= 50) moves -4.0 mm
+    # Displace upper flexure prongs inward to close the 10 mm slit
+    # Left flank (X < 0, Z >= 50) moves +5.5 mm, right flank (X > 0, Z >= 50) moves -5.5 mm
     u_disp = np.zeros_like(nodes)
     left_mask = (nodes[:, 0] < 0.0) & (nodes[:, 2] >= 50.0)
     right_mask = (nodes[:, 0] > 0.0) & (nodes[:, 2] >= 50.0)
-    u_disp[left_mask, 0] = 4.0
-    u_disp[right_mask, 0] = -4.0
+    u_disp[left_mask, 0] = 5.5
+    u_disp[right_mask, 0] = -5.5
 
     domain.u = u_disp.ravel()
 

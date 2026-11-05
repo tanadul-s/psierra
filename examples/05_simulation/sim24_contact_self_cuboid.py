@@ -56,14 +56,14 @@ def parse_arguments() -> argparse.Namespace:
     parser.add_argument(
         "--steps",
         type=int,
-        default=30,
-        help="Number of dynamic time steps (default: 30 steps = 1.5 s total duration)",
+        default=36,
+        help="Number of dynamic time steps (default: 36 steps = 1.8 s total duration)",
     )
     parser.add_argument(
         "--pinch-force",
         type=float,
-        default=350.0,
-        help="Total bilateral inward pinching force in N (default: 350.0 N)",
+        default=260.0,
+        help="Total bilateral inward pinching force in N (default: 260.0 N)",
     )
     parser.add_argument(
         "--youngs-modulus",
@@ -86,8 +86,8 @@ def parse_arguments() -> argparse.Namespace:
     parser.add_argument(
         "--kp",
         type=float,
-        default=5000.0,
-        help="Normal penalty contact stiffness in N/mm (default: 5000.0 N/mm)",
+        default=3000.0,
+        help="Normal penalty contact stiffness in N/mm (default: 3000.0 N/mm)",
     )
     parser.add_argument(
         "--cdamp",
@@ -179,17 +179,28 @@ def main() -> None:
         f"Z=[{nodes[:, 2].min():.1f}, {nodes[:, 2].max():.1f}] mm (Span: {b_span[0]:.1f} × {b_span[1]:.1f} × {b_span[2]:.1f} mm)"
     )
 
-    # Identify slot dimensions
+    # Identify slot dimensions dynamically
     surf_nodes = np.asarray(cuboid_mesh.surface.node_indices)
-    left_slit_nodes = surf_nodes[(np.abs(nodes[surf_nodes, 0] - (-3.5)) < 0.5) & (nodes[surf_nodes, 2] >= 49.5)]
-    right_slit_nodes = surf_nodes[(np.abs(nodes[surf_nodes, 0] - 3.5) < 0.5) & (nodes[surf_nodes, 2] >= 49.5)]
+    upper_mask = (nodes[surf_nodes, 2] >= 55.0) & (np.abs(nodes[surf_nodes, 0]) <= 7.0)
+    cand_coords = nodes[surf_nodes[upper_mask]]
+    x_left_face = float(np.max(cand_coords[cand_coords[:, 0] < 0, 0]))
+    x_right_face = float(np.min(cand_coords[cand_coords[:, 0] > 0, 0]))
+
+    left_slit_nodes = surf_nodes[
+        (np.abs(nodes[surf_nodes, 0] - x_left_face) < 0.5) & (nodes[surf_nodes, 2] >= 55.0)
+    ]
+    right_slit_nodes = surf_nodes[
+        (np.abs(nodes[surf_nodes, 0] - x_right_face) < 0.5) & (nodes[surf_nodes, 2] >= 55.0)
+    ]
     slit_gap = float(nodes[right_slit_nodes, 0].min() - nodes[left_slit_nodes, 0].max())
 
     console.print(
-        f"  Keyhole Slit Geometry: [green]{len(left_slit_nodes)}[/green] left face nodes (X = -3.5 mm) vs "
-        f"[green]{len(right_slit_nodes)}[/green] right face nodes (X = +3.5 mm)"
+        f"  Keyhole Slit Geometry: [green]{len(left_slit_nodes)}[/green] left face nodes (X = {x_left_face:.1f} mm) vs "
+        f"[green]{len(right_slit_nodes)}[/green] right face nodes (X = {x_right_face:.1f} mm)"
     )
-    console.print(f"  Undeformed Slit Gap: [cyan]{slit_gap:.2f} mm[/cyan] (touchdown requires ~3.5 mm inward deflection per prong)")
+    console.print(
+        f"  Undeformed Slit Gap: [cyan]{slit_gap:.2f} mm[/cyan] (touchdown requires ~{slit_gap / 2.0:.1f} mm inward deflection per prong)"
+    )
 
     # =========================================================================
     # [2/5] Hyperelastic Constitutive Model & Solid Continuum
@@ -226,8 +237,8 @@ def main() -> None:
     )
     system = MultiBodySystem({"SlottedCuboid": cuboid_domain})
 
-    # Restrict contact candidate search to the upper flexure arms and slot
-    slit_candidates = surf_nodes[(nodes[surf_nodes, 2] >= 45.0) & (np.abs(nodes[surf_nodes, 0]) <= 8.0)]
+    # Restrict contact candidate search to the inner flexure arms and slot chamfer
+    slit_candidates = surf_nodes[(nodes[surf_nodes, 2] >= 50.0) & (np.abs(nodes[surf_nodes, 0]) <= 7.0)]
     console.print(
         f"  Self-Contact Candidates: [green]{len(slit_candidates)}[/green] surface nodes facing across the slit"
     )
@@ -237,16 +248,16 @@ def main() -> None:
         contact_nodes=slit_candidates,
         k_penalty=args.kp,
         c_damping=args.cdamp,
-        contact_thickness=8.0,  # Detection shell wider than initial 7 mm gap
-        search_radius=20.0,
-        exclusion_rings=3,       # Exclude 1- to 3-ring topological neighbors
+        contact_thickness=12.0,  # Detection shell wider than initial 10 mm gap
+        search_radius=25.0,
+        exclusion_rings=6,       # Exclude up to 6-ring local topological neighbors (prevents arm-step false detection)
         normal_threshold=-0.2,   # Require opposing outward normals (n1 . n2 <= -0.2)
         formulation=args.formulation,
     )
 
     console.print(
         f"  Registered Contact: {type(contact).__name__}("
-        f"k_p = {args.kp:.1e} N/mm, mode={args.formulation}, thickness = 8.0 mm, rings = 3)"
+        f"k_p = {args.kp:.1e} N/mm, mode={args.formulation}, thickness = 12.0 mm, rings = 6)"
     )
 
     # Boundary Conditions: Clamped base plate at Z <= 2.0 mm
@@ -342,6 +353,9 @@ def main() -> None:
                     touchdown_detected = True
             except Exception:
                 pass
+
+    if active_count > 0 or max_pen > 0.0:
+        touchdown_detected = True
 
     max_disp_val = float(np.linalg.norm(cuboid_domain.displacement, axis=1).max())
 
