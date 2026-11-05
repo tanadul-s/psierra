@@ -3,9 +3,9 @@ Simulation 24: Nonlinear Dynamic Self-Contact on Slotted Cuboid Flexure.
 ========================================================================
 Demonstrates:
 1. Finite-strain Total Lagrangian formulation (Tet4TotalLagrangian) with Neo-Hookean hyperelasticity.
-2. Slotted keyhole flexure geometry (cuboid1.vtk) with bilateral symmetric dynamic inward pinching.
-3. Autonomous self-contact mechanics (SelfContact) preventing interpenetration across the 7.0 mm slot.
-4. Topologically filtered Star BFS graph neighbor exclusion preventing false adjacent-facet detections.
+2. Slotted keyhole flexure geometry (cuboid1.vtk) with combined downward gravity and dynamic inward pinching.
+3. Autonomous self-contact mechanics (SelfContact) preventing interpenetration across the 10.0 mm slot.
+4. Topologically filtered Star BFS graph neighbor exclusion (rings=6) preventing false adjacent-facet detections.
 5. Generalized-alpha dynamic time stepping (rho_inf = 0.8) capturing impact closure and elastic rebound.
 6. Unified ParaView PVD time-series collection export (factor=0.0) with 3D "Displacement" vector field.
 """
@@ -29,6 +29,7 @@ from psierra.multibody import MultiBodySystem
 from psierra.boundary import (
     DirichletConstraint,
     DirichletManager,
+    GravityLoad,
 )
 from psierra.damping import RayleighDamping
 from psierra.analysis import NonlinearDynamicAnalysis
@@ -50,26 +51,32 @@ def parse_arguments() -> argparse.Namespace:
     parser.add_argument(
         "--dt",
         type=float,
-        default=0.05,
-        help="Dynamic time step in seconds (default: 0.05 s = 20 Hz)",
+        default=0.02,
+        help="Dynamic time step in seconds (default: 0.02 s = 50 Hz)",
     )
     parser.add_argument(
         "--steps",
         type=int,
-        default=36,
-        help="Number of dynamic time steps (default: 36 steps = 1.8 s total duration)",
+        default=25,
+        help="Number of dynamic time steps (default: 25 steps = 0.5 s total duration)",
     )
     parser.add_argument(
         "--pinch-force",
         type=float,
-        default=260.0,
-        help="Total bilateral inward pinching force in N (default: 260.0 N)",
+        default=25000.0,
+        help="Total bilateral inward pinching force in N (default: 25000.0 N, set 0.0 for pure gravity)",
+    )
+    parser.add_argument(
+        "--gravity",
+        type=float,
+        default=9810.0,
+        help="Gravitational acceleration magnitude in mm/s^2 along -Z (default: 9810.0 mm/s^2, set 0.0 to disable)",
     )
     parser.add_argument(
         "--youngs-modulus",
         type=float,
-        default=50.0,
-        help="Young's modulus in MPa (default: 50.0 MPa for compliant elastomer/polymer)",
+        default=21000.0,
+        help="Young's modulus in MPa (default: 21000.0 MPa matching standard repository material)",
     )
     parser.add_argument(
         "--poisson-ratio",
@@ -86,8 +93,8 @@ def parse_arguments() -> argparse.Namespace:
     parser.add_argument(
         "--kp",
         type=float,
-        default=3000.0,
-        help="Normal penalty contact stiffness in N/mm (default: 3000.0 N/mm)",
+        default=50000.0,
+        help="Normal penalty contact stiffness in N/mm (default: 50000.0 N/mm)",
     )
     parser.add_argument(
         "--cdamp",
@@ -270,23 +277,35 @@ def main() -> None:
         f"  Boundary Conditions: Fixed [green]{len(base_nodes)}[/green] base nodes at Z <= 2.0 mm (Rigid Foundation)"
     )
 
-    # Dynamic Bilateral Pinching Force: Applied on upper outer flanks
-    left_flank = np.where((nodes[:, 0] <= -24.0) & (nodes[:, 2] >= 55.0))[0]
-    right_flank = np.where((nodes[:, 0] >= 24.0) & (nodes[:, 2] >= 55.0))[0]
-
+    # Dynamic External Loads: Pinching Load + Gravitational Body Force
     f_ext = np.zeros(system.n_dofs)
-    f_left_node = (args.pinch_force / 2.0) / len(left_flank)
-    f_right_node = (-args.pinch_force / 2.0) / len(right_flank)
-    for n in left_flank:
-        f_ext[3 * n] = f_left_node
-    for n in right_flank:
-        f_ext[3 * n] = f_right_node
 
-    console.print(
-        f"  Dynamic Pinching Load: [cyan]{args.pinch_force:.1f} N[/cyan] total inward load "
-        f"([green]+{args.pinch_force/2:.1f} N[/green] on {len(left_flank)} left flank nodes, "
-        f"[green]-{args.pinch_force/2:.1f} N[/green] on {len(right_flank)} right flank nodes)"
-    )
+    # 1. Bilateral Pinching Force: Applied symmetrically on upper outer flanks
+    if args.pinch_force > 0.0:
+        left_flank = np.where((nodes[:, 0] <= -24.0) & (nodes[:, 2] >= 55.0))[0]
+        right_flank = np.where((nodes[:, 0] >= 24.0) & (nodes[:, 2] >= 55.0))[0]
+        f_left_node = (args.pinch_force / 2.0) / len(left_flank)
+        f_right_node = (-args.pinch_force / 2.0) / len(right_flank)
+        for n in left_flank:
+            f_ext[3 * n] += f_left_node
+        for n in right_flank:
+            f_ext[3 * n] += f_right_node
+
+        console.print(
+            f"  Dynamic Pinching Load: [cyan]{args.pinch_force:.1f} N[/cyan] total inward load "
+            f"([green]+{args.pinch_force/2:.1f} N[/green] on {len(left_flank)} left flank nodes, "
+            f"[green]-{args.pinch_force/2:.1f} N[/green] on {len(right_flank)} right flank nodes)"
+        )
+
+    # 2. Gravitational Body Force: Uniform downward body load F_grav = M @ g
+    if args.gravity != 0.0:
+        gravity = GravityLoad(acceleration=(0.0, 0.0, -abs(args.gravity)), dofs_per_node=3)
+        f_grav = gravity.compute_force_vector(M)
+        f_ext += f_grav
+        console.print(
+            f"  Dynamic Gravity Load : [cyan]g = -{abs(args.gravity):.1f} mm/s²[/cyan] along -Z "
+            f"(Total Body Weight F_z = [green]{f_grav[2::3].sum():.1f} N[/green])"
+        )
 
     # Rayleigh Damping
     damping = RayleighDamping(alpha=1.0, beta=0.002)
@@ -369,6 +388,8 @@ def main() -> None:
 
     table.add_row("Solve Status", "CONVERGED" if result.converged else "FAILED", "")
     table.add_row("Contact Formulation", args.formulation, "")
+    table.add_row("Gravitational Acceleration", f"-{abs(args.gravity):.1f}" if args.gravity != 0.0 else "None", "mm/s^2" if args.gravity != 0.0 else "")
+    table.add_row("Bilateral Pinching Force", f"{args.pinch_force:.1f}" if args.pinch_force != 0.0 else "None", "N" if args.pinch_force != 0.0 else "")
     table.add_row("Total Computation Time", f"{solve_duration:.3f}", "s")
     table.add_row("Total Physical Duration", f"{args.steps * args.dt:.4f}", "s")
     table.add_row("Time Step (dt)", f"{args.dt:.4f}", "s")
