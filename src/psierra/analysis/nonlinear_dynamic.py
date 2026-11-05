@@ -589,11 +589,16 @@ class NonlinearDynamicAnalysis(Analysis):
                         pvd_writer.write()
                     raise
                 if verbose and augmentation.contacts:
-                    print(
-                        f"  Augmentation {al_iteration}/{augmentation.max_iterations} | "
-                        f"Endpoint penetration = {status.max_penetration:.4e} | "
-                        f"Projected multiplier residual = {status.relative_multiplier_residual:.4e}"
-                    )
+                    if (
+                        status.max_penetration > 0.0
+                        or status.relative_multiplier_residual > 0.0
+                        or al_iteration > 1
+                    ):
+                        print(
+                            f"  Step {step:5d} | Augmentation {al_iteration:2d}/{augmentation.max_iterations} | "
+                            f"Endpoint penetration = {status.max_penetration:.4e} | "
+                            f"Projected multiplier residual = {status.relative_multiplier_residual:.4e}"
+                        )
                 if status.converged:
                     iteration_history.append(total_iterations)
                     al_iterations_history.append(al_iteration if augmentation.contacts else 0)
