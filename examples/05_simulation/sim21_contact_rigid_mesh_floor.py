@@ -90,6 +90,31 @@ def parse_arguments() -> argparse.Namespace:
         help="Contact normal velocity damping in N*s/mm (default: 0.0 for pure elastic rebound)",
     )
     parser.add_argument(
+        "--formulation",
+        type=str,
+        choices=["augmented_lagrangian", "penalty"],
+        default="penalty",
+        help="Contact enforcement scheme: 'augmented_lagrangian' or 'penalty' (default: penalty)",
+    )
+    parser.add_argument(
+        "--al-gap-tol",
+        type=float,
+        default=1e-3,
+        help="Maximum allowable penetration in mm under Augmented Lagrangian (default: 1e-3 mm = 1 um)",
+    )
+    parser.add_argument(
+        "--al-tol",
+        type=float,
+        default=1e-3,
+        help="Relative projected multiplier convergence tolerance under Augmented Lagrangian (default: 1e-3)",
+    )
+    parser.add_argument(
+        "--al-max-iter",
+        type=int,
+        default=50,
+        help="Maximum Augmented Lagrangian Uzawa iterations per step (default: 50)",
+    )
+    parser.add_argument(
         "--spectral-radius",
         type=float,
         default=0.8,
@@ -198,11 +223,12 @@ def main() -> None:
         master="Floor",
         k_penalty=args.kp,
         c_damping=args.cdamp,
+        formulation=args.formulation,
     )
 
     console.print(f"  Assembly Bodies : {system.names} (Total DOFs: {system.n_dofs})")
     console.print(
-        f"  Registered Contact: RigidContact(slave='Beam', master='Floor', k_p = {args.kp:.1e} N/mm)"
+        f"  Registered Contact: {type(contact).__name__}(slave='Beam', master='Floor', k_p = {args.kp:.1e} N/mm, mode={args.formulation})"
     )
 
     # Boundary conditions:
@@ -260,6 +286,9 @@ def main() -> None:
         dt=args.dt,
         n_steps=args.steps,
         nr_tol=1e-3,
+        al_gap_tol=args.al_gap_tol,
+        al_tol=args.al_tol,
+        al_max_iterations=args.al_max_iter,
         factor=0.0,  # factor=0.0 exports reference mesh with 'Displacement' array for manual ParaView Warp by Vector
         save_directory=output_dir,
         output_name="sim21_contact_mesh_floor",
@@ -309,6 +338,7 @@ def main() -> None:
     table.add_column("Unit", style="dim")
 
     table.add_row("Solve Status", "CONVERGED" if result.converged else "FAILED", "")
+    table.add_row("Contact Formulation", args.formulation, "")
     table.add_row("Total Computation Time", f"{solve_duration:.3f}", "s")
     table.add_row("Total Physical Duration", f"{args.steps * args.dt:.4f}", "s")
     table.add_row("Time Step (dt)", f"{args.dt:.4f}", "s")
@@ -334,6 +364,9 @@ def main() -> None:
         "RayMesh BVH Engine", "Intel Embree BVH" if has_embree else "VTK Locator", ""
     )
     table.add_row("Max Compliance Penetration (delta)", f"{max_pen:.4f}", "mm")
+    if args.formulation == "augmented_lagrangian":
+        max_mult = float(c_info.get("max_multiplier", 0.0))
+        table.add_row("Max Multiplier (lambda_N)", f"{max_mult:.2f}", "N")
     table.add_row(
         "Stored Contact Potential Energy (Pi_c)", f"{contact_energy:.4f}", "N*mm (mJ)"
     )

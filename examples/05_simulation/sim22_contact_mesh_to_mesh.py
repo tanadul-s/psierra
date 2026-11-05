@@ -217,9 +217,7 @@ def main() -> None:
     console.print(
         f"  Floor Y bounds: [{floor_mesh.bounds[2]:.1f}, {floor_mesh.bounds[3]:.1f}] mm (top at Y = {target_top_y:.1f} mm)"
     )
-    console.print(
-        f"  Configured Gap: {args.gap:.2f} mm"
-    )
+    console.print(f"  Configured Gap: {args.gap:.2f} mm")
 
     # 3. Assemble MultiBodySystem & Register Two-Way Deformable Contact
     console.print(
