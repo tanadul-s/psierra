@@ -316,7 +316,12 @@ $$\text{Forward Continuum Mechanics} \longrightarrow \text{Contact Mechanics} \l
 
 *Objective*: Advanced research enhancements, non-smooth contact theories, and multiphysics to be added after the end-to-end iFEM loop is fully working and verified.
 
-* [ ] **Advanced Non-Smooth Contact Mechanics**:
+* [ ] **Advanced Non-Smooth Contact Mechanics & $C^0$ Facet Chattering Mitigation**:
+  * **The 3-Pillar Contact Regularization Architecture** (Resolving high-energy dynamic impact breakdowns, facet chattering, and line-search stalls in deformable-to-deformable mesh contact):
+    * *Literature References*: P. Wriggers (2006) *Computational Contact Mechanics* (Ch. 6, 10, 11); T. A. Laursen (2002) *Computational Contact and Impact Mechanics* (Ch. 4, 6); FEBio Theory Manual (Sec. 7.1.2, 7.1.3, 8.1).
+    * **Pillar 1: Temporal Regularization (Adaptive Time Substepping & Automatic Step Cutback)**: `AdaptiveTimeStepController` in `NonlinearDynamicAnalysis`. Automatically halving $\Delta t \leftarrow \gamma_{\text{cut}} \Delta t$ upon line search stall, restoring state $(u_n, v_n, a_n, \lambda_n)$, retrying with bounded displacement increments across element boundaries, and ramping back up upon convergence.
+    * **Pillar 2: Spatial Regularization ($C^1$-Continuous Surface Normal Smoothing)**: Upgrading `DeformableContact` to interpolate area/angle-weighted vertex pseudonormals $\boldsymbol{n}(\boldsymbol{\xi}) = \frac{\sum \xi_i \bar{\boldsymbol{n}}_i}{\|\sum \xi_i \bar{\boldsymbol{n}}_i\|}$, eliminating the directional jump $\Delta \boldsymbol{n} = \boldsymbol{n}_B - \boldsymbol{n}_A$ as nodes cross element edges and restoring quadratic Newton descent.
+    * **Pillar 3: Algorithmic Regularization (Contact-Aware Line Search & Dual Rebound Relaxation)**: Distinguishing constitutive inversion ($\det J \le 0$) from non-smooth facet edge crossing; relaxing retained dual multipliers ($\lambda \leftarrow 0$) when local rebound opens a positive gap ($g > 0$) to eliminate artificial holding forces across facet boundaries.
   * Segment-to-segment mortar contact for non-conforming mesh interfaces.
   * Exact Coulomb friction with non-smooth stick-slip active set strategy.
 * [ ] **Advanced Instability & Equilibrium Path Solvers**:

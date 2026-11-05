@@ -43,6 +43,24 @@
 - Formulations: Penalty method first for simplicity, then Augmented Lagrangian for exact non-penetration.
 - Enables contact-induced stress and deformation to be captured in offline MOR snapshot matrices.
 
+### 4.1 Deformable-to-Deformable Dynamic Contact & $C^0$ Facet Chattering (Wriggers, Laursen, FEBio Consensus — Post-iFEM Phase 6+)
+- **Strategic Placement**: To preserve momentum on the primary highway to Inverse FEM (iFEM in Phase 5), advanced non-smooth contact regularization is deferred to Phase 6+.
+- **The $C^0$ Facet Discontinuity Phenomenon**:
+  - In node-to-surface discretization on piecewise-planar triangular meshes, outward normal vectors are discontinuous across element edges ($\Delta \boldsymbol{n} = \boldsymbol{n}_B - \boldsymbol{n}_A$).
+  - When a contacting slave node slides across an edge under high dynamic pressure $p = \max(0, \lambda - k_p g)$, the contact force vector jumps instantaneously by $\Delta \boldsymbol{f}_c = p \Delta \boldsymbol{n}$.
+  - Under high-speed dynamic impact (e.g. `sim22` beam impact with 410 tonnes, $p \sim 500\text{ kN}$), this jump is hundreds of kilonewtons for sub-micron movements ($0.08\ \mu\text{m}$).
+  - Standard Armijo line search assumes a $C^1$ differentiable merit function; the directional force jump spikes the candidate residual above the current state, causing line search rejection, trial step shrinkage ($\alpha \to 0$), and stall (`No admissible residual-reducing trial found`).
+- **The 3-Pillar Solution Architecture**:
+  1. **Temporal Regularization (Adaptive Time Step Cutback)** (*FEBio Theory Manual Sec. 7.1.3 & 8.1; Wriggers 2006 Sec. 11.2*):
+     - When Newton equilibrium fails line-search acceptance or exceeds max iterations, automatically halve the physical time step $\Delta t \leftarrow \Delta t / 2$, restore the last converged endpoint state $(\boldsymbol{u}_n, \boldsymbol{v}_n, \boldsymbol{a}_n, \boldsymbol{\lambda}_n)$, and retry.
+     - Strictly limits the physical sliding distance and momentum shock across facet boundaries per step. Once through the impact peak, $\Delta t$ ramps back up toward $\Delta t_{\max}$.
+  2. **Spatial Regularization ($C^1$ Surface Normal Smoothing)** (*Wriggers 2006 Sec. 6.4; Laursen 2002 Sec. 4.3; FEBio Theory Manual Sec. 7.1.2*):
+     - Replace raw piecewise-planar face normals with area-weighted or angle-weighted vertex pseudonormals interpolated across triangles: $\boldsymbol{n}(\boldsymbol{\xi}) = \frac{\sum \xi_i \bar{\boldsymbol{n}}_i}{\|\sum \xi_i \bar{\boldsymbol{n}}_i\|}$.
+     - Eliminates the directional shock $\Delta \boldsymbol{n}$ as nodes cross element edges, restoring $C^1$ continuity to the contact force field and preserving quadratic Newton-Raphson convergence.
+  3. **Algorithmic Regularization (Contact-Aware Line Search & Dual Rebound Relaxation)** (*Wriggers 2006 Sec. 10.3; Laursen 2002 Sec. 6.4*):
+     - Distinguish between constitutive element inversion ($\det J \le 0$) and piecewise-smooth contact active-set switching.
+     - In dynamic Augmented Lagrangian contact, when a node opens a positive gap during local elastic rebound ($g > 0$), relax the retained dual multiplier ($\lambda \leftarrow 0$ or $p \leftarrow 0$) so artificial dual holding forces do not act across facet boundaries.
+
 ---
 
 ## 5. Model Order Reduction (MOR) Consensus
@@ -77,3 +95,6 @@
 - **Canonical Voigt Ordering**: `psierra` explicitly uses `(xx, yy, zz, xy, yz, zx)` via `VOIGT_MAP_3D`. Do not confuse with Abaqus/ANSYS `(xx, yy, zz, yz, xz, xy)` ordering.
 - **Floating-point Rigid Modes**: For high stiffness ($E \sim 10^{11}$ Pa), unconstrained zero eigenvalues from `eigvalsh(K)` evaluate to $\sim 10^{-5}$, which is exact IEEE 754 float64 machine epsilon ($\sim 10^{-16}$) relative to $\|K\|$. Always check relative to $\|K\|$.
 - **Reaction Equilibrium**: Support reactions $R_p = K_{pf} u_f + K_{pp} u_p - F_p$ balance applied loads: $\sum R_p + \sum F_{ext} = 0$.
+- **$C^0$ Contact Facet Chattering & Ridge Snapping**: In node-to-surface contact on discretized 3D meshes, crossing the edge between adjacent non-coplanar triangles causes an instantaneous jump $\Delta \boldsymbol{n} = \boldsymbol{n}_B - \boldsymbol{n}_A$ in the outward normal. Under high contact pressure $p = \max(0, \lambda - k_p g)$, this induces an unphysical force shock $\Delta \boldsymbol{f}_c = p \Delta \boldsymbol{n}$ (often hundreds of kN for sub-micron steps), causing Armijo line search rejection and Newton divergence. Must be resolved via adaptive time cutback, $C^1$ normal smoothing, or contact-aware active-set fallback.
+- **Spurious Dual Forces from Frozen Uzawa Multipliers During Rebound**: In dynamic Augmented Lagrangian contact, loose AL tolerances (`al_gap_tol`, `al_tol`) permit early step acceptance with significant penetration, freezing large dual multipliers $\lambda$. When local dynamic rebound opens a positive gap ($g > 0$), $p = \max(0, \lambda - k_p g)$ maintains artificial pushing/pulling forces across facet boundaries until the outer Uzawa loop relaxes them.
+- **Armijo Line Search Stalls on Non-Smooth Contact Interfaces**: Standard Armijo line search assumes a smooth $C^1$ energy landscape. Contact active-set switches create localized non-smooth ridges in the residual norm. Do not allow pure line search shrinkage to choke the time step to zero; use temporal substepping (cutback) or active-set projection fallback.

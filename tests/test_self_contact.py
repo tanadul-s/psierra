@@ -229,3 +229,61 @@ def test_multibody_system_add_self_contact(bunny_mesh: VolumetricMesh) -> None:
     sc2 = system.add_contact_pair("bunny", "bunny", k_penalty=3e4)
     assert isinstance(sc2, SelfContact)
     assert sc2.k_penalty == 3e4
+
+
+def test_cuboid_self_contact_slit_closure() -> None:
+    """Verifies physical self-contact activation and Newton-3 balance on slotted cuboid."""
+    cuboid_path = Path("data/cuboid1/mesh/cuboid1.vtk")
+    if not cuboid_path.exists():
+        pytest.skip("cuboid1.vtk not found")
+
+    mesh = VolumetricMesh(cuboid_path)
+    mat = make_material(50.0, 0.35, 1.1e-3)
+    elem = Tet4Linear(mat)
+    domain = SolidDomain(mesh, mat, elem)
+
+    nodes = mesh.nodes
+    surf_nodes = np.asarray(mesh.surface.node_indices)
+    slit_candidates = surf_nodes[(nodes[surf_nodes, 2] >= 45.0) & (np.abs(nodes[surf_nodes, 0]) <= 8.0)]
+
+    contact = SelfContact(
+        domain=domain,
+        contact_nodes=slit_candidates,
+        k_penalty=5000.0,
+        contact_thickness=8.0,
+        search_radius=20.0,
+        exclusion_rings=3,
+        normal_threshold=-0.2,
+    )
+
+    # Displace upper flexure prongs inward to close the 7 mm slit
+    # Left flank (X < 0, Z >= 50) moves +4.0 mm, right flank (X > 0, Z >= 50) moves -4.0 mm
+    u_disp = np.zeros_like(nodes)
+    left_mask = (nodes[:, 0] < 0.0) & (nodes[:, 2] >= 50.0)
+    right_mask = (nodes[:, 0] > 0.0) & (nodes[:, 2] >= 50.0)
+    u_disp[left_mask, 0] = 4.0
+    u_disp[right_mask, 0] = -4.0
+
+    domain.u = u_disp.ravel()
+
+    # Active contact detection
+    c_info = contact.get_contact_info()
+    assert c_info["num_active"] > 0
+    assert c_info["max_penetration"] > 0.0
+    assert c_info["potential_energy"] > 0.0
+
+    # Resisting force evaluation
+    f_c = contact.evaluate_forces()
+    assert np.isfinite(f_c).all()
+
+    # Action-reaction balance across the slit (net contact force sum must vanish)
+    f_c_3d = f_c.reshape(-1, 3)
+    net_force = np.sum(f_c_3d, axis=0)
+    assert np.allclose(net_force, 0.0, atol=1e-5)
+
+    # Tangent stiffness evaluation
+    K_c = contact.evaluate_stiffness()
+    assert K_c.nnz > 0
+    diff = K_c - K_c.T
+    assert np.max(np.abs(diff.data), initial=0.0) < 1e-8
+
