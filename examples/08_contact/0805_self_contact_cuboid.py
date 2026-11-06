@@ -136,8 +136,8 @@ def parse_arguments() -> argparse.Namespace:
     parser.add_argument(
         "--output-dir",
         type=str,
-        default="results/08_contact/0806_self_contact_cuboid",
-        help="Output directory path for ParaView PVD collection (default: results/08_contact/0806_self_contact_cuboid)",
+        default="results/08_contact/0805_self_contact_cuboid",
+        help="Output directory path for ParaView PVD collection (default: results/08_contact/0805_self_contact_cuboid)",
     )
     parser.add_argument(
         "--show",

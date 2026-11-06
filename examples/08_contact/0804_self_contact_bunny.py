@@ -186,7 +186,7 @@ def parse_arguments() -> argparse.Namespace:
     parser.add_argument(
         "--export-dir",
         type=str,
-        default="results/08_contact/0805_self_contact_bunny",
+        default="results/08_contact/0804_self_contact_bunny",
         help="Directory to save ParaView .pvd and .vtu time series (default: results/08_contact/0805_self_contact_bunny)",
     )
     parser.add_argument(
