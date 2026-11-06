@@ -1,0 +1,78 @@
+# ==============================================================================
+# pSierra Example Execution Manifest
+# ==============================================================================
+# Specify which example scripts to run.
+#
+# Rules:
+# - Specify the 4-digit ID (e.g., 0101, 0502) or script filename.
+# - Lines starting with '#' or empty lines are skipped.
+# - To exclude any example from running, simply comment it out with '#' or delete it.
+# - Optional script CLI arguments (e.g. --headless) can be placed after the ID.
+# ==============================================================================
+
+# ------------------------------------------------------------------------------
+# 01_basics: Fundamental Building Blocks (Parameters, Mesh, Assembly, Domain)
+# ------------------------------------------------------------------------------
+0101    # material_parameters.py
+0102    # material_hookean.py
+0103    # material_hyperelastic.py
+0104    # sparse_assembly.py
+0105    # mesh_read.py
+0106    # mesh_assembly.py
+0107    # meshing_toroid.py
+0108    # meshing_beam.py
+0109    # meshing_brain.py
+0110    # solid_domain.py
+
+# ------------------------------------------------------------------------------
+# 02_linear_static: Linear Static Solvers & Coupled Shells
+# ------------------------------------------------------------------------------
+0201    # tip_load_beam.py
+0202    # gravity_beam.py
+0203    # plate_bending_shell.py
+0204    # solid_shell_beam.py
+
+# ------------------------------------------------------------------------------
+# 03_linear_dynamic: Linear Dynamic Time Integration
+# ------------------------------------------------------------------------------
+0301    # dynamic_beam.py
+
+# ------------------------------------------------------------------------------
+# 04_nonlinear_static: Finite Rotation & Nonlinear Formulations (SVK, TL, CR, UL)
+# ------------------------------------------------------------------------------
+0401    # svk_beam.py
+0402    # tl_beam.py
+0403    # cr_beam.py
+0404    # ul_beam.py
+
+# ------------------------------------------------------------------------------
+# 05_nonlinear_dynamic: Large-Deformation Dynamic Integration
+# ------------------------------------------------------------------------------
+0501    # svk_beam.py
+0502    # tl_beam.py
+0503    # ul_beam.py
+
+# ------------------------------------------------------------------------------
+# 06_interactive: Real-Time Dynamic Simulation (defaults to --headless in batch)
+# ------------------------------------------------------------------------------
+0601 --headless    # gravity_beam.py
+0602 --headless    # torsion_beam.py
+
+# ------------------------------------------------------------------------------
+# 07_benchmarks: Comparative Verification Studies
+# ------------------------------------------------------------------------------
+0701    # static_beam_tet.py (Tet10 vs Tet4 shear locking)
+0702    # kinematic_formulations.py (Linear vs CR vs TL vs UL)
+0703    # hyperelastic_models.py (Neo-Hookean vs Mooney-Rivlin vs Yeoh)
+0704    # time_integrators.py (Spectral radius comparison)
+0705    # torsion_material.py (Severe axial torsion & Poynting effect)
+0706    # tet10_nonlinear_beam.py (Quadratic finite-strain bending)
+
+# ------------------------------------------------------------------------------
+# 08_contact: Rigid, Deformable, and Self-Contact Mechanics
+# ------------------------------------------------------------------------------
+0801    # static_rigid_floor.py
+0802    # dynamic_rigid_floor.py
+0803    # dynamic_deformable_floor.py
+0804    # self_contact_bunny.py
+0805    # self_contact_cuboid.py
