@@ -8,6 +8,7 @@ set -eo pipefail
 # Usage:
 #   ./scripts/run_examples.sh                # Runs examples defined in scripts/examples.txt
 #   ./scripts/run_examples.sh 0101 0202      # Runs only the specified 4-digit IDs
+#   ./scripts/run_examples.sh 08             # Runs all examples in category (e.g. 08_contact)
 #   ./scripts/run_examples.sh --all          # Runs all 35 examples
 #   ./scripts/run_examples.sh --config FILE  # Runs examples defined in custom manifest FILE
 # ==============================================================================
@@ -55,6 +56,7 @@ while [[ $# -gt 0 ]]; do
             echo "Examples:"
             echo "  $0                 # Run active scripts listed in scripts/examples.txt"
             echo "  $0 0101 0201 0501  # Run specific example IDs"
+            echo "  $0 08              # Run all examples in folder (e.g. 08_contact)"
             echo "  $0 --all           # Run all examples"
             exit 0
             ;;
@@ -75,12 +77,13 @@ done
 
 TARGET_RUNS=()   # Array of "script_path [args...]"
 
-# Helper: Find script by ID or name
-find_script() {
+# Helper: Find script(s) by ID, folder, or name.
+# Returns list of matched script paths separated by newlines.
+find_scripts() {
     local query="$1"
-    local match=""
+    local matches=()
 
-    # 1. Direct path check
+    # 1. Direct path check (file)
     if [[ -f "${query}" ]]; then
         echo "${query}"
         return 0
@@ -89,17 +92,51 @@ find_script() {
         return 0
     fi
 
-    # 2. Match by 4-digit ID or prefix pattern under examples/
-    match=$(find examples -type f -name "${query}*.py" 2>/dev/null | sort | head -n 1)
-    if [[ -n "${match}" ]]; then
-        echo "${match}"
+    # 2. Check category directory (e.g., '08', '8', '08_contact', 'examples/08_contact')
+    local dir_matches=()
+    if [[ -d "${query}" ]]; then
+        dir_matches+=("${query}")
+    elif [[ -d "examples/${query}" ]]; then
+        dir_matches+=("examples/${query}")
+    else
+        local padded_query="${query}"
+        if [[ "${query}" =~ ^[0-9]$ ]]; then
+            padded_query="0${query}"
+        fi
+        while IFS= read -r d; do
+            [[ -n "${d}" ]] && dir_matches+=("${d}")
+        done < <(find examples -mindepth 1 -maxdepth 1 -type d \( -name "${query}" -o -name "${query}_*" -o -name "${padded_query}" -o -name "${padded_query}_*" \) 2>/dev/null | sort -u)
+    fi
+
+    if [[ ${#dir_matches[@]} -gt 0 ]]; then
+        for d in "${dir_matches[@]}"; do
+            while IFS= read -r f; do
+                [[ -n "${f}" ]] && matches+=("${f}")
+            done < <(find "${d}" -maxdepth 1 -type f -name "*.py" 2>/dev/null | sort)
+        done
+        if [[ ${#matches[@]} -gt 0 ]]; then
+            printf "%s\n" "${matches[@]}"
+            return 0
+        fi
+    fi
+
+    # 3. Match by 4-digit ID or prefix pattern under examples/
+    while IFS= read -r f; do
+        [[ -n "${f}" ]] && matches+=("${f}")
+    done < <(find examples -type f -name "${query}*.py" 2>/dev/null | sort)
+
+    if [[ ${#matches[@]} -gt 0 ]]; then
+        printf "%s\n" "${matches[@]}"
         return 0
     fi
 
-    # 3. Match anywhere in filename
-    match=$(find examples -type f -name "*${query}*.py" 2>/dev/null | sort | head -n 1)
-    if [[ -n "${match}" ]]; then
-        echo "${match}"
+    # 4. Match anywhere in filename
+    while IFS= read -r f; do
+        [[ -n "${f}" ]] && matches+=("${f}")
+    done < <(find examples -type f -name "*${query}*.py" 2>/dev/null | sort)
+
+    if [[ ${#matches[@]} -gt 0 ]]; then
+        printf "%s\n" "${matches[@]}"
         return 0
     fi
 
@@ -120,14 +157,18 @@ if [[ "${RUN_ALL}" == true ]]; then
 elif [[ ${#CLI_TARGETS[@]} -gt 0 ]]; then
     echo "[INFO] Running specific targets requested via CLI: ${CLI_TARGETS[*]}"
     for target in "${CLI_TARGETS[@]}"; do
-        if resolved=$(find_script "${target}"); then
-            if [[ "${resolved}" =~ 06_interactive ]]; then
-                TARGET_RUNS+=("${resolved} --headless")
-            else
-                TARGET_RUNS+=("${resolved}")
-            fi
+        resolved_list=$(find_scripts "${target}") || true
+        if [[ -n "${resolved_list}" ]]; then
+            while IFS= read -r resolved; do
+                [[ -z "${resolved}" ]] && continue
+                if [[ "${resolved}" =~ 06_interactive ]]; then
+                    TARGET_RUNS+=("${resolved} --headless")
+                else
+                    TARGET_RUNS+=("${resolved}")
+                fi
+            done <<< "${resolved_list}"
         else
-            echo "[ERROR] Could not resolve example script for target: '${target}'"
+            echo "[ERROR] Could not resolve example script or category directory for target: '${target}'"
             exit 1
         fi
     done
@@ -154,17 +195,22 @@ else
         # Parse target identifier and extra arguments
         read -r target_id extra_args <<< "${clean_line}"
 
-        if resolved=$(find_script "${target_id}"); then
-            # Ensure interactive scripts default to headless if not specified
-            if [[ "${resolved}" =~ 06_interactive ]] && [[ ! "${extra_args}" =~ --headless ]]; then
-                extra_args="--headless ${extra_args}"
-            fi
+        resolved_list=$(find_scripts "${target_id}") || true
+        if [[ -n "${resolved_list}" ]]; then
+            while IFS= read -r resolved; do
+                [[ -z "${resolved}" ]] && continue
+                # Ensure interactive scripts default to headless if not specified
+                local_args="${extra_args}"
+                if [[ "${resolved}" =~ 06_interactive ]] && [[ ! "${local_args}" =~ --headless ]]; then
+                    local_args="--headless ${local_args}"
+                fi
 
-            if [[ -n "${extra_args}" ]]; then
-                TARGET_RUNS+=("${resolved} ${extra_args}")
-            else
-                TARGET_RUNS+=("${resolved}")
-            fi
+                if [[ -n "${local_args}" ]]; then
+                    TARGET_RUNS+=("${resolved} ${local_args}")
+                else
+                    TARGET_RUNS+=("${resolved}")
+                fi
+            done <<< "${resolved_list}"
         else
             echo "[WARNING] Could not resolve script for entry: '${target_id}' (skipping)"
         fi
