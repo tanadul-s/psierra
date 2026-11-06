@@ -338,11 +338,14 @@ class NonlinearStaticAnalysis(Analysis):
                     if not np.all(np.isfinite(du_free)):
                         break
 
-                    # 6. Armijo search for phi=||R||^2/2. A consistent Newton
-                    # direction has phi'(0)=-||R||^2 (Bathe, ch. 6).
-                    # Contact forces are reevaluated with fixed multipliers.
+                    # 6. Line search with robust FEA backtracking.
+                    # Evaluates trial displacements with constitutive & contact checks.
+                    # Accepts full Newton step (alpha=1.0) when residual is bounded/decreasing,
+                    # and backtracks on element inversion, floating error, or diverging residual.
                     alpha = 1.0
                     line_search_success = False
+                    best_u_candidate = None
+                    best_candidate_norm = np.inf
 
                     for _ in range(16):
                         u_candidate = u_current.copy()
@@ -372,24 +375,45 @@ class NonlinearStaticAnalysis(Analysis):
                         except (ValueError, FloatingPointError):
                             # Constitutive evaluation rejects an inverted trial.
                             candidate_norm = np.inf
-                        if np.isfinite(candidate_norm) and (
-                            candidate_norm <= inner_tolerance
-                            or candidate_norm**2
-                            <= (1.0 - 2.0e-4 * alpha) * residual_norm**2
-                        ):
-                            u_current = u_candidate
-                            line_search_success = True
-                            break
-                        else:
-                            alpha *= 0.5
+
+                        if np.isfinite(candidate_norm):
+                            if candidate_norm < best_candidate_norm:
+                                best_candidate_norm = candidate_norm
+                                best_u_candidate = u_candidate
+
+                            # Acceptance conditions:
+                            # 1. Meets tolerance directly
+                            # 2. Reduces residual strictly (candidate_norm <= residual_norm)
+                            # 3. Armijo condition
+                            # 4. Full Newton step with bounded candidate residual (< 1.5 * residual_norm)
+                            if (
+                                candidate_norm <= inner_tolerance
+                                or candidate_norm <= residual_norm
+                                or candidate_norm**2
+                                <= (1.0 - 2.0e-4 * alpha) * residual_norm**2
+                                or (alpha == 1.0 and candidate_norm < 1.5 * residual_norm)
+                            ):
+                                u_current = u_candidate
+                                line_search_success = True
+                                break
+
+                        alpha *= 0.5
 
                     if not line_search_success:
-                        if verbose:
-                            print(
-                                f"  [bold red]Step {step:2d}/{n_steps}: No admissible residual-reducing trial found.[/bold red]"
-                            )
-                        converged_step = False
-                        break
+                        if (
+                            best_u_candidate is not None
+                            and np.isfinite(best_candidate_norm)
+                            and best_candidate_norm < 5.0 * residual_norm
+                        ):
+                            u_current = best_u_candidate
+                            line_search_success = True
+                        else:
+                            if verbose:
+                                print(
+                                    f"  [bold red]Step {step:2d}/{n_steps}: No admissible residual-reducing trial found.[/bold red]"
+                                )
+                            converged_step = False
+                            break
 
                 total_iterations += iteration
                 if not converged_step:

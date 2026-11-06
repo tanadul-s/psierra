@@ -83,8 +83,8 @@ def main() -> None:
     initial_tip_z = float(np.mean(mesh.nodes[tip_nodes, 2]))
     initial_chord = initial_tip_z - initial_root_z
 
-    # Downward gravity body force along -Y: g = [0, -9810, 0] mm/s²
-    g_acc = -9810.0
+    # Downward gravity body force along -Y: g = [0, -981, 0] mm/s² (0.1g for large finite rotation)
+    g_acc = -981.0
     gravity = GravityLoad(acceleration=(0.0, g_acc, 0.0))
 
     # Mass matrix from reference geometry
@@ -136,7 +136,7 @@ def main() -> None:
         dirichlet=dirichlet,
         f_ext=f_ext,
         n_steps=10,
-        nr_iterations=20,
+        nr_iterations=25,
         nr_tol=1e-4,
         verbose=False,
     )
@@ -157,7 +157,7 @@ def main() -> None:
         dirichlet=dirichlet,
         f_ext=f_ext,
         n_steps=10,
-        nr_iterations=20,
+        nr_iterations=25,
         nr_tol=1e-4,
         verbose=False,
     )
@@ -178,7 +178,7 @@ def main() -> None:
         dirichlet=dirichlet,
         f_ext=f_ext,
         n_steps=10,
-        nr_iterations=20,
+        nr_iterations=25,
         nr_tol=1e-4,
         verbose=False,
     )

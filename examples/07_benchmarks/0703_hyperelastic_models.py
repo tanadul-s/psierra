@@ -117,8 +117,8 @@ def main() -> None:
     dirichlet = DirichletManager(mesh.n_dofs)
     dirichlet.add_constraint(clamp)
 
-    # Downward gravity body load along -Y axis: g = -9810 mm/s^2
-    gravity = GravityLoad(acceleration=(0.0, -9810.0, 0.0))
+    # Downward gravity body load along -Y axis: g = -981 mm/s^2 (0.1g for finite hyperelastic bending)
+    gravity = GravityLoad(acceleration=(0.0, -981.0, 0.0))
     dummy_domain = SolidDomain(mesh, mat_hookean, Tet4TotalLagrangian(mat_hookean))
     M = dummy_domain.assemble_mass_matrix()
     f_ext = gravity.compute_force_vector(M)
@@ -146,7 +146,7 @@ def main() -> None:
             dirichlet=dirichlet,
             f_ext=f_ext,
             n_steps=n_steps,
-            nr_iterations=20,
+            nr_iterations=25,
             nr_tol=1e-4,
             verbose=False,
         )

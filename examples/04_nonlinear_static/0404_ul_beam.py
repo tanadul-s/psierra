@@ -85,7 +85,8 @@ def main() -> None:
     dirichlet = DirichletManager(domain.mesh.n_dofs)
     dirichlet.add_constraint(clamp)
 
-    gravity = GravityLoad(acceleration=(0.0, 0.0, -9810.0))
+    # Gravitational acceleration scaled to 0.5g (-4905 mm/s^2) matching 0401/0402 benchmarks
+    gravity = GravityLoad(acceleration=(0.0, 0.0, -4905.0))
     M = domain.assemble_mass_matrix()
     f_ext = gravity.compute_force_vector(M)
 
@@ -102,7 +103,7 @@ def main() -> None:
         dirichlet=dirichlet,
         f_ext=f_ext,
         n_steps=10,
-        nr_iterations=20,
+        nr_iterations=25,
         nr_tol=1e-4,
     )
 

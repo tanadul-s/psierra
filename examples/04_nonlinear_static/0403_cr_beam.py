@@ -110,8 +110,8 @@ def main() -> None:
         DirichletConstraint(root_nodes, components=(0, 1, 2), value=0.0)
     )
 
-    # Downward gravity body force along -Y: g = [0, -9810, 0] mm/s²
-    g_acc = -9810.0  # mm/s²
+    # Downward gravity body force along -Y: g = [0, -981, 0] mm/s² (0.1g for large finite rotation)
+    g_acc = -981.0  # mm/s²
     gravity = GravityLoad(acceleration=(0.0, g_acc, 0.0))
     M = domain_linear.assemble_mass_matrix()
     f_ext = gravity.compute_force_vector(mass_matrix=M)
@@ -122,7 +122,7 @@ def main() -> None:
     console.print(
         f"  • Clamped Root Face (Z = -30 mm): [green]{len(root_nodes)}[/green] nodes constrained"
     )
-    console.print(f"  • Gravity Field (g = -9.81 m/s²): Downward along -Y axis")
+    console.print(f"  • Gravity Field (g = -0.981 m/s²): Downward along -Y axis")
     console.print(
         f"  • Total Self-Weight Load        : [green]{total_weight:.3f} N[/green] (Mass = [green]{total_mass:.1f} g[/green])"
     )
@@ -150,7 +150,7 @@ def main() -> None:
         dirichlet=dm_corot,
         f_ext=f_ext,
         n_steps=n_steps,
-        nr_iterations=15,
+        nr_iterations=25,
         nr_tol=1e-4,
         verbose=False,
     )

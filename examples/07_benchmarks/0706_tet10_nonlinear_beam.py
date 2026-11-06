@@ -130,13 +130,14 @@ def main() -> None:
     res_tet4_lin = solver_tet4_lin.solve(
         dirichlet=dm4,
         f_ext=f_ext4,
-        save_directory=output_dir / "tet4_linear",
-        output_name="result",
-        include_stresses=True,
+        verbose=False,
     )
     time_tet4_lin = time.perf_counter() - t0
     tip_y_tet4_lin = float(np.min(domain_tet4_lin.displacement[tip_nodes4, 1]))
     console.print(f"    ✓ Solved in {time_tet4_lin*1000:.1f} ms | Tip Y: [bold green]{tip_y_tet4_lin:.2f}[/bold green] mm")
+    domain_tet4_lin.save_state(
+        output_dir / "result_linear.vtu", include_stresses=True, smooth_to_nodes=True
+    )
 
     # Case B: Nonlinear Tet4 (Total Lagrangian)
     console.print("  [cyan]Case B: Nonlinear Tet4 Total Lagrangian (TL)[/cyan]...")
@@ -148,14 +149,14 @@ def main() -> None:
         f_ext=f_ext4,
         n_steps=n_steps,
         nr_tol=1e-4,
-        save_directory=output_dir / "tet4_tl",
-        output_name="result",
-        include_stresses=True,
         verbose=False,
     )
     time_tet4_tl = time.perf_counter() - t0
     tip_y_tet4_tl = float(np.min(domain_tet4_tl.displacement[tip_nodes4, 1]))
     console.print(f"    ✓ Converged in {time_tet4_tl:.2f} s ({res_tet4_tl.steps_completed}/{n_steps} steps) | Tip Y: [bold green]{tip_y_tet4_tl:.2f}[/bold green] mm")
+    domain_tet4_tl.save_state(
+        output_dir / "result_tl.vtu", include_stresses=True, smooth_to_nodes=True
+    )
 
     # Case C: Nonlinear Tet10 (Total Lagrangian)
     console.print("  [cyan]Case C: Nonlinear Tet10 Total Lagrangian (TL Quadratic)[/cyan]...")
@@ -167,14 +168,14 @@ def main() -> None:
         f_ext=f_ext10,
         n_steps=n_steps,
         nr_tol=1e-4,
-        save_directory=output_dir / "tet10_tl",
-        output_name="result",
-        include_stresses=True,
         verbose=False,
     )
     time_tet10_tl = time.perf_counter() - t0
     tip_y_tet10_tl = float(np.min(domain_tet10_tl.displacement[tip_nodes10, 1]))
     console.print(f"    ✓ Converged in {time_tet10_tl:.2f} s ({res_tet10_tl.steps_completed}/{n_steps} steps) | Tip Y: [bold green]{tip_y_tet10_tl:.2f}[/bold green] mm")
+    domain_tet10_tl.save_state(
+        output_dir / "result_tet10_tl.vtu", include_stresses=True, smooth_to_nodes=True
+    )
 
     # Case D: Nonlinear Tet10 (Updated Lagrangian)
     console.print("  [cyan]Case D: Nonlinear Tet10 Updated Lagrangian (UL Quadratic)[/cyan]...")
@@ -186,24 +187,24 @@ def main() -> None:
         f_ext=f_ext10,
         n_steps=n_steps,
         nr_tol=1e-4,
-        save_directory=output_dir / "tet10_ul",
-        output_name="result",
-        include_stresses=True,
         verbose=False,
     )
     time_tet10_ul = time.perf_counter() - t0
     tip_y_tet10_ul = float(np.min(domain_tet10_ul.displacement[tip_nodes10, 1]))
     console.print(f"    ✓ Converged in {time_tet10_ul:.2f} s ({res_tet10_ul.steps_completed}/{n_steps} steps) | Tip Y: [bold green]{tip_y_tet10_ul:.2f}[/bold green] mm")
+    domain_tet10_ul.save_state(
+        output_dir / "result_tet10_ul.vtu", include_stresses=True, smooth_to_nodes=True
+    )
 
     # Difference between Tet10 TL and UL
     diff_tl_ul = abs(tip_y_tet10_tl - tip_y_tet10_ul)
 
     # 5. ParaView Export Verification
-    console.print("\n[bold yellow][5/6] ParaView Post-Processing Collections Exported[/bold yellow]")
-    console.print(f"  • Tet4 Linear Baseline   : [dim]{output_dir / 'tet4_linear' / 'result.vtu'}[/dim]")
-    console.print(f"  • Tet4 Total Lagrangian  : [dim]{output_dir / 'tet4_tl' / 'result.pvd'}[/dim]")
-    console.print(f"  • Tet10 Total Lagrangian : [dim]{output_dir / 'tet10_tl' / 'result.pvd'}[/dim]")
-    console.print(f"  • Tet10 Updated Lagrangian: [dim]{output_dir / 'tet10_ul' / 'result.pvd'}[/dim]")
+    console.print("\n[bold yellow][5/6] ParaView Static VTU Results Exported[/bold yellow]")
+    console.print(f"  • Tet4 Linear Baseline   : [dim]{output_dir / 'result_linear.vtu'}[/dim]")
+    console.print(f"  • Tet4 Total Lagrangian  : [dim]{output_dir / 'result_tl.vtu'}[/dim]")
+    console.print(f"  • Tet10 Total Lagrangian : [dim]{output_dir / 'result_tet10_tl.vtu'}[/dim]")
+    console.print(f"  • Tet10 Updated Lagrangian: [dim]{output_dir / 'result_tet10_ul.vtu'}[/dim]")
 
     # 6. Results Comparison Table
     console.print("\n[bold yellow][6/6] Performance & Physics Comparison Summary[/bold yellow]")
