@@ -329,13 +329,57 @@ All simulation examples are located in [`psierra/examples/`](../examples/) organ
 
 ### 2.20 Simulation 02 (Interactive): Real-Time Dynamic 3D Axial Torsion Pipeline
 
-- **Script**: [`0602_online_axial_torsion.py`](../examples/06_interactive/0602_online_axial_torsion.py)
+- **Script**: [`0602_torsion_beam.py`](../examples/06_interactive/0602_torsion_beam.py)
 - **Physics**: Real-time online dynamic simulation of a 3D continuum cantilever beam subjected to pure torsional twisting moments ($M_z$), torsional wave propagation, and elastic spring-back using Generalized-$\alpha$ dynamic time integration with support for Corotational, Linear, and Hyperelastic formulations.
 - **Key Capabilities**:
   - **Pure Torsional Force Couple**: Evaluates an exact tangential force couple over tip face boundary nodes with zero net linear shear force, generating pure twisting moments $M_z$.
   - **Interactive Torsion Handling**: Interactive keyboard clockwise torque (`[T]`), counter-clockwise torque (`[Y]`), harmonic torsional resonance (`[H]`), instant torque release for free spring-back vibration (`[C]`), and simulation reset (`[R]`).
   - **Diverging Colormap Visualization**: Real-time extraction of local twist rotation angles $\theta_z$ rendered in a perceptually uniform diverging `coolwarm` palette centered at $0.0^\circ$ (neutral grey), with positive clockwise twist in warm red and negative counter-clockwise twist in cool blue.
-  - **Headless & Snapshot Support**: Runs automated headless verification sequence (`--headless`) and streams time-series `.vtu` and `.pvd` collections to `results/06_interactive/0602_online_axial_torsion/result.pvd`.
+  - **Headless & Snapshot Support**: Runs automated headless verification sequence (`--headless`) and streams time-series `.vtu` and `.pvd` collections to `results/06_interactive/0602_torsion_beam/result.pvd`.
+
+---
+
+### 2.21 Simulation 0603 (Interactive): Real-Time Neurosurgical Brain Shift Pipeline
+
+- **Script**: [`0603_brain_shift.py`](../examples/06_interactive/0603_brain_shift.py)
+- **Physics**: Real-time intraoperative simulation of gravity-induced brain deformation (brain shift and gravitational sag) occurring during neurosurgical patient repositioning. Combines Generalized-$\alpha$ dynamic time integration with single-factorization SuperLU matrix reuse, dynamic multi-field telemetry, and interactive head reorientation.
+- **Anatomy & Patient-Specific Geometry**:
+  - **Patient Dataset**: Segmented clinical dataset (`data/mrbraintumor1/`).
+  - **Volumetric Brain**: $18,397$ nodes, $90,586$ elements, $V = 1.422\text{ L}$ ($1,421,775\text{ mm}^3$), mass $M = 1.479\text{ kg}$ ($1,478.6\text{ g}$), total gravitational weight $W = 14.51\text{ N}$.
+  - **Embedded Tumor / Lesion**: $270$ nodes topologically matched from `lesion.vtk`, tracking intraoperative lesion center drift $[\Delta X, \Delta Y, \Delta Z]$.
+  - **Cranial Skull Vault**: Transparent ivory bone reference cage from `skull.vtk` via dataset surface extraction ($47,246$ points) with opacity toggling (`[K]`).
+  - **Cortical DIC Speckle Pattern**: High-contrast stochastic dual-tone speckles on cortical surface nodes for digital image correlation (DIC) deformation tracking, toggleable via `[P]`.
+- **Anatomical Boundary Support**:
+  - Posterior skull cradle and tentorial clamp ($Y < -20.0\text{ mm}$ in local RAS coordinates, $8,019$ nodes / $43.6\%$), realistically restraining the posterior fossa and cerebellum while leaving the superior and frontal cortex free ($3,390$ free surface nodes).
+- **Physical Coordinates & Kinematic Co-Rotation**:
+  - Standard neurological RAS convention ($+X$: Right, $+Y$: Anterior, $+Z$: Superior).
+  - World operating room gravity acts downward along $-Y$ (neutral supine alignment).
+  - Head rotation $\boldsymbol{R}_{\text{head}}(\text{pitch}, \text{roll}, \text{yaw})$ pulls back gravity into the local head frame:
+    $$\boldsymbol{g}_{\text{local}} = \boldsymbol{R}_{\text{head}}^T \boldsymbol{g}_{\text{world}}$$
+  - Because the continuum remains in its local RAS frame, the effective dynamic stiffness $\boldsymbol{K}_{\text{eff}}$ is **pre-factorized only once at $t=0$**, achieving $>10,000\text{ Hz}$ back-substitutions.
+  - Visual co-rotation $\boldsymbol{x}_{\text{render}} = (\boldsymbol{X} + \boldsymbol{u}) \boldsymbol{R}_{\text{head}}^T$ physically rotates both the brain and skull in the 3D viewport at $60+\text{ FPS}$.
+  - Default isometric camera viewpoint: $+Y$ points straight upward, $+X$ points right, $+Z$ points left.
+- **Surgical Presets & Interactive Controls**:
+  - Presets: `[1]` Supine ($0^\circ$), `[2]` Prone ($180^\circ$ pitch), `[3]` Right Lateral ($-90^\circ$ yaw), `[4]` Left Lateral ($+90^\circ$ yaw), `[5]` 30° Pterional tilt, `[6]` Upright sitting ($-90^\circ$ pitch).
+  - Continuous incremental rotation: `[W]`/`[S]` Pitch $\pm 5^\circ$, `[A]`/`[D]` Roll $\pm 5^\circ$, `[Q]`/`[E]` Yaw $\pm 5^\circ$.
+  - Visual toggles: `[P]` Toggle cortical speckle pattern, `[B]` Cycle brain opacity, `[K]` Cycle skull opacity, `[G]` Toggle ghost reference mesh, `[V]` 3D maximum shift arrow vector, `[R]` Reset.
+  - Built-in VTK `CharEvent` interception blocks unwanted wireframe (`w`) and stereo anaglyph purple screen (`3`) side effects.
+- **Verification Telemetry**:
+  - Neutral Supine: Cortical sag $13.73\text{ mm}$, Lesion drift $7.12\text{ mm}$.
+  - 30° Lateral Head Turn (Pterional approach): Cortical sag $32.74\text{ mm}$, Lesion drift $17.58\text{ mm}$.
+  - Pitch Forward 20°: Cortical sag $19.53\text{ mm}$, Lesion drift $13.71\text{ mm}$.
+  - All values match clinical craniotomy intraoperative measurements ($8 - 35\text{ mm}$).
+- **CLI Options**:
+  ```bash
+  # Standard linear dynamic real-time GUI
+  python examples/06_interactive/0603_brain_shift.py
+
+  # Quadratic Tet10 elements with compressible Neo-Hookean hyperelasticity
+  python examples/06_interactive/0603_brain_shift.py --element tet10 --material neohookean --formulation total_lagrangian
+
+  # Automated CI headless verification
+  python examples/06_interactive/0603_brain_shift.py --headless
+  ```
 
 ---
 
@@ -357,8 +401,9 @@ All simulation examples are located in [`psierra/examples/`](../examples/) organ
 | **`0502`** | `0502_tl_beam.py` | Nonlinear Dynamic | `Tet4TotalLagrangian` (Neo-Hookean) | Extended Dynamic Gravity (200 steps) | $243.99 \text{ mm}$ (peak) | 200/200 steps; smooth dynamic rebound settling at static equilibrium | `result.pvd` + `step_xxxxx.vtu` |
 | **`0503`** | `0503_ul_beam.py` | Nonlinear Dynamic | `Tet4UpdatedLagrangian` (Neo-Hookean) | Dynamic Gravity (Gen-$\alpha, \rho_\infty=0.8$) | $243.90 \text{ mm}$ (peak) | Current configuration spatial push-forward matches TL dynamic balance | `result.pvd` + `step_xxxxx.vtu` |
 | **`0504`** | `0504_cr_beam.py` | Nonlinear Dynamic | `Tet4Corotational` | Transient Transverse Gravity | $45.12 \text{ mm}$ (peak) | Finite rigid rotation tracking with linear local stiffness matrix reuse | `result.pvd` + `step_xxxxx.vtu` |
-| **`0601`** | `0601_online_cantilever.py` | Interactive Dynamic | `Tet4` / `Tet10` (Lin/CR/TL/UL) | Real-Time User Force Disturbance | $-7.30 \text{ mm}$ (peak) | $>12,000\text{ Hz}$ physics rate ($83\,\mu\text{s}/\text{step}$), $60+\text{ FPS}$ in-place rendering | Live UI + optional `result.pvd` |
-| **`0602`** | `0602_online_axial_torsion.py` | Interactive Dynamic | `Tet4` / `Tet10` (CR/Lin/TL/UL) | Real-Time User Twisting Torque $M_z$ | $83.61^\circ$ (peak) | Pure torsional couple; dynamic spring-back; coolwarm twist angle map | Live UI + optional `result.pvd` |
+| **`0601`** | `0601_gravity_beam.py` | Interactive Dynamic | `Tet4` / `Tet10` (Lin/CR/TL/UL) | Real-Time User Force Disturbance | $-7.30 \text{ mm}$ (peak) | $>12,000\text{ Hz}$ physics rate ($83\,\mu\text{s}/\text{step}$), $60+\text{ FPS}$ in-place rendering | Live UI + optional `result.pvd` |
+| **`0602`** | `0602_torsion_beam.py` | Interactive Dynamic | `Tet4` / `Tet10` (CR/Lin/TL/UL) | Real-Time User Twisting Torque $M_z$ | $83.61^\circ$ (peak) | Pure torsional couple; dynamic spring-back; coolwarm twist angle map | Live UI + optional `result.pvd` |
+| **`0603`** | `0603_brain_shift.py` | Interactive Dynamic | `Tet4` / `Tet10` (Linear/CR/TL/UL) | Real-Time Gravitational Reorientation | $13.73 - 34.93 \text{ mm}$ | Lesion drift $7.12 - 17.58\text{ mm}$; single-factorization Gen-$\alpha$; skull overlay | Live UI + optional `result.pvd` |
 | **`0701`** | `0701_static_beam_tet.py` | Benchmark (Linear) | `Tet4` vs Quadratic `Tet10` | Tip Shear Load ($-1000 \text{ N}$) | $0.088 \text{ mm}$ (`Tet10`) | $1.87\times$ flexibility recovery over `Tet4`; shear locking eliminated | `result_tet4.vtu`, `result_tet10.vtu` |
 | **`0702`** | `0702_kinematic_formulations.py` | Benchmark (Kinematics) | Linear / CR / TL / UL | Transverse Gravity ($-0.1g$) | $41.51 \text{ mm}$ (TL/UL) | TL vs UL match to **$4.44 \times 10^{-14}\text{ mm}$** (machine precision); chord preserved | `result_linear.vtu`, `result_cr.vtu`, `result_tl.vtu`, `result_ul.vtu` |
 | **`0703`** | `0703_hyperelastic_models.py` | Benchmark (Constitutive) | Hookean / NH / MR / Yeoh | Transverse Gravity ($-0.1g$) | $41.51 - 41.68 \text{ mm}$ | All 4 models converge 10/10 steps; Yeoh captures stretch stiffening ($c_{30} > 0$) | `result_hookean.vtu`, `result_neo_hookean.vtu`, `result_mooney_rivlin.vtu`, `result_yeoh.vtu` |
