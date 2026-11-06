@@ -281,7 +281,25 @@ class InteractiveDynamicSimulation(Analysis):
                     ).tocsc()
                     du = spspla.spsolve(K_eff_dyn, r_eff)
 
-                u_next += du
+                # Inversion safeguard: backtrack displacement increment if it inverts any element
+                alpha = 1.0
+                cand_accepted = False
+                for _ls in range(8):
+                    u_cand = u_next + alpha * du
+                    self.u_full[self.free_dofs] = u_cand
+                    self.domain.update_state(u=self.u_full)
+                    try:
+                        self.domain.assemble_internal_forces()
+                        cand_accepted = True
+                        u_next = u_cand
+                        break
+                    except ValueError:
+                        alpha *= 0.5
+
+                if not cand_accepted:
+                    u_next = self.u_f.copy()
+                    self.v_f *= 0.5
+                    break
 
             a_next = (
                 self._a0 * (u_next - self.u_f) - self._a2 * self.v_f - self._a3 * self.a_f
@@ -546,8 +564,11 @@ class InteractiveDynamicSimulation(Analysis):
         if not self.nonlinear:
             return 0.5 * float(self.u_f @ (self.K_ff @ self.u_f))
         else:
-            f_int = self.domain.assemble_internal_forces()
-            return 0.5 * float(self.u_f @ f_int[self.free_dofs])
+            try:
+                f_int = self.domain.assemble_internal_forces()
+                return 0.5 * float(self.u_f @ f_int[self.free_dofs])
+            except ValueError:
+                return 0.0
 
     @property
     def total_energy(self) -> float:
