@@ -1,16 +1,20 @@
 """
-Simulation 01 (Interactive): Real-Time Online Dynamic Simulation Pipeline.
+Simulation 02 (Interactive): Real-Time Online Dynamic Axial Torsion Pipeline.
 
-Demonstrates high-performance interactive dynamic FEA simulation using
-Generalized-alpha implicit time integration with pre-factorized SuperLU reuse.
+Demonstrates high-performance interactive 3D continuum torsional FEA simulation
+using Generalized-alpha implicit time integration with support for Corotational,
+Linear, and Hyperelastic (Total / Updated Lagrangian) kinematics.
 
 Features demonstrated:
 1. Real-time dynamic loop operating with fixed time step dt decoupled from rendering frame rate.
-2. High-performance sparse factorization reuse achieving >10,000 Hz physics rates (>20x real-time).
-3. Controllable numerical high-frequency damping parameterized by spectral radius rho_inf.
-4. Interactive user disturbances: point impulse perturbations and sinusoidal harmonic resonance excitation.
-5. In-place PyVista VTK vertex coordinate buffer mutation for zero-overhead live 3D visualization.
-6. Execution telemetry tracking simulation speed ratio, step ms, and kinetic/strain energies.
+2. Exact pure torsional force couple applied at the free tip face producing dynamic twisting moment M_z.
+3. Natural torsional wave propagation, elastic spring-back vibration, and numerical damping.
+4. Perceptually uniform diverging colormap ('coolwarm') visualizing local twist angle in degrees:
+   - 0° (neutral resting state / clamped root): Soft neutral grey
+   - Positive twist (+θ, clockwise): Warm red
+   - Negative twist (-θ, counter-clockwise): Cool blue
+5. Interactive user torque disturbances: clockwise/counter-clockwise step pulses and harmonic resonance.
+6. Execution telemetry tracking tip rotation angle, torque, simulation speed ratio, and physics rate.
 """
 
 from __future__ import annotations
@@ -18,6 +22,7 @@ import argparse
 import os
 from pathlib import Path
 import time
+from typing import Sequence
 import numpy as np
 from rich.console import Console
 from rich.panel import Panel
@@ -37,7 +42,7 @@ from psierra.element import (
 from psierra.mesh import VolumetricMesh
 from psierra.domain import SolidDomain
 from psierra.boundary.selector import select_nodes_by_plane
-from psierra.boundary import DirichletConstraint, GravityLoad
+from psierra.boundary import DirichletConstraint
 from psierra.damping import RayleighDamping
 from psierra.analysis import InteractiveDynamicSimulation, SimulationStats
 from psierra.exchange import PvdCollectionWriter
@@ -46,15 +51,59 @@ install(show_locals=False)
 console = Console()
 
 
+def compute_twist_angles(
+    nodes_ref: np.ndarray, disp: np.ndarray, center_xy: Sequence[float] = (0.0, 0.0)
+) -> np.ndarray:
+    """
+    Computes instantaneous nodal torsional rotation angles theta_z in degrees
+    about the beam longitudinal centroidal Z axis.
+
+    Parameters:
+    -----------
+    nodes_ref : np.ndarray of shape (N, 3)
+        Reference undeformed nodal coordinates [X, Y, Z].
+    disp : np.ndarray of shape (N, 3)
+        Current displacement vectors [u_x, u_y, u_z].
+    center_xy : tuple of (float, float), default=(0.0, 0.0)
+        Transverse centroid coordinates (X_bar, Y_bar).
+
+    Returns:
+    --------
+    theta_deg : np.ndarray of shape (N,)
+        Instantaneous rotation angle in degrees relative to reference state.
+    """
+    Xc = nodes_ref[:, 0] - center_xy[0]
+    Yc = nodes_ref[:, 1] - center_xy[1]
+    r = np.hypot(Xc, Yc)
+    valid = r > 1e-2
+
+    x_def = Xc + disp[:, 0]
+    y_def = Yc + disp[:, 1]
+
+    theta_rad = np.zeros(len(nodes_ref), dtype=np.float64)
+    theta_rad[valid] = np.arctan2(y_def[valid], x_def[valid]) - np.arctan2(
+        Yc[valid], Xc[valid]
+    )
+    # Wrap to [-pi, pi]
+    theta_rad = (theta_rad + np.pi) % (2.0 * np.pi) - np.pi
+
+    # For points directly on the axis (r ~ 0), extrapolate from surrounding nodes
+    if not np.all(valid):
+        mean_valid = np.mean(theta_rad[valid]) if np.any(valid) else 0.0
+        theta_rad[~valid] = mean_valid
+
+    return np.rad2deg(theta_rad)
+
+
 def parse_arguments() -> argparse.Namespace:
     parser = argparse.ArgumentParser(
-        description="Real-Time Interactive Dynamic Simulation Pipeline (Cantilever Beam Demonstration)"
+        description="Real-Time Interactive Dynamic Axial Torsion Pipeline (3D Continuum Beam)"
     )
     parser.add_argument(
         "--headless",
         action="store_true",
         default=False,
-        help="Run in headless batch demonstration mode without opening a GUI window (auto-detected if DISPLAY is absent)",
+        help="Run in headless batch demonstration mode without opening a GUI window",
     )
     parser.add_argument(
         "--duration",
@@ -72,27 +121,27 @@ def parse_arguments() -> argparse.Namespace:
         "--spectral-radius",
         type=float,
         default=0.8,
-        help="Generalized-alpha high-frequency spectral radius rho_inf in [0.0, 1.0] (default: 0.8)",
+        help="Generalized-alpha spectral radius rho_inf in [0.0, 1.0] (default: 0.8)",
     )
     parser.add_argument(
         "--element",
         type=str,
         choices=["tet4", "tet10"],
         default="tet4",
-        help="Element order: 'tet4' (linear, ultra-fast) or 'tet10' (quadratic, shear-locking free) (default: tet4)",
+        help="Element order: 'tet4' or 'tet10' (default: tet4)",
     )
     parser.add_argument(
         "--formulation",
         type=str,
-        choices=["linear", "corotational", "total_lagrangian", "updated_lagrangian"],
-        default=None,
-        help="Kinematic formulation: 'linear', 'corotational', 'total_lagrangian', or 'updated_lagrangian' (default: linear)",
+        choices=["corotational", "linear", "total_lagrangian", "updated_lagrangian"],
+        default="corotational",
+        help="Kinematic formulation: 'corotational' (default, rigid-frame filtered), 'linear', 'total_lagrangian', or 'updated_lagrangian'",
     )
     parser.add_argument(
-        "--nonlinear",
-        action="store_true",
-        default=False,
-        help="Enable nonlinear dynamic time integration (internal force evaluation)",
+        "--torque",
+        type=float,
+        default=2.5e8,
+        help="Base applied twisting moment M_z in N*mm (default: 2.5e8 N*mm = 250 kN*m)",
     )
     parser.add_argument(
         "--save-snapshots",
@@ -103,8 +152,8 @@ def parse_arguments() -> argparse.Namespace:
     parser.add_argument(
         "--output-dir",
         type=str,
-        default="results/06_interactive/0601_online_cantilever",
-        help="Output directory path for saved snapshots (default: results/06_interactive/0601_online_cantilever)",
+        default="results/06_interactive/0602_torsion_beam",
+        help="Output directory path for saved snapshots (default: results/06_interactive/0602_torsion_beam)",
     )
     return parser.parse_args()
 
@@ -119,9 +168,9 @@ def main() -> None:
     # 0. Header Banner
     console.print(
         Panel.fit(
-            "[bold cyan]Simulation 01 (Interactive): Real-Time Online Dynamic Simulation Pipeline[/bold cyan]\n"
-            "[dim]Decoupled Generalized-alpha Dynamic Physics Engine with Live In-Place 3D Rendering[/dim]\n"
-            f"[dim]Mode: {'[bold red]Headless Verification Mode[/bold red]' if is_headless else '[bold green]Interactive PyVista GUI Mode[/bold green]'}[/dim]",
+            "[bold cyan]Simulation 02 (Interactive): Real-Time Dynamic Axial Torsion Pipeline[/bold cyan]\n"
+            "[dim]Decoupled Generalized-alpha Dynamic Physics Engine with Live Torsional Wave & Diverging Colormap Rendering[/dim]\n"
+            f"[dim]Mode: {'Headless Verification Mode' if is_headless else 'Interactive PyVista 3D GUI Mode'}[/dim]",
             title="[bold blue]project-sierra[/bold blue]",
             border_style="cyan",
         )
@@ -143,17 +192,18 @@ def main() -> None:
         "  • Beam Dimensions : X: [-60, 60] mm, Y: [-60, 60] mm, Z: [-30, 200] mm (Length L = 230 mm)"
     )
 
-    # Determine kinematic formulation and nonlinearity
     formulation = args.formulation
-    if formulation is None:
-        formulation = "total_lagrangian" if args.nonlinear else "linear"
+    is_nonlinear = formulation in (
+        "corotational",
+        "total_lagrangian",
+        "updated_lagrangian",
+    )
 
-    is_nonlinear = formulation in ("corotational", "total_lagrangian", "updated_lagrangian")
-
-    # Upgrade to Quadratic Tet10 if requested
     if args.element == "tet10":
         if formulation == "corotational":
-            console.print("  [yellow]Note: Corotational formulation is available for Tet4. Reverting to Tet4.[/yellow]")
+            console.print(
+                "  [yellow]Note: Corotational formulation is available for Tet4. Using Tet4Corotational.[/yellow]"
+            )
             args.element = "tet4"
         else:
             mesh = mesh.to_quadratic()
@@ -208,38 +258,44 @@ def main() -> None:
     console.print(
         f"  • Elastic Modulus  : [green]{params.youngs_modulus:.1f}[/green] MPa | "
         f"Poisson's Ratio: [green]{params.poissons_ratio:.2f}[/green] | "
-        f"Density: [green]{params.mass_density * 1e9:.1f}[/green] kg/m³"
+        f"Shear Modulus: [green]{params.shear_modulus:.1f}[/green] MPa"
     )
 
-    # 3. Boundary Conditions & External Base Gravity
+    # 3. Boundary Conditions & Pure Torsional Couple Setup
     console.print(
-        "\n[bold yellow][3/6] Setting Up Boundary Conditions & Gravity Load[/bold yellow]"
+        "\n[bold yellow][3/6] Setting Up Boundary Conditions & Torsional Force Couple[/bold yellow]"
     )
     root_nodes = select_nodes_by_plane(mesh, plane="xy", bound="min")
     tip_nodes = select_nodes_by_plane(mesh, plane="xy", bound="max")
     clamp = DirichletConstraint(root_nodes, components=(0, 1, 2), value=0.0)
 
-    # Base gravity body load along -Y (calibrated to ~100 kN body weight matching sim02 and sim18)
-    gravity = GravityLoad(acceleration=(0.0, -98.1, 0.0))
-    M = domain.assemble_mass_matrix()
-    f_grav = gravity.compute_force_vector(M)
-    total_weight = abs(float(f_grav[1::3].sum()))
+    # Tip face geometric center and discrete polar moment of inertia J_tip
+    tip_coords = mesh.nodes[tip_nodes]
+    tip_center = tip_coords.mean(axis=0)
+    tip_Xc = tip_coords[:, 0] - tip_center[0]
+    tip_Yc = tip_coords[:, 1] - tip_center[1]
+    J_tip = float(np.sum(tip_Xc**2 + tip_Yc**2))
+
+    # Unit torsional force vectors per tip node: Fx = -Y/J, Fy = X/J
+    unit_torque_forces = np.zeros((len(tip_nodes), 3), dtype=np.float64)
+    unit_torque_forces[:, 0] = -tip_Yc / J_tip
+    unit_torque_forces[:, 1] = tip_Xc / J_tip
 
     console.print(
         f"  • Clamped Root Face (Z = -30 mm) : [green]{len(root_nodes)}[/green] nodes ({len(clamp.dofs)} DOFs)"
     )
     console.print(
-        f"  • Free Tip Face    (Z = 200 mm) : [green]{len(tip_nodes)}[/green] nodes"
+        f"  • Twisted Tip Face  (Z = 200 mm) : [green]{len(tip_nodes)}[/green] nodes (J_tip = {J_tip:.2e} mm⁴)"
     )
     console.print(
-        f"  • Total Base Gravity Load (F_y)  : [green]{total_weight:.2f}[/green] N"
+        f"  • Baseline Twisting Torque (M_z) : [green]{args.torque / 1e6:.1f}[/green] kN·m"
     )
 
     # 4. Interactive Simulation Engine Initialization
     console.print(
         "\n[bold yellow][4/6] Initializing Real-Time Interactive Dynamic Engine[/bold yellow]"
     )
-    damping = RayleighDamping(alpha=1.0, beta=0.001)
+    damping = RayleighDamping(alpha=1.0, beta=0.002)
 
     t_init_0 = time.perf_counter()
     sim = InteractiveDynamicSimulation(
@@ -248,7 +304,6 @@ def main() -> None:
         dirichlet=[clamp],
         dt=args.dt,
         spectral_radius=args.spectral_radius,
-        f_ext_base=f_grav,
         nonlinear=is_nonlinear,
         modified_newton=True,
     )
@@ -261,29 +316,20 @@ def main() -> None:
         f"  • High-Frequency Spectral Radius: [cyan]{sim.spectral_radius:.2f}[/cyan] (rho_inf)"
     )
     console.print(
-        f"  • Algorithmic Parameters       : alpha_m = {sim.alpha_m:.4f}, alpha_f = {sim.alpha_f:.4f}"
+        f"  • Rayleigh Physical Damping    : alpha = 1.0 (mass), beta = 0.002 (stiffness)"
     )
     console.print(
-        f"  • Rayleigh Physical Damping    : alpha = 1.0 (mass), beta = 0.001 (stiffness)"
-    )
-    console.print(
-        f"  • Pre-factorized K_eff Setup   : [green]{t_init_ms:.2f}[/green] ms (One-time SuperLU factorization)"
+        f"  • Pre-factorized K_eff Setup   : [green]{t_init_ms:.2f}[/green] ms"
     )
 
-    # Target node for interactive disturbances: center node of the free tip
-    tip_coords = mesh.nodes[tip_nodes]
-    tip_center = tip_coords.mean(axis=0)
-    tip_center_node = int(
-        tip_nodes[np.argmin(np.linalg.norm(tip_coords - tip_center, axis=1))]
-    )
-    console.print(
-        f"  • Primary Interactive Tip Node : Node #[green]{tip_center_node}[/green] at {mesh.nodes[tip_center_node].round(1)}"
-    )
+    # Helper function to apply net twisting moment M_z
+    def set_active_torque(moment_z: float) -> None:
+        sim.clear_perturbation_forces()
+        if abs(moment_z) > 1e-6:
+            sim.apply_perturbation_forces(tip_nodes, unit_torque_forces * moment_z)
 
     # 5. Execution Phase
-    console.print(
-        "\n[bold yellow][5/6] Running Dynamic Simulation Pipeline[/bold yellow]"
-    )
+    console.print("\n[bold yellow][5/6] Running Dynamic Torsion Pipeline[/bold yellow]")
 
     # Snapshot management
     save_snapshots = args.save_snapshots
@@ -298,62 +344,62 @@ def main() -> None:
         # ---------------------------------------------------------------------
         # Headless Demonstration Sequence
         # ---------------------------------------------------------------------
-        console.print("  • Executing automated interactive perturbation sequence:")
         console.print(
-            "    - [cyan]Phase 1 (0.00s - 0.40s)[/cyan]: Gravity dynamic settlement under Generalized-alpha dissipation"
+            "  • Executing automated interactive torsional perturbation sequence:"
         )
         console.print(
-            "    - [cyan]Phase 2 (0.40s - 0.50s)[/cyan]: User downward impulse disturbance (-300 N) applied at tip"
+            "    - [cyan]Phase 1 (0.00s - 0.30s)[/cyan]: Resting equilibrium under Generalized-alpha dissipation"
         )
         console.print(
-            "    - [cyan]Phase 3 (0.50s - 1.00s)[/cyan]: Free damped vibration and recovery"
+            f"    - [cyan]Phase 2 (0.30s - 0.50s)[/cyan]: Clockwise torque step (+{args.torque/1e6:.1f} kN·m)"
         )
         console.print(
-            "    - [cyan]Phase 4 (1.00s - 1.60s)[/cyan]: Dynamic sinusoidal resonance excitation (F = 150*sin(2*pi*15*t) N)"
+            "    - [cyan]Phase 3 (0.50s - 1.00s)[/cyan]: Instant release & free torsional spring-back vibration"
         )
         console.print(
-            "    - [cyan]Phase 5 (1.60s - 2.00s)[/cyan]: Release and numerical damping settling back to equilibrium"
+            "    - [cyan]Phase 4 (1.00s - 1.60s)[/cyan]: Dynamic harmonic torsional excitation (M(t) = M0*sin(2*pi*20*t))"
+        )
+        console.print(
+            "    - [cyan]Phase 5 (1.60s - 2.00s)[/cyan]: Final decay back to equilibrium"
         )
 
         total_duration = args.duration
         dt = sim.dt
         n_steps = int(round(total_duration / dt))
-        snapshot_interval = max(
-            1, int(round(0.02 / dt))
-        )  # Snapshot every 20 ms (50 FPS)
+        snapshot_interval = max(1, int(round(0.02 / dt)))  # Snapshot every 20 ms
 
-        tip_y_history: list[float] = []
+        tip_theta_history: list[float] = []
         time_history: list[float] = []
         snapshot_count = 0
 
-        # Create initial PyVista grid for snapshot export if requested
         export_grid = domain.to_pyvista(factor=1.0) if save_snapshots else None
 
         t_sim_start = time.perf_counter()
         for step_idx in range(n_steps):
             current_t = sim.current_time
 
-            # Phase 2: Downward impulse perturbation
-            if 0.40 <= current_t < 0.50:
-                sim.apply_perturbation_force(tip_center_node, [0.0, -300.0, 0.0])
-            elif current_t >= 0.50 and 0.50 <= current_t < 0.51:
-                sim.clear_perturbation_forces()
+            # Phase 2: Clockwise torque pulse
+            if 0.30 <= current_t < 0.50:
+                set_active_torque(args.torque)
+            elif current_t >= 0.50 and 0.50 <= current_t < 0.52:
+                set_active_torque(0.0)
 
-            # Phase 4: Dynamic sinusoidal harmonic excitation
+            # Phase 4: Dynamic harmonic torsional excitation (20 Hz)
             if 1.00 <= current_t < 1.60:
-                # 15 Hz driving frequency
-                f_harm = 150.0 * np.sin(2.0 * np.pi * 15.0 * (current_t - 1.00))
-                sim.clear_perturbation_forces()
-                sim.apply_perturbation_force(tip_center_node, [0.0, f_harm, 0.0])
-            elif current_t >= 1.60 and current_t < 1.61:
-                sim.clear_perturbation_forces()
+                m_harm = args.torque * np.sin(2.0 * np.pi * 20.0 * (current_t - 1.00))
+                set_active_torque(m_harm)
+            elif current_t >= 1.60 and current_t < 1.62:
+                set_active_torque(0.0)
 
-            # Execute single O(N) back-substitution physics step
+            # Execute single physics step
             sim.step()
 
-            # Record metrics
-            tip_disp_y = float(sim.displacement[tip_center_node, 1])
-            tip_y_history.append(tip_disp_y)
+            # Record tip rotation angle
+            angles_all = compute_twist_angles(
+                mesh.nodes, sim.displacement, (tip_center[0], tip_center[1])
+            )
+            tip_angle = float(np.mean(angles_all[tip_nodes]))
+            tip_theta_history.append(tip_angle)
             time_history.append(sim.current_time)
 
             # Export snapshot
@@ -361,6 +407,7 @@ def main() -> None:
                 step_idx % snapshot_interval == 0 or step_idx == n_steps - 1
             ):
                 sim.update_pyvista_grid(export_grid)
+                export_grid.point_data["Twist_Angle_deg"] = angles_all
                 vtu_filename = f"step_{snapshot_count:05d}.vtu"
                 vtu_path = output_dir / vtu_filename
                 export_grid.save(str(vtu_path))
@@ -385,34 +432,37 @@ def main() -> None:
 
         console.print("  • Launching interactive 3D window...")
         plotter = pv.Plotter(
-            window_size=[1280, 800], title="Sierra FEA - Real-Time Dynamic Simulation"
+            window_size=[1280, 800],
+            title="Sierra FEA - Real-Time Dynamic Axial Torsion Simulation",
         )
         plotter.set_background("#1e1e24", top="#141418")
 
         # PyVista mesh setup
         grid = domain.to_pyvista(factor=1.0)
+        grid.point_data["Twist_Angle_deg"] = np.zeros(mesh.n_nodes, dtype=np.float64)
+
         actor = plotter.add_mesh(
             grid,
-            scalars="Displacement_Y",
-            clim=[-15.0, 15.0],
+            scalars="Twist_Angle_deg",
+            clim=[-25.0, 25.0],
             cmap="coolwarm",
             show_edges=True,
             edge_color="#444444",
-            scalar_bar_args={"title": "Displacement Y (mm)", "color": "white"},
+            scalar_bar_args={"title": "Twist Angle θz (deg)", "color": "white"},
         )
 
-        # Camera and lighting
+        # Camera position looking down the beam towards the tip
         plotter.camera_position = [
-            (250.0, 200.0, 350.0),
-            (0.0, -100.0, 85.0),
+            (250.0, 180.0, 380.0),
+            (0.0, 0.0, 85.0),
             (0.0, 1.0, 0.0),
         ]
 
-        # Keybindings and interactive disturbance state
+        # Interactive state
         state = {
             "harmonic_active": False,
-            "impulse_steps": 0,
-            "impulse_force": 0.0,
+            "torque_steps": 0,
+            "current_torque": 0.0,
             "exit_requested": False,
         }
 
@@ -425,56 +475,53 @@ def main() -> None:
                 return False
             return True
 
-        def key_impulse_down() -> None:
-            state["impulse_steps"] = int(round(0.10 / sim.dt))  # 100 ms pulse
-            state["impulse_force"] = -400.0
+        def key_twist_cw() -> None:
+            state["torque_steps"] = int(round(0.15 / sim.dt))  # 150 ms pulse
+            state["current_torque"] = args.torque
             console.print(
-                "  [bold red]▶ [KEY] Downward impulse (-400 N) applied[/bold red]"
+                f"  [bold red]▶ [KEY] Clockwise twisting torque (+{args.torque/1e6:.1f} kN·m) applied[/bold red]"
             )
 
-        def key_impulse_up() -> None:
-            state["impulse_steps"] = int(round(0.10 / sim.dt))
-            state["impulse_force"] = 400.0
+        def key_twist_ccw() -> None:
+            state["torque_steps"] = int(round(0.15 / sim.dt))
+            state["current_torque"] = -args.torque
             console.print(
-                "  [bold green]▶ [KEY] Upward impulse (+400 N) applied[/bold green]"
+                f"  [bold blue]▶ [KEY] Counter-clockwise twisting torque (-{args.torque/1e6:.1f} kN·m) applied[/bold blue]"
             )
 
         def key_toggle_harmonic() -> None:
             state["harmonic_active"] = not state["harmonic_active"]
             if state["harmonic_active"]:
-                sim.add_harmonic_excitation(
-                    tip_center_node, component=1, amplitude=150.0, frequency_hz=15.0
-                )
                 console.print(
-                    "  [bold magenta]▶ [KEY] Harmonic excitation ENABLED (15 Hz, 150 N)[/bold magenta]"
+                    f"  [bold magenta]▶ [KEY] Harmonic torsional excitation ENABLED (20 Hz, {args.torque/1e6:.1f} kN·m)[/bold magenta]"
                 )
             else:
-                sim.clear_harmonic_excitations()
+                set_active_torque(0.0)
                 console.print(
-                    "  [bold dim]▶ [KEY] Harmonic excitation DISABLED[/bold dim]"
+                    "  [bold dim]▶ [KEY] Harmonic torsional excitation DISABLED[/bold dim]"
                 )
 
         def key_clear() -> None:
             state["harmonic_active"] = False
-            state["impulse_steps"] = 0
-            state["impulse_force"] = 0.0
-            sim.clear_harmonic_excitations()
-            sim.clear_perturbation_forces()
+            state["torque_steps"] = 0
+            state["current_torque"] = 0.0
+            set_active_torque(0.0)
             console.print(
-                "  [bold yellow]▶ [KEY] All dynamic perturbation forces cleared[/bold yellow]"
+                "  [bold yellow]▶ [KEY] All dynamic twisting torques cleared[/bold yellow]"
             )
 
         def key_reset() -> None:
             key_clear()
             sim.reset()
-            sim.update_pyvista_grid(
-                grid,
-                plotter=plotter,
-                field="Displacement_Y",
-                symmetric_clim=True,
-                min_clim=15.0,
+            sim.update_pyvista_grid(grid)
+            grid.point_data["Twist_Angle_deg"] = np.zeros(
+                mesh.n_nodes, dtype=np.float64
             )
-            plotter.update()
+            try:
+                plotter.update_scalar_bar_range([-25.0, 25.0])
+                plotter.update()
+            except Exception:
+                pass
             console.print(
                 "  [bold cyan]▶ [KEY] Simulation RESET to undeformed resting state[/bold cyan]"
             )
@@ -487,8 +534,10 @@ def main() -> None:
                 "  [bold red]▶ [KEY] Exiting interactive window...[/bold red]"
             )
 
-        plotter.add_key_event("i", key_impulse_down)
-        plotter.add_key_event("u", key_impulse_up)
+        plotter.add_key_event("t", key_twist_cw)
+        plotter.add_key_event("T", key_twist_cw)
+        plotter.add_key_event("y", key_twist_ccw)
+        plotter.add_key_event("Y", key_twist_ccw)
         plotter.add_key_event("h", key_toggle_harmonic)
         plotter.add_key_event("c", key_clear)
         plotter.add_key_event("r", key_reset)
@@ -497,11 +546,11 @@ def main() -> None:
 
         # On-screen instructions
         info_text = (
-            "Interactive Controls:\n"
-            "  [I] Downward Tip Impulse (-400 N)\n"
-            "  [U] Upward Tip Impulse (+400 N)\n"
-            "  [H] Toggle Harmonic Resonance (15 Hz)\n"
-            "  [C] Clear Dynamic Forces\n"
+            "Interactive Axial Torsion Controls:\n"
+            f"  [T] Clockwise Twisting Torque (+{args.torque/1e6:.1f} kN·m)\n"
+            f"  [Y] Counter-Clockwise Torque (-{args.torque/1e6:.1f} kN·m)\n"
+            "  [H] Toggle Harmonic Resonance (20 Hz)\n"
+            "  [C] Clear Dynamic Torque (Spring-Back)\n"
             "  [R] Reset Simulation\n"
             "  [Q] Exit Window"
         )
@@ -525,27 +574,31 @@ def main() -> None:
             dt_wall = t_now - last_time
             last_time = t_now
 
-            # Handle active impulse pulse
-            if state["impulse_steps"] > 0:
-                sim.apply_perturbation_force(
-                    tip_center_node, [0.0, state["impulse_force"], 0.0]
-                )
-                state["impulse_steps"] -= 1
-                if state["impulse_steps"] == 0:
-                    sim.clear_perturbation_forces()
+            # Handle active torque states
+            if state["harmonic_active"]:
+                m_harm = args.torque * np.sin(2.0 * np.pi * 20.0 * sim.current_time)
+                set_active_torque(m_harm)
+            elif state["torque_steps"] > 0:
+                set_active_torque(state["current_torque"])
+                state["torque_steps"] -= 1
+                if state["torque_steps"] == 0:
+                    set_active_torque(0.0)
 
             # Advance physics synchronized to elapsed real wall-clock time
             sim.advance_wall_clock(dt_wall, max_substeps=20)
 
-            # In-place VTK vertex buffer mutation (zero-overhead)
-            sim.update_pyvista_grid(
-                grid,
-                plotter=plotter,
-                field="Displacement_Y",
-                symmetric_clim=True,
-                min_clim=15.0,
+            # Update mesh coordinates and twist angle array
+            sim.update_pyvista_grid(grid)
+            angles_all = compute_twist_angles(
+                mesh.nodes, sim.displacement, (tip_center[0], tip_center[1])
             )
+            grid.point_data["Twist_Angle_deg"] = angles_all
+
+            # Synchronize symmetric colormap bounds
+            max_angle = float(np.max(np.abs(angles_all)))
+            clim_extent = max(25.0, max_angle)
             try:
+                plotter.update_scalar_bar_range([-clim_extent, clim_extent])
                 plotter.update()
             except Exception:
                 break
@@ -559,7 +612,7 @@ def main() -> None:
                 fps_timer = t_now
                 frame_counter = 0
                 stats = sim.get_performance_stats()
-                tip_y = float(sim.displacement[tip_center_node, 1])
+                tip_angle_curr = float(np.mean(angles_all[tip_nodes]))
 
                 telemetry_str = (
                     f"Model: {element.__class__.__name__} ({formulation.replace('_', ' ').title()})\n"
@@ -567,7 +620,7 @@ def main() -> None:
                     f"Speed Ratio: {stats.speed_ratio:.1f}x Real-Time\n"
                     f"Physics Rate: {stats.effective_hz:.0f} Hz ({stats.average_step_ms:.3f} ms/step) | "
                     f"Render FPS: {render_fps:.1f} FPS\n"
-                    f"Tip Deflection Y: {tip_y:.2f} mm | Total Energy: {stats.total_energy:.2e} J"
+                    f"Tip Twist Angle: {tip_angle_curr:+.2f}° | Total Energy: {stats.total_energy:.2e} J"
                 )
                 try:
                     telemetry_actor.SetText(0, telemetry_str)
@@ -580,17 +633,20 @@ def main() -> None:
     # 6. Final Performance Telemetry & Reporting
     console.print("\n[bold yellow][6/6] Performance Telemetry Summary[/bold yellow]")
     final_stats = sim.get_performance_stats()
-    tip_y_final = float(sim.displacement[tip_center_node, 1])
-    tip_y_min = float(np.min(sim.displacement[:, 1]))
+    final_angles = compute_twist_angles(
+        mesh.nodes, sim.displacement, (tip_center[0], tip_center[1])
+    )
+    tip_angle_final = float(np.mean(final_angles[tip_nodes]))
+    max_twist = float(np.max(np.abs(final_angles)))
 
     table = Table(
-        title="Interactive Dynamic Simulation Telemetry",
-        show_header=True,
-        header_style="bold magenta",
+        title="Interactive Dynamic Axial Torsion Telemetry",
+        header_style="bold cyan",
+        border_style="dim",
     )
-    table.add_column("Metric Description", style="cyan")
-    table.add_column("Measured Value", style="bold green", justify="right")
-    table.add_column("Engineering Benchmark / Target", style="dim", justify="left")
+    table.add_column("Metric Description", style="dim", width=28)
+    table.add_column("Measured Value", justify="right", style="bold green", width=22)
+    table.add_column("Engineering Notes", style="cyan", width=30)
 
     table.add_row(
         "Simulated Physical Time",
@@ -605,27 +661,32 @@ def main() -> None:
     table.add_row(
         "Physics Time Steps Executed",
         f"{final_stats.steps_completed:,}",
-        f"Fixed dt = {sim.dt*1000:.1f} ms",
+        f"Fixed dt = {sim.dt*1000.0:.1f} ms",
     )
     table.add_row(
         "Average Physics Step Duration",
-        f"{final_stats.average_step_ms * 1000.0:.1f} µs ({final_stats.average_step_ms:.4f} ms)",
-        "Target: < 1.0 ms (>1,000 Hz)",
+        f"{final_stats.average_step_ms*1000.0:.1f} µs ({final_stats.average_step_ms:.4f} ms)",
+        "Step solve latency",
     )
     table.add_row(
         "Effective Physics Rate",
         f"{final_stats.effective_hz:,.0f} Hz",
-        "Target: > 1,000 Hz (Haptic standard)",
+        "Physics update frequency",
     )
     table.add_row(
         "Real-Time Speed Ratio",
         f"{final_stats.speed_ratio:.1f}x Real-Time",
-        "Target: > 1.0x (Real-time speedup)",
+        "Speedup factor",
     )
     table.add_row(
-        "Peak Downward Tip Deflection",
-        f"{tip_y_min:.2f} mm",
-        "Under gravity + dynamic perturbations",
+        "Final Tip Twist Angle",
+        f"{tip_angle_final:+.2f}°",
+        "Mean tip cross-section twist",
+    )
+    table.add_row(
+        "Peak Beam Twist Angle",
+        f"{max_twist:.2f}°",
+        "Max dynamic twist amplitude",
     )
     table.add_row(
         "Instantaneous Kinetic Energy",
@@ -635,7 +696,7 @@ def main() -> None:
     table.add_row(
         "Instantaneous Strain Energy",
         f"{final_stats.strain_energy:.4e} J",
-        "U = 0.5 * u^T * K * u",
+        "Elastic strain energy U",
     )
     table.add_row(
         "Total Mechanical Energy",
@@ -645,7 +706,7 @@ def main() -> None:
 
     console.print(table)
     console.print(
-        "\n[bold green]✔ Interactive Dynamic Simulation Pipeline completed successfully![/bold green]\n"
+        "\n[bold green]✔ Interactive Dynamic Axial Torsion Pipeline completed successfully![/bold green]\n"
     )
 
 

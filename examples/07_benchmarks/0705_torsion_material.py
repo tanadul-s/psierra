@@ -25,7 +25,9 @@ install(show_locals=False)
 console = Console()
 
 
-def compute_reaction_torque(reactions: np.ndarray, node_indices: np.ndarray, mesh: VolumetricMesh) -> float:
+def compute_reaction_torque(
+    reactions: np.ndarray, node_indices: np.ndarray, mesh: VolumetricMesh
+) -> float:
     """
     Computes the resultant reaction twisting moment M_z about the longitudinal Z axis.
     M_z = sum_i (X_i * R_y,i - Y_i * R_x,i)
@@ -49,7 +51,9 @@ def main() -> None:
     )
 
     # 1. Loading Mesh Geometry
-    console.print("\n[bold yellow][1/5] Loading Mesh Geometry & Boundary Surfaces[/bold yellow]")
+    console.print(
+        "\n[bold yellow][1/5] Loading Mesh Geometry & Boundary Surfaces[/bold yellow]"
+    )
     mesh_path = Path("data/beam1/mesh/beam1.vtk")
     if not mesh_path.exists():
         raise FileNotFoundError(f"Beam mesh file not found: {mesh_path}")
@@ -69,21 +73,29 @@ def main() -> None:
     tip_X = mesh.nodes[tip_nodes, 0]
     tip_Y = mesh.nodes[tip_nodes, 1]
 
-    console.print(f"  • Clamped Root Face (Z = -30 mm) : [green]{len(root_nodes)}[/green] nodes (fully clamped: ux=uy=uz=0)")
-    console.print(f"  • Twisted Tip Face  (Z = 200 mm) : [green]{len(tip_nodes)}[/green] nodes (ux, uy prescribed; [bold cyan]uz free[/bold cyan])")
+    console.print(
+        f"  • Clamped Root Face (Z = -30 mm) : [green]{len(root_nodes)}[/green] nodes (fully clamped: ux=uy=uz=0)"
+    )
+    console.print(
+        f"  • Twisted Tip Face  (Z = 200 mm) : [green]{len(tip_nodes)}[/green] nodes (ux, uy prescribed; [bold cyan]uz free[/bold cyan])"
+    )
 
     # 2. Material Configuration
-    console.print("\n[bold yellow][2/5] Configuring Hyperelastic Constitutive Laws[/bold yellow]")
+    console.print(
+        "\n[bold yellow][2/5] Configuring Hyperelastic Constitutive Laws[/bold yellow]"
+    )
     base_iso = IsotropicElasticParameters()
     base_iso.set_from_youngs_poisson(
         youngs_modulus=21000.0,  # MPa (N/mm^2)
         poissons_ratio=0.35,
-        mass_density=1100e-6,    # tonne/mm^3 (1100 kg/m^3)
+        mass_density=1100e-6,  # tonne/mm^3 (1100 kg/m^3)
     )
     mu0 = base_iso.shear_modulus
     k0 = base_iso.bulk_modulus
 
-    console.print(f"  • Baseline Young's Modulus E   : [green]{base_iso.youngs_modulus:.1f}[/green] MPa")
+    console.print(
+        f"  • Baseline Young's Modulus E   : [green]{base_iso.youngs_modulus:.1f}[/green] MPa"
+    )
     console.print(f"  • Baseline Shear Modulus mu_0  : [green]{mu0:.2f}[/green] MPa")
     console.print(f"  • Baseline Bulk Modulus K_0    : [green]{k0:.2f}[/green] MPa")
 
@@ -102,16 +114,33 @@ def main() -> None:
     )
 
     models = [
-        ("neohookean", "Neo-Hookean", NeoHookean(base_iso), "Compressible Neo-Hookean (c10)"),
-        ("mooney_rivlin", "Mooney-Rivlin", MooneyRivlin(mr_params), "Two-Parameter Elastomer (c10, c01)"),
-        ("yeoh", "Yeoh", Yeoh(yeoh_params), "Three-Parameter Soft Tissue (c10, c20, c30)"),
+        (
+            "neohookean",
+            "Neo-Hookean",
+            NeoHookean(base_iso),
+            "Compressible Neo-Hookean (c10)",
+        ),
+        (
+            "mooney_rivlin",
+            "Mooney-Rivlin",
+            MooneyRivlin(mr_params),
+            "Two-Parameter Elastomer (c10, c01)",
+        ),
+        (
+            "yeoh",
+            "Yeoh",
+            Yeoh(yeoh_params),
+            "Three-Parameter Soft Tissue (c10, c20, c30)",
+        ),
     ]
 
     for key, name, mat, desc in models:
         console.print(f"  • [cyan]{name:<14}[/cyan]: {desc}")
 
     # 3. Executing Severe Axial Torsion up to 180 Degrees for All Models
-    console.print("\n[bold yellow][3/5] Executing Progressive Axial Torsion (0° to 180° Half-Turn)[/bold yellow]")
+    console.print(
+        "\n[bold yellow][3/5] Executing Progressive Axial Torsion (0° to 180° Half-Turn)[/bold yellow]"
+    )
     clamp_root = DirichletConstraint(root_nodes, components=(0, 1, 2), value=0.0)
 
     theta_max_deg = 180.0
@@ -129,15 +158,19 @@ def main() -> None:
 
         mgr = DirichletManager(mesh.n_dofs)
         mgr.add_constraint(clamp_root)
-        mgr.add_constraint(DirichletConstraint(tip_nodes, components=(0,), value=ux_tip))
-        mgr.add_constraint(DirichletConstraint(tip_nodes, components=(1,), value=uy_tip))
+        mgr.add_constraint(
+            DirichletConstraint(tip_nodes, components=(0,), value=ux_tip)
+        )
+        mgr.add_constraint(
+            DirichletConstraint(tip_nodes, components=(1,), value=uy_tip)
+        )
         # Note: uz is left completely free on the tip face!
         # This enables the core physical phenomena:
         # 1. Poynting axial contraction/elongation
         # 2. Saint-Venant cross-sectional warping
         return mgr
 
-    base_output_dir = Path("results/07_benchmarks/0705_axial_torsion_material")
+    base_output_dir = Path("results/07_benchmarks/0705_torsion_material")
     base_output_dir.mkdir(parents=True, exist_ok=True)
 
     results_data: dict[str, dict] = {}
@@ -150,7 +183,9 @@ def main() -> None:
         domain = SolidDomain(mesh, mat, element)
         solver = NonlinearStaticAnalysis(domain)
 
-        console.print(f"\n  [bold cyan]• Solving model: {name} (Exporting to {model_dir}/result.pvd)...[/bold cyan]")
+        console.print(
+            f"\n  [bold cyan]• Solving model: {name} (Exporting to {model_dir}/result.pvd)...[/bold cyan]"
+        )
         result = solver.solve(
             dirichlet=torsion_bc_fn,
             f_ext=None,  # Pure kinematic displacement control
@@ -166,7 +201,9 @@ def main() -> None:
         )
 
         if not result.converged:
-            raise RuntimeError(f"Nonlinear static axial torsion solve failed to converge for {name}!")
+            raise RuntimeError(
+                f"Nonlinear static axial torsion solve failed to converge for {name}!"
+            )
 
         final_disp = domain.displacement
         final_tip_uz = final_disp[tip_nodes, 2]
@@ -185,13 +222,15 @@ def main() -> None:
             tip_uz_step = disp_arr[tip_nodes, 2]
             mean_uz = float(tip_uz_step.mean())
             warping = float(tip_uz_step.max() - tip_uz_step.min())
-            step_metrics.append({
-                "step": step_idx,
-                "angle": angle,
-                "mean_uz": mean_uz,
-                "warping": warping,
-                "iters": iters,
-            })
+            step_metrics.append(
+                {
+                    "step": step_idx,
+                    "angle": angle,
+                    "mean_uz": mean_uz,
+                    "warping": warping,
+                    "iters": iters,
+                }
+            )
 
         results_data[key] = {
             "name": name,
@@ -211,7 +250,9 @@ def main() -> None:
         )
 
     # 4. Comparative Evolution across Key Checkpoint Angles
-    console.print("\n[bold yellow][4/5] Multi-Model Progression of Poynting Effect & Warping[/bold yellow]")
+    console.print(
+        "\n[bold yellow][4/5] Multi-Model Progression of Poynting Effect & Warping[/bold yellow]"
+    )
 
     checkpoints = [30.0, 60.0, 90.0, 120.0, 150.0, 180.0]
 
@@ -247,12 +288,21 @@ def main() -> None:
     console.print(progression_table)
 
     # 5. Final Summary and Verification
-    console.print("\n[bold yellow][5/5] Final Simulation Summary & Model Verification[/bold yellow]")
-    summary_table = Table(title="Simulation 17 Summary & Verification (180° Severe Axial Torsion)", border_style="cyan")
+    console.print(
+        "\n[bold yellow][5/5] Final Simulation Summary & Model Verification[/bold yellow]"
+    )
+    summary_table = Table(
+        title="Simulation 17 Summary & Verification (180° Severe Axial Torsion)",
+        border_style="cyan",
+    )
     summary_table.add_column("Constitutive Model", style="bold cyan")
-    summary_table.add_column("Poynting Axial Elongation (Uz)", justify="right", style="green")
+    summary_table.add_column(
+        "Poynting Axial Elongation (Uz)", justify="right", style="green"
+    )
     summary_table.add_column("Warping Amplitude", justify="right", style="blue")
-    summary_table.add_column("Root Reaction Torque (Mz)", justify="right", style="magenta")
+    summary_table.add_column(
+        "Root Reaction Torque (Mz)", justify="right", style="magenta"
+    )
     summary_table.add_column("Total Newton Iters", justify="center", style="white")
     summary_table.add_column("Saved ParaView PVD Collection", style="yellow")
 
@@ -279,9 +329,13 @@ def main() -> None:
         "  4. [bold white]Finite Rotation Robustness[/bold white]: All 3 models successfully complete the full half-turn (180°) twist with strictly positive Jacobian determinant (J = det(F) > 0).\n"
     )
 
-    console.print("[bold green]✓ ParaView Collections Exported for Side-by-Side Visualization:[/bold green]")
+    console.print(
+        "[bold green]✓ ParaView Collections Exported for Side-by-Side Visualization:[/bold green]"
+    )
     for key, name, mat, desc in models:
-        console.print(f"  • [cyan]{name:<14}[/cyan]: {base_output_dir / key / 'result.pvd'}")
+        console.print(
+            f"  • [cyan]{name:<14}[/cyan]: {base_output_dir / key / 'result.pvd'}"
+        )
     console.print()
 
 
