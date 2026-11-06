@@ -26,7 +26,7 @@ def main() -> None:
     # 0. Header Banner
     console.print(
         Panel.fit(
-            "[bold cyan]Simulation 11: Corotational vs Linear FEM under Self-Weight Gravity Bending[/bold cyan]\n"
+            "[bold cyan]Simulation 0403: Corotational vs Linear FEM under Self-Weight Gravity Bending[/bold cyan]\n"
             "[dim]Demonstrating Finite Rotation Tracking & Arc-Length Preservation via CorotationalTet4[/dim]",
             title="[bold blue]project-sierra — Geometric Nonlinearity[/bold blue]",
             border_style="cyan",
@@ -183,7 +183,7 @@ def main() -> None:
     chord_len_corot = np.sqrt((initial_length + tip_uz_corot) ** 2 + tip_uy_corot**2)
 
     table = Table(
-        title="Gravity-Induced Cantilever Bending: Linear (Tet4) vs Corotational (CorotationalTet4)"
+        title="Simulation 0403: Linear (Tet4) vs Corotational (CorotationalTet4)"
     )
     table.add_column("Quantity / Metric", style="cyan")
     table.add_column("Linear Static (Tet4)", style="magenta")

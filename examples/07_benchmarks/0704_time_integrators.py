@@ -22,7 +22,7 @@ def main() -> None:
     # 0. Header Banner
     console.print(
         Panel.fit(
-            "[bold cyan]Simulation 16: Dynamic Time Integration Schemes Comparison[/bold cyan]\n"
+            "[bold cyan]Benchmark 0704: Dynamic Time Integration Schemes Comparison[/bold cyan]\n"
             "[dim]Cantilever Beam Transient Dynamic Response: Undamped Newmark vs Generalized-alpha vs HHT-alpha vs Asymptotic Annihilation[/dim]",
             title="[bold blue]project-sierra[/bold blue]",
             border_style="cyan",
@@ -157,7 +157,7 @@ def main() -> None:
     console.print("\n[bold yellow][5/5] Comparative Verification & Result Analysis[/bold yellow]")
 
     summary_table = Table(
-        title="Transient Beam Dynamics: Time Integration Scheme Comparison under Suddenly Applied Gravity",
+        title="Benchmark 0704: Dynamic Time Integration Schemes Comparison",
         border_style="cyan",
         header_style="bold magenta",
     )

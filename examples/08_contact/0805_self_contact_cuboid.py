@@ -1,5 +1,5 @@
 """
-Simulation 24: Nonlinear Dynamic Self-Contact on Slotted Cuboid Flexure.
+Simulation 0805: Nonlinear Dynamic Self-Contact on Slotted Cuboid Flexure.
 ========================================================================
 Demonstrates:
 1. Finite-strain Total Lagrangian formulation (Tet4TotalLagrangian) with Neo-Hookean hyperelasticity.
@@ -40,7 +40,7 @@ console = Console()
 
 def parse_arguments() -> argparse.Namespace:
     parser = argparse.ArgumentParser(
-        description="Simulation 24: Nonlinear Dynamic Self-Contact on Slotted Cuboid Flexure"
+        description="Simulation 0805: Nonlinear Dynamic Self-Contact on Slotted Cuboid Flexure"
     )
     parser.add_argument(
         "--mesh",
@@ -152,7 +152,7 @@ def main() -> None:
 
     console.print(
         Panel.fit(
-            "[bold cyan]Simulation 24: Nonlinear Dynamic Self-Contact on Slotted Cuboid Flexure[/bold cyan]\n"
+            "[bold cyan]Simulation 0805: Nonlinear Dynamic Self-Contact on Slotted Cuboid Flexure[/bold cyan]\n"
             "[dim]Project Sierra | Keyhole Flexure Inward Pinching, Slit Closure, and Elastic Rebound[/dim]",
             title="[bold blue]project-sierra — Autonomous Self-Contact Mechanics[/bold blue]",
             border_style="cyan",
@@ -379,7 +379,7 @@ def main() -> None:
     max_disp_val = float(np.linalg.norm(cuboid_domain.displacement, axis=1).max())
 
     table = Table(
-        title="Simulation 24 Dynamic Self-Contact Results Summary",
+        title="Simulation 0805 Dynamic Self-Contact Results Summary",
         border_style="cyan",
     )
     table.add_column("Metric", style="bold white")
@@ -424,7 +424,7 @@ def main() -> None:
     # Optional 3D Visualization
     if args.show:
         console.print("\n[bold cyan]Launching Interactive PyVista 3D Viewer...[/bold cyan]")
-        pl = pv.Plotter(title="Project Sierra - Simulation 24: Dynamic Self-Contact")
+        pl = pv.Plotter(title="Project Sierra - Simulation 0805: Dynamic Self-Contact")
         surf = cuboid_mesh.surface.polydata.copy()
         surf["Displacement"] = cuboid_domain.displacement
         warped = surf.warp_by_vector("Displacement", factor=1.0)

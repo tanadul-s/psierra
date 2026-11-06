@@ -20,7 +20,7 @@ def main() -> None:
         "[bold cyan]======================================================[/bold cyan]"
     )
     print(
-        "[bold cyan]    Mesh 05: Tetrahedral Mesher (Segmented Brain)      [/bold cyan]"
+        "[bold cyan]    Example 0109: Tetrahedral Mesher (Segmented Brain)     [/bold cyan]"
     )
     print(
         "[bold cyan]======================================================[/bold cyan]\n"

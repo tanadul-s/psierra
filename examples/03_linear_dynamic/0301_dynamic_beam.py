@@ -27,7 +27,7 @@ def main() -> None:
     # 0. Header Banner
     console.print(
         Panel.fit(
-            "[bold cyan]Simulation 03: Linear Dynamic Analysis (Hookean)[/bold cyan]\n"
+            "[bold cyan]Simulation 0301: Linear Dynamic Analysis (Hookean)[/bold cyan]\n"
             "[dim]Dynamic Cantilever Beam Transient Vibration with Rayleigh Damping[/dim]",
             title="[bold blue]project-sierra[/bold blue]",
             border_style="cyan",
@@ -129,7 +129,7 @@ def main() -> None:
     total_time = n_steps * dt
 
     summary_table = Table(
-        title="Simulation 03 Summary & Verification", border_style="cyan"
+        title="Simulation 0301 Summary & Verification", border_style="cyan"
     )
     summary_table.add_column("Quantity", style="bold white")
     summary_table.add_column("Value", style="cyan")

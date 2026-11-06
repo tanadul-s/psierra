@@ -19,7 +19,7 @@ def main() -> None:
         "[bold cyan]======================================================================[/bold cyan]"
     )
     console.print(
-        "[bold cyan] Demonstration: Hyperelastic Material Models (Neo-Hookean, Mooney-Rivlin, Yeoh)[/bold cyan]"
+        "[bold cyan] Example 0103: Hyperelastic Material Models (Neo-Hookean, Mooney-Rivlin, Yeoh)[/bold cyan]"
     )
     console.print(
         "[bold cyan]======================================================================[/bold cyan]\n"

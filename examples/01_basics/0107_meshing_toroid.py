@@ -18,7 +18,7 @@ def main() -> None:
         "[bold cyan]======================================================[/bold cyan]"
     )
     print(
-        "[bold cyan]      Mesh 03: Tetrahedral Mesher (Parametric Toroid)  [/bold cyan]"
+        "[bold cyan]    Example 0107: Tetrahedral Mesher (Parametric Toroid)   [/bold cyan]"
     )
     print(
         "[bold cyan]======================================================[/bold cyan]\n"

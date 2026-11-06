@@ -1,5 +1,5 @@
 """
-Simulation 19: Static Cantilever Beam Resting on 3D Rigid Floor Mesh.
+Simulation 0801: Static Cantilever Beam Resting on 3D Rigid Floor Mesh.
 =====================================================================
 Demonstrates:
 1. MultiBodySystem assembly incorporating BOTH Beam and Floor domains.
@@ -39,7 +39,7 @@ console = Console()
 
 def parse_arguments() -> argparse.Namespace:
     parser = argparse.ArgumentParser(
-        description="Simulation 19: Static Cantilever Beam Contact with 3D Rigid Floor Mesh"
+        description="Simulation 0801: Static Cantilever Beam Contact with 3D Rigid Floor Mesh"
     )
     parser.add_argument(
         "--beam-mesh",
@@ -91,7 +91,7 @@ def main() -> None:
 
     console.print(
         Panel.fit(
-            "[bold cyan]Simulation 19: Static Cantilever Beam Contact on 3D Rigid Floor[/bold cyan]\n"
+            "[bold cyan]Simulation 0801: Static Cantilever Beam Contact on 3D Rigid Floor[/bold cyan]\n"
             "[dim]MultiBodySystem Assembly (Beam + Floor Domains) with Total Lagrangian Kinematics[/dim]",
             title="[bold blue]project-sierra — Contact Mechanics[/bold blue]",
             border_style="cyan",
@@ -226,7 +226,7 @@ def main() -> None:
     num_contact_nodes = int(c_info["num_active"])
     contact_energy = float(c_info["potential_energy"])
 
-    table = Table(title="Simulation 19 Multi-Body Contact Results Summary", border_style="cyan")
+    table = Table(title="Simulation 0801 Multi-Body Contact Results Summary", border_style="cyan")
     table.add_column("Metric", style="bold white")
     table.add_column("Value", style="green")
     table.add_column("Unit", style="dim")

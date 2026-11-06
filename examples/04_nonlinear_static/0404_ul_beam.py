@@ -26,7 +26,7 @@ def main() -> None:
     # 0. Header Banner
     console.print(
         Panel.fit(
-            "[bold cyan]Simulation 12: Nonlinear Static Analysis (Updated Lagrangian + Neo-Hookean)[/bold cyan]\n"
+            "[bold cyan]Simulation 0404: Nonlinear Static Analysis (Updated Lagrangian + Neo-Hookean)[/bold cyan]\n"
             "[dim]Finite Strain Hyperelastic Beam Bending under Gravitational Body Load via Updated Lagrangian[/dim]",
             title="[bold blue]project-sierra[/bold blue]",
             border_style="cyan",
@@ -118,7 +118,7 @@ def main() -> None:
     status_style = "green" if result.converged else "red"
 
     summary_table = Table(
-        title="Simulation 12 Summary & Verification", border_style="cyan"
+        title="Simulation 0404 Summary & Verification", border_style="cyan"
     )
     summary_table.add_column("Quantity", style="bold white")
     summary_table.add_column("Value", style="cyan")

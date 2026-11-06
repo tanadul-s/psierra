@@ -1,5 +1,5 @@
 """
-Simulation 01 (Interactive): Real-Time Online Dynamic Simulation Pipeline.
+Simulation 0601 (Interactive): Real-Time Online Dynamic Simulation Pipeline.
 
 Demonstrates high-performance interactive dynamic FEA simulation using
 Generalized-alpha implicit time integration with pre-factorized SuperLU reuse.
@@ -48,7 +48,7 @@ console = Console()
 
 def parse_arguments() -> argparse.Namespace:
     parser = argparse.ArgumentParser(
-        description="Real-Time Interactive Dynamic Simulation Pipeline (Cantilever Beam Demonstration)"
+        description="Simulation 0601 (Interactive): Real-Time Online Dynamic Simulation Pipeline (Cantilever Beam Demonstration)"
     )
     parser.add_argument(
         "--headless",
@@ -119,7 +119,7 @@ def main() -> None:
     # 0. Header Banner
     console.print(
         Panel.fit(
-            "[bold cyan]Simulation 01 (Interactive): Real-Time Online Dynamic Simulation Pipeline[/bold cyan]\n"
+            "[bold cyan]Simulation 0601 (Interactive): Real-Time Online Dynamic Simulation Pipeline[/bold cyan]\n"
             "[dim]Decoupled Generalized-alpha Dynamic Physics Engine with Live In-Place 3D Rendering[/dim]\n"
             f"[dim]Mode: {'[bold red]Headless Verification Mode[/bold red]' if is_headless else '[bold green]Interactive PyVista GUI Mode[/bold green]'}[/dim]",
             title="[bold blue]project-sierra[/bold blue]",
@@ -374,6 +374,7 @@ def main() -> None:
                     pvd_writer.add_timestep(
                         timestep=sim.current_time, filename=vtu_filename
                     )
+                    pvd_writer.write()
                 snapshot_count += 1
 
         total_wall_loop = time.perf_counter() - t_sim_start
@@ -590,7 +591,7 @@ def main() -> None:
     tip_y_min = float(np.min(sim.displacement[:, 1]))
 
     table = Table(
-        title="Interactive Dynamic Simulation Telemetry",
+        title="Simulation 0601 (Interactive): Telemetry Summary",
         show_header=True,
         header_style="bold magenta",
     )

@@ -1,5 +1,5 @@
 """
-Simulation 23: Deformable Self-Contact Mechanics on Stanford Bunny with Inclined Gravity Sag.
+Simulation 0804: Deformable Self-Contact Mechanics on Stanford Bunny with Inclined Gravity Sag.
 =============================================================================================
 Demonstrates:
 1. Volumetric continuum self-contact mechanics driven purely by self-weight gravity loading
@@ -53,7 +53,7 @@ console = Console()
 
 def parse_arguments() -> argparse.Namespace:
     parser = argparse.ArgumentParser(
-        description="Simulation 23: Deformable Self-Contact Mechanics on Stanford Bunny with Inclined Gravity Sag"
+        description="Simulation 0804: Deformable Self-Contact Mechanics on Stanford Bunny with Inclined Gravity Sag"
     )
     parser.add_argument(
         "--bunny-mesh",
@@ -207,7 +207,7 @@ def main() -> None:
 
     console.print(
         Panel.fit(
-            "[bold cyan]Simulation 23: Deformable Self-Contact Mechanics on Stanford Bunny[/bold cyan]\n"
+            "[bold cyan]Simulation 0804: Deformable Self-Contact Mechanics on Stanford Bunny[/bold cyan]\n"
             "[dim]Project Sierra | Inclined Gravity Ear-Droop & Torso Sag Self-Contact[/dim]",
             border_style="cyan",
         )
@@ -444,7 +444,7 @@ def main() -> None:
     total_contact_force = float(np.sum(np.abs(f_contact)))
 
     table = Table(
-        title="Stanford Bunny Inclined Gravity Sag & Self-Contact Simulation Summary",
+        title="Simulation 0804: Stanford Bunny Inclined Gravity Sag & Self-Contact Summary",
         border_style="cyan",
     )
     table.add_column("Parameter / Metric", style="bold white")

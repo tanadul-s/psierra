@@ -1,5 +1,5 @@
 """
-Simulation 21: Deformable Beam Impact on Imported 3D VTK Floor Mesh.
+Simulation 0802: Deformable Beam Impact on Imported 3D VTK Floor Mesh.
 ====================================================================
 Demonstrates:
 1. MultiBodySystem assembly incorporating BOTH Beam and Floor domains.
@@ -45,7 +45,7 @@ console = Console()
 
 def parse_arguments() -> argparse.Namespace:
     parser = argparse.ArgumentParser(
-        description="Simulation 21: Deformable Beam Contact with Imported 3D VTK Floor Mesh"
+        description="Simulation 0802: Deformable Beam Contact with Imported 3D VTK Floor Mesh"
     )
     parser.add_argument(
         "--beam-mesh",
@@ -134,7 +134,7 @@ def main() -> None:
 
     console.print(
         Panel.fit(
-            "[bold cyan]Simulation 21: Deformable Beam Contact with Imported 3D VTK Floor Mesh[/bold cyan]\n"
+            "[bold cyan]Simulation 0802: Deformable Beam Contact with Imported 3D VTK Floor Mesh[/bold cyan]\n"
             "[dim]MultiBodySystem Assembly (Beam + Floor Domains) with RayMeshObstacle (Intel Embree BVH)[/dim]",
             title="[bold blue]project-sierra — Mesh-to-Mesh Contact Mechanics[/bold blue]",
             border_style="cyan",
@@ -330,7 +330,7 @@ def main() -> None:
                 pass
 
     table = Table(
-        title="Simulation 21 Dynamic Mesh-to-Mesh Results Summary",
+        title="Simulation 0802 Dynamic Mesh-to-Mesh Results Summary",
         border_style="cyan",
     )
     table.add_column("Metric", style="bold white")

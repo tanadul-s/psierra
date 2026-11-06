@@ -1,5 +1,5 @@
 """
-Simulation 22: Two-Way Deformable-to-Deformable Dynamic Contact Mechanics.
+Simulation 0803: Two-Way Deformable-to-Deformable Dynamic Contact Mechanics.
 ==========================================================================
 Demonstrates:
 1. MultiBodySystem assembly incorporating BOTH Beam (Impactor) and Floor (Flexible Target) domains.
@@ -45,7 +45,7 @@ console = Console()
 
 def parse_arguments() -> argparse.Namespace:
     parser = argparse.ArgumentParser(
-        description="Simulation 22: Two-Way Deformable-to-Deformable Dynamic Contact Mechanics"
+        description="Simulation 0803: Two-Way Deformable-to-Deformable Dynamic Contact Mechanics"
     )
     parser.add_argument(
         "--beam-mesh",
@@ -134,7 +134,7 @@ def main() -> None:
 
     console.print(
         Panel.fit(
-            "[bold cyan]Simulation 22: Two-Way Deformable-to-Deformable Dynamic Contact Mechanics[/bold cyan]\n"
+            "[bold cyan]Simulation 0803: Two-Way Deformable-to-Deformable Dynamic Contact Mechanics[/bold cyan]\n"
             "[dim]MultiBodySystem Assembly (Beam + Flexible Floor) with Action-Reaction Coupling & Augmented Lagrangian[/dim]",
             title="[bold blue]project-sierra — Phase 3 Loop 2 Deliverable[/bold blue]",
             border_style="cyan",
@@ -344,7 +344,7 @@ def main() -> None:
                 pass
 
     table = Table(
-        title="Simulation 22 Two-Way Deformable Contact Results Summary",
+        title="Simulation 0803 Two-Way Deformable Contact Results Summary",
         border_style="cyan",
     )
     table.add_column("Metric", style="bold white")

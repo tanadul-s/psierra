@@ -374,6 +374,7 @@ class NonlinearDynamicAnalysis(Analysis):
                 smooth_to_nodes=smooth_to_nodes,
             )
             pvd_writer.add_timestep(0.0, vtu_name)
+            pvd_writer.write()
             exported_files.append(vtu_path)
 
         if verbose:
@@ -654,6 +655,7 @@ class NonlinearDynamicAnalysis(Analysis):
                     smooth_to_nodes=smooth_to_nodes,
                 )
                 pvd_writer.add_timestep(t_current, vtu_name)
+                pvd_writer.write()
                 exported_files.append(vtu_path)
                 saved_current_step = True
 
@@ -714,6 +716,7 @@ class NonlinearDynamicAnalysis(Analysis):
                             smooth_to_nodes=smooth_to_nodes,
                         )
                         pvd_writer.add_timestep(t_current, vtu_name)
+                        pvd_writer.write()
                         exported_files.append(vtu_path)
 
                     if verbose:

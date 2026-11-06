@@ -18,7 +18,7 @@ def main() -> None:
         "[bold cyan]======================================================[/bold cyan]"
     )
     print(
-        "[bold cyan]      Mesh 04: Tetrahedral Mesher (Cantilever Beam)    [/bold cyan]"
+        "[bold cyan]    Example 0108: Tetrahedral Mesher (Cantilever Beam)     [/bold cyan]"
     )
     print(
         "[bold cyan]======================================================[/bold cyan]\n"

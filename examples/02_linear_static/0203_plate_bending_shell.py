@@ -88,7 +88,7 @@ def build_plate_mesh_quadratic(L: float, N: int) -> SurfaceMesh:
 def main() -> None:
     console.print(
         Panel.fit(
-            "[bold cyan]Simulation 09: Plate Bending with Structural Shell Elements (Shell3 vs Shell6)[/bold cyan]\n"
+            "[bold cyan]Simulation 0203: Plate Bending with Structural Shell Elements (Shell3 vs Shell6)[/bold cyan]\n"
             "[dim]Verification Against Classical Navier / Kirchhoff Analytical Solution using ShellDomain & LinearStaticAnalysis[/dim]",
             title="[bold blue]project-sierra — Structural Shells[/bold blue]",
             border_style="cyan",
@@ -222,7 +222,7 @@ def main() -> None:
 
     # 6. Verifying Results & Post-Processing
     console.print("\n[bold yellow][6/6] Verifying Results & Post-Processing[/bold yellow]")
-    table = Table(title="Simply Supported Square Plate Bending Benchmark")
+    table = Table(title="Simulation 0203: Simply Supported Square Plate Bending Benchmark")
     table.add_column("Domain / Formulation", style="cyan")
     table.add_column("Order", style="magenta")
     table.add_column("Central Sag (w0)", style="yellow")

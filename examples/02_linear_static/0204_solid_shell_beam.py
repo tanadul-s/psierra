@@ -22,7 +22,7 @@ def main() -> None:
     # 0. Header Banner
     console.print(
         Panel.fit(
-            "[bold cyan]Simulation 10: Shell-Covered Beam vs Regular Beam Under Self-Weight Gravity[/bold cyan]\n"
+            "[bold cyan]Simulation 0204: Shell-Covered Beam vs Regular Beam Under Self-Weight Gravity[/bold cyan]\n"
             "[dim]Demonstrating Sag Mitigation in Soft Organ/Tissue via CoupledSolidShellDomain & LinearStaticAnalysis[/dim]",
             title="[bold blue]project-sierra — Phase 2 Structural Shells[/bold blue]",
             border_style="cyan",
@@ -169,7 +169,7 @@ def main() -> None:
     )
 
     # 7. Comparison Summary Table
-    table = Table(title="Gravity-Induced Cantilever Bending: Regular vs Shell-Covered Beam")
+    table = Table(title="Simulation 0204: Regular vs Shell-Covered Beam Bending")
     table.add_column("Property / Metric", style="cyan")
     table.add_column("Regular Soft Beam", style="magenta")
     table.add_column("Shell-Covered Beam", style="green")

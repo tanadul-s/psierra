@@ -30,7 +30,7 @@ def main() -> None:
     # 0. Header Banner
     console.print(
         Panel.fit(
-            "[bold cyan]Simulation 14: Comprehensive Kinematic Formulations Comparison[/bold cyan]\n"
+            "[bold cyan]Benchmark 0702: Comprehensive Kinematic Formulations Comparison[/bold cyan]\n"
             "[dim]Cantilever Beam under Gravity: Linear vs Corotational (CR) vs Total Lagrangian (TL) vs Updated Lagrangian (UL)[/dim]",
             title="[bold blue]project-sierra[/bold blue]",
             border_style="cyan",
@@ -194,7 +194,7 @@ def main() -> None:
     )
 
     table = Table(
-        title="Cantilever Bending under Gravity: 4 Kinematic Formulations Comparison",
+        title="Benchmark 0702: 4 Kinematic Formulations Comparison",
         border_style="cyan",
         header_style="bold cyan",
     )

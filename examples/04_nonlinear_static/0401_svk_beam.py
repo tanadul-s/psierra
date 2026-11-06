@@ -26,7 +26,7 @@ def main() -> None:
     # 0. Header Banner
     console.print(
         Panel.fit(
-            "[bold cyan]Simulation 04: Nonlinear Static Analysis (Hookean)[/bold cyan]\n"
+            "[bold cyan]Simulation 0401: Nonlinear Static Analysis (Saint Venant-Kirchhoff)[/bold cyan]\n"
             "[dim]Large-Rotation Cantilever Beam Bending under Gravity Body Load[/dim]",
             title="[bold blue]project-sierra[/bold blue]",
             border_style="cyan",
@@ -119,7 +119,7 @@ def main() -> None:
     status_style = "green" if result.converged else "red"
 
     summary_table = Table(
-        title="Simulation 04 Summary & Verification", border_style="cyan"
+        title="Simulation 0401 Summary & Verification", border_style="cyan"
     )
     summary_table.add_column("Quantity", style="bold white")
     summary_table.add_column("Value", style="cyan")

@@ -34,7 +34,7 @@ def main() -> None:
     # 0. Header Banner
     console.print(
         Panel.fit(
-            "[bold cyan]Simulation 15: Hyperelastic Constitutive Models Comparison[/bold cyan]\n"
+            "[bold cyan]Benchmark 0703: Hyperelastic Constitutive Models Comparison[/bold cyan]\n"
             "[dim]Soft Cantilever Beam Bending: Hookean vs Neo-Hookean vs Mooney-Rivlin vs Yeoh[/dim]",
             title="[bold blue]project-sierra[/bold blue]",
             border_style="cyan",
@@ -179,7 +179,7 @@ def main() -> None:
     # 5. Comparative Verification & Summary Table
     console.print("\n[bold yellow][5/5] Comparative Verification & Result Analysis[/bold yellow]")
     table = Table(
-        title="Cantilever Bending under Gravity: Hyperelastic Material Models Comparison",
+        title="Benchmark 0703: Hyperelastic Material Models Comparison",
         border_style="cyan",
     )
     table.add_column("Material Model", style="bold white")

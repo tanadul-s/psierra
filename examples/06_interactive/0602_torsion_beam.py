@@ -1,5 +1,5 @@
 """
-Simulation 02 (Interactive): Real-Time Online Dynamic Axial Torsion Pipeline.
+Simulation 0602 (Interactive): Real-Time Online Dynamic Axial Torsion Pipeline.
 
 Demonstrates high-performance interactive 3D continuum torsional FEA simulation
 using Generalized-alpha implicit time integration with support for Corotational,
@@ -97,7 +97,7 @@ def compute_twist_angles(
 
 def parse_arguments() -> argparse.Namespace:
     parser = argparse.ArgumentParser(
-        description="Real-Time Interactive Dynamic Axial Torsion Pipeline (3D Continuum Beam)"
+        description="Simulation 0602 (Interactive): Real-Time Online Dynamic Axial Torsion Pipeline (3D Continuum Beam)"
     )
     parser.add_argument(
         "--headless",
@@ -168,7 +168,7 @@ def main() -> None:
     # 0. Header Banner
     console.print(
         Panel.fit(
-            "[bold cyan]Simulation 02 (Interactive): Real-Time Dynamic Axial Torsion Pipeline[/bold cyan]\n"
+            "[bold cyan]Simulation 0602 (Interactive): Real-Time Dynamic Axial Torsion Pipeline[/bold cyan]\n"
             "[dim]Decoupled Generalized-alpha Dynamic Physics Engine with Live Torsional Wave & Diverging Colormap Rendering[/dim]\n"
             f"[dim]Mode: {'Headless Verification Mode' if is_headless else 'Interactive PyVista 3D GUI Mode'}[/dim]",
             title="[bold blue]project-sierra[/bold blue]",
@@ -415,6 +415,7 @@ def main() -> None:
                     pvd_writer.add_timestep(
                         timestep=sim.current_time, filename=vtu_filename
                     )
+                    pvd_writer.write()
                 snapshot_count += 1
 
         total_wall_loop = time.perf_counter() - t_sim_start
@@ -640,7 +641,7 @@ def main() -> None:
     max_twist = float(np.max(np.abs(final_angles)))
 
     table = Table(
-        title="Interactive Dynamic Axial Torsion Telemetry",
+        title="Simulation 0602 (Interactive): Telemetry Summary",
         header_style="bold cyan",
         border_style="dim",
     )

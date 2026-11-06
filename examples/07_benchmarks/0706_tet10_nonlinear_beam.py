@@ -1,5 +1,5 @@
 """
-Simulation 18: Nonlinear 10-Node Quadratic Tetrahedral (Tet10) Hyperelastic Beam Bending.
+Benchmark 0706: Nonlinear 10-Node Quadratic Tetrahedral (Tet10) Hyperelastic Beam Bending.
 
 Demonstrates:
 1. Severe shear-locking alleviation in finite-strain hyperelastic bending using quadratic Tet10 elements.
@@ -43,7 +43,7 @@ def main() -> None:
     # 0. Header Banner
     console.print(
         Panel.fit(
-            "[bold cyan]Simulation 18: Nonlinear Quadratic Tetrahedral (Tet10) Hyperelastic Beam[/bold cyan]\n"
+            "[bold cyan]Benchmark 0706: Nonlinear Quadratic Tetrahedral (Tet10) Hyperelastic Beam[/bold cyan]\n"
             "[dim]Finite-Strain Bending: Overcoming Shear Locking via Tet10 Total & Updated Lagrangian Formulations[/dim]",
             title="[bold blue]project-sierra — Finite Strain Mechanics[/bold blue]",
             border_style="cyan",
@@ -208,7 +208,7 @@ def main() -> None:
     # 6. Results Comparison Table
     console.print("\n[bold yellow][6/6] Performance & Physics Comparison Summary[/bold yellow]")
     table = Table(
-        title="Nonlinear Hyperelastic Beam: Tet4 vs Quadratic Tet10 Formulation Comparison",
+        title="Benchmark 0706: Tet4 vs Quadratic Tet10 Formulation Comparison",
         show_header=True,
         header_style="bold magenta",
     )

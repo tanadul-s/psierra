@@ -25,7 +25,7 @@ def main() -> None:
     # 0. Header Banner
     console.print(
         Panel.fit(
-            "[bold cyan]Simulation 08: Tet10 vs Tet4 Cantilever Beam Bending[/bold cyan]\n"
+            "[bold cyan]Benchmark 0701: Tet10 vs Tet4 Cantilever Beam Bending[/bold cyan]\n"
             "[dim]Demonstrating Elimination of Artificial Shear Locking via Quadratic Elements[/dim]",
             title="[bold blue]project-sierra — Phase 2[/bold blue]",
             border_style="cyan",
@@ -126,7 +126,7 @@ def main() -> None:
 
     # 6. Performance & Shear Locking Comparison Table
     console.print("\n[bold yellow][6/6] Verifying Results & Post-Processing[/bold yellow]")
-    table = Table(title="Cantilever Beam: Linear (Tet4) vs Quadratic (Tet10)")
+    table = Table(title="Benchmark 0701: Linear (Tet4) vs Quadratic (Tet10)")
     table.add_column("Metric / Property", style="cyan")
     table.add_column("Linear (Tet4)", style="magenta")
     table.add_column("Quadratic (Tet10)", style="green")

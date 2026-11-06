@@ -26,7 +26,7 @@ def main() -> None:
     # 0. Header Banner
     console.print(
         Panel.fit(
-            "[bold cyan]Simulation 01: Linear Static Analysis (Hookean)[/bold cyan]\n"
+            "[bold cyan]Simulation 0201: Linear Static Analysis (Hookean)[/bold cyan]\n"
             "[dim]3D Cantilever Beam Static Bending under Distributed Tip Load[/dim]",
             title="[bold blue]project-sierra[/bold blue]",
             border_style="cyan",
@@ -118,7 +118,7 @@ def main() -> None:
     status_style = "green" if eq_pass else "red"
 
     summary_table = Table(
-        title="Simulation 01 Summary & Verification", border_style="cyan"
+        title="Simulation 0201 Summary & Verification", border_style="cyan"
     )
     summary_table.add_column("Quantity", style="bold white")
     summary_table.add_column("Value", style="cyan")

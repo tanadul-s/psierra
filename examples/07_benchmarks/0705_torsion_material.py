@@ -43,7 +43,7 @@ def main() -> None:
     # 0. Header Banner
     console.print(
         Panel.fit(
-            "[bold cyan]Simulation 17: Severe Axial Torsion of Hyperelastic Cantilever Beam[/bold cyan]\n"
+            "[bold cyan]Benchmark 0705: Severe Axial Torsion of Hyperelastic Cantilever Beam[/bold cyan]\n"
             "[dim]Proving Finite-Strain Kinematics, Poynting Axial Effect, Cross-Sectional Warping, and Large-Angle Stability[/dim]",
             title="[bold blue]project-sierra[/bold blue]",
             border_style="cyan",
@@ -292,7 +292,7 @@ def main() -> None:
         "\n[bold yellow][5/5] Final Simulation Summary & Model Verification[/bold yellow]"
     )
     summary_table = Table(
-        title="Simulation 17 Summary & Verification (180° Severe Axial Torsion)",
+        title="Benchmark 0705: Summary & Verification (180° Severe Axial Torsion)",
         border_style="cyan",
     )
     summary_table.add_column("Constitutive Model", style="bold cyan")
