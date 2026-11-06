@@ -114,7 +114,7 @@ $$\text{Forward Continuum Mechanics} \longrightarrow \text{Contact Mechanics} \l
     * Deprecated and removed legacy $\beta, \gamma$ parameters in favor of clean single-parameter control.
     * Preserves unconditional stability and strict 2nd-order accuracy $\mathcal{O}(\Delta t^2)$ while filtering out spurious mesh discretization chatter during fast dynamics and contact impact.
     * Full mapping: $\rho_\infty = 1.0$ (Undamped Newmark), $\rho_\infty = 0.8$ (Default Generalized-$\alpha$), $\rho_\infty = 0.5$ (HHT-$\alpha$), $\rho_\infty = 0.0$ (Asymptotic Annihilation).
-    * Verified via `examples/05_simulation/sim16_dynamic_time_integration_comparison.py`.
+    * Verified via `examples/07_benchmarks/0704_time_integrators.py`.
 
 ---
 
@@ -133,10 +133,10 @@ $$\text{Forward Continuum Mechanics} \longrightarrow \text{Contact Mechanics} \l
   * Real-time PyVista integration with non-blocking render loop.
   * In-place point coordinate mutation (`polydata.points = current_nodes`) to bypass expensive VTK object recreation.
 * [x] **Deliverable Demonstrations & Capability Proofs**:
-  * [x] `examples/05_simulation/sim17_axial_torsion_hyperelastic_beam.py`: Severe axial twisting benchmark of a 3D continuum cantilever beam (up to $90^\circ - 180^\circ$ rotation) to prove finite-strain kinematics, cross-sectional warping, Poynting axial shortening/lengthening, and hyperelastic stability under large torsional shear.
-  * [x] `examples/05_simulation/sim18_tet10_nonlinear_hyperelastic_beam.py`: Finite-strain hyperelastic beam bending benchmark proving quadratic Tet10 shear-locking alleviation ($1.51\times$ compliance recovery) and TL/UL machine precision equivalence ($< 10^{-13}$ mm).
-  * [x] `examples/06_interactive/sim01_online_dynamic_cantilever.py`: Unified real-time interactive cantilever beam supporting linear, corotational, Total Lagrangian, and Updated Lagrangian kinematics with Tet4 and Tet10 elements under user-controlled dynamic disturbances (impulse, harmonic).
-  * [x] `examples/06_interactive/sim02_online_dynamic_axial_torsion.py`: Real-time interactive dynamic simulation of 3D continuum axial torsion under user-controlled dynamic twisting moments ($M_z$), torsional wave propagation, and elastic spring-back.
+  * [x] `examples/07_benchmarks/0705_axial_torsion_material.py`: Severe axial twisting benchmark of a 3D continuum cantilever beam (up to $90^\circ - 180^\circ$ rotation) to prove finite-strain kinematics, cross-sectional warping, Poynting axial shortening/lengthening, and hyperelastic stability under large torsional shear.
+  * [x] `examples/07_benchmarks/0706_tet10_nonlinear_beam.py`: Finite-strain hyperelastic beam bending benchmark proving quadratic Tet10 shear-locking alleviation ($1.51\times$ compliance recovery) and TL/UL machine precision equivalence ($< 10^{-13}$ mm).
+  * [x] `examples/06_interactive/0601_online_cantilever.py`: Unified real-time interactive cantilever beam supporting linear, corotational, Total Lagrangian, and Updated Lagrangian kinematics with Tet4 and Tet10 elements under user-controlled dynamic disturbances (impulse, harmonic).
+  * [x] `examples/06_interactive/0602_online_axial_torsion.py`: Real-time interactive dynamic simulation of 3D continuum axial torsion under user-controlled dynamic twisting moments ($M_z$), torsional wave propagation, and elastic spring-back.
 
 ---
 
@@ -186,9 +186,8 @@ $$\text{Forward Continuum Mechanics} \longrightarrow \text{Contact Mechanics} \l
 * [x] **Loop 1 Unit Tests**:
   * `tests/test_collision_and_contact.py`: Collision primitives, VTK mesh ray-tracing, detector gaps, penalty force linearization, and tangent stiffness symmetry (all 9 tests passing).
 * [x] **Loop 1 Deliverable Demonstrations**:
-  * `examples/05_simulation/sim19_contact_static_rigid_floor.py`: Static cantilever beam bending and resting on analytical rigid floor under gravity.
-  * `examples/05_simulation/sim20_contact_dynamic_bouncing_beam.py`: Dynamic free-fall, floor impact, penalty energy storage, and elastic rebound.
-  * `examples/05_simulation/sim21_contact_rigid_mesh_floor.py`: Deformable beam impacting imported 3D VTK floor mesh (`psierra/data/floor1/mesh/floor1.vtk`).
+  * `examples/08_contact/0801_static_rigid_floor.py`: Static cantilever beam bending and resting on analytical rigid floor under gravity.
+  * `examples/08_contact/0803_dynamic_rigid_floor.py`: Deformable beam impacting imported 3D VTK floor mesh (`psierra/data/floor1/mesh/floor1.vtk`) with penalty & augmented Lagrangian formulations.
 
 ---
 
@@ -217,7 +216,7 @@ $$\text{Forward Continuum Mechanics} \longrightarrow \text{Contact Mechanics} \l
   * Augmented Lagrangian multiplier update convergence.
   * Two-body static compression equilibrium solve.
 * [x] **Loop 2 Deliverable Demonstration**:
-  * `examples/05_simulation/sim22_contact_mesh_to_mesh.py`: Simultaneous dynamic deformation and rebound between two independent flexible meshes (Upper Beam and Lower Compliant Floor) under Generalized-$\alpha$ dynamic time integration. All snapshots saved with unified `factor=0.0` for ParaView "Warp By Vector".
+  * `examples/08_contact/0804_dynamic_deformable_floor.py`: Simultaneous dynamic deformation and rebound between two independent flexible meshes (Upper Beam and Lower Compliant Floor) under Generalized-$\alpha$ dynamic time integration. All snapshots saved with unified `factor=0.0` for ParaView "Warp By Vector".
 
 ---
 
@@ -234,7 +233,7 @@ $$\text{Forward Continuum Mechanics} \longrightarrow \text{Contact Mechanics} \l
   * **Uzawa Augmented Lagrangian & Penalty Schemes**: Supports both adaptive multiplier accumulation and virtual elastic penalty springs.
   * **MultiBodySystem Integration**: `MultiBodySystem.add_self_contact(body, ...)` and automatic routing in `add_contact_pair(b, b, ...)` when slave and master bodies coincide.
   * **Automated Unit & Physics Test Suite (`tests/test_self_contact.py`)**: 7 tests validating topological exclusion, exact Voronoi projections, linear momentum conservation ($< 10^{-14}$ relative error), stiffness symmetry ($< 10^{-14}$), Uzawa multiplier updates, and multi-body assembly routing (100% passing).
-* [x] **Stanford Bunny Self-Contact Demonstration (`examples/05_simulation/sim23_contact_self_bunny.py`)**:
+* [x] **Stanford Bunny Self-Contact Demonstration (`examples/08_contact/0805_self_contact_bunny.py`)**:
   * Volumetric tetrahedralization of user-provided `data/bunny1/scan/bunny1.stl` to high-quality watertight mesh `data/bunny1/mesh/bunny1.vtk` (1,419 nodes, 3,852 elements).
   * Canonical workflow blueprint: flat base pedestal clamped on the XY plane ($Z = 0.0$), pure self-weight gravity body load (`GravityLoad`) causing physical downward sagging of the torso, belly, and head, with the slender ears drooping and flopping backwards/downwards ($-54.2\text{ mm}$ mean, $-90.2\text{ mm}$ peak) onto the body surface without any artificial push/squeeze forces or prescribed displacements.
   * Verified robust 5/5 load-step convergence in 21.2s under pure gravity sag and self-contact (Node 766 and Node 828 contacting the body at $Z \approx 28\text{--}33\text{ mm}$, interface penetration restricted to $0.048\text{ mm}$ via Uzawa augmented Lagrangian multipliers).

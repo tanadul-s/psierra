@@ -40,29 +40,32 @@ uv run pytest -n auto
 
 ## Running Simulations
 
-The demonstration suite in [`examples/05_simulation/`](examples/05_simulation/) includes 7 end-to-end simulation pipelines:
+The demonstration suite in [`examples/`](examples/) is categorized into clear engineering disciplines:
 
 ```bash
-# 1. Linear static beam bending under tip load
-python examples/05_simulation/sim01_linear_static_hookean.py
+# Linear static beam bending
+python examples/02_linear_static/0201_tip_load_beam.py
+python examples/02_linear_static/0202_gravity_beam.py
 
-# 2. Linear static beam bending under gravity self-weight
-python examples/05_simulation/sim02_linear_static_hookean.py
+# Linear dynamic transient vibration with Rayleigh damping
+python examples/03_linear_dynamic/0301_dynamic_beam.py
 
-# 3. Linear dynamic transient vibration with Rayleigh damping
-python examples/05_simulation/sim03_linear_dynamic_hookean.py
+# Nonlinear static large deflection (Saint Venant-Kirchhoff & Total Lagrangian Neo-Hookean)
+python examples/04_nonlinear_static/0401_svk_beam.py
+python examples/04_nonlinear_static/0402_tl_beam.py
 
-# 4. Nonlinear static large deflection (Saint Venant-Kirchhoff)
-python examples/05_simulation/sim04_nonlinear_static_hookean.py
+# Nonlinear dynamic transient vibration
+python examples/05_nonlinear_dynamic/0501_svk_beam.py
+python examples/05_nonlinear_dynamic/0502_tl_beam.py
 
-# 5. Nonlinear dynamic transient vibration (Saint Venant-Kirchhoff)
-python examples/05_simulation/sim05_nonlinear_dynamic_hookean.py
+# Real-time interactive dynamics
+python examples/06_interactive/0601_online_cantilever.py --headless
 
-# 6. Nonlinear static hyperelastic bending (Neo-Hookean)
-python examples/05_simulation/sim06_nonlinear_static_neohookean.py
+# Comprehensive multi-model benchmarks
+python examples/07_benchmarks/0702_kinematic_formulations.py
 
-# 7. Nonlinear dynamic hyperelastic transient (Neo-Hookean)
-python examples/05_simulation/sim07_nonlinear_dynamic_neohookean.py
+# Contact mechanics & self-contact
+python examples/08_contact/0803_dynamic_rigid_floor.py
 ```
 
 ---

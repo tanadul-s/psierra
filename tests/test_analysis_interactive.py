@@ -215,7 +215,7 @@ class TestInteractiveDynamicSimulation:
 
         cmd = [
             sys.executable,
-            "examples/06_interactive/sim01_online_dynamic_cantilever.py",
+            "examples/06_interactive/0601_online_cantilever.py",
             "--headless",
             "--duration",
             "0.02",
@@ -228,7 +228,7 @@ class TestInteractiveDynamicSimulation:
         result = subprocess.run(cmd, capture_output=True, text=True)
         assert result.returncode == 0, f"Script failed with output:\n{result.stderr}"
         assert "Interactive Dynamic Simulation Pipeline completed successfully!" in result.stdout
-        assert (tmp_path / "sim01_online_dynamic.pvd").exists()
+        assert (tmp_path / "result.pvd").exists()
 
     def test_interactive_pyvista_gui_loop(self, beam_domain: SolidDomain) -> None:
         """Verifies PyVista interactive loop and window active query without closed attribute errors."""
@@ -324,7 +324,7 @@ class TestInteractiveDynamicSimulation:
 
         cmd = [
             sys.executable,
-            "examples/06_interactive/sim02_online_dynamic_axial_torsion.py",
+            "examples/06_interactive/0602_online_axial_torsion.py",
             "--headless",
             "--duration",
             "0.02",
@@ -339,4 +339,4 @@ class TestInteractiveDynamicSimulation:
         result = subprocess.run(cmd, capture_output=True, text=True)
         assert result.returncode == 0, f"Script failed with output:\n{result.stderr}"
         assert "Interactive Dynamic Axial Torsion Pipeline completed successfully!" in result.stdout
-        assert (tmp_path / "sim02_online_dynamic_torsion.pvd").exists()
+        assert (tmp_path / "result.pvd").exists()

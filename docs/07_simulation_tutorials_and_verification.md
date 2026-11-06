@@ -37,11 +37,11 @@ To independently verify the finite element implementations, we compare the numer
 
 ## 2. Complete Simulation Suite Walkthrough
 
-All simulation examples are located in [`psierra/examples/05_simulation/`](../examples/05_simulation/).
+All simulation examples are located in [`psierra/examples/`](../examples/) organized into categorized engineering disciplines.
 
 ### 2.1 Simulation 01: Linear Static Hookean (Distributed Tip Load)
 
-- **Script**: [`sim01_linear_static_hookean.py`](../examples/05_simulation/sim01_linear_static_hookean.py)
+- **Script**: [`0201_tip_load_beam.py`](../examples/02_linear_static/0201_tip_load_beam.py)
 - **Physics**: 3D Cantilever beam subjected to a distributed downward shear force $F_z = -150 \text{ kN}$ at the free tip.
 - **Material**: Linear isotropic Hookean ($E = 21000 \text{ MPa}$, $\nu = 0.35$, $\rho = 1100 \times 10^{-6} \text{ kg/mm}^3$).
 - **Mesh**: 1,457 nodes (4,371 DOFs), 6,304 linear tetrahedral elements (`Tet4`).
@@ -59,7 +59,7 @@ All simulation examples are located in [`psierra/examples/05_simulation/`](../ex
 
 ### 2.2 Simulation 02: Linear Static Hookean (Gravity Self-Weight)
 
-- **Script**: [`sim02_linear_static_hookean.py`](../examples/05_simulation/sim02_linear_static_hookean.py)
+- **Script**: [`0202_gravity_beam.py`](../examples/02_linear_static/0202_gravity_beam.py)
 - **Physics**: Static deflection under Earth's gravitational acceleration ($g_z = -9810 \text{ mm/s}^2$) formulated through the consistent mass matrix.
 - **Total Integrated Mass**:
   $$M_{mesh} = \int_{\Omega} \rho \, d\Omega = 1025.20 \text{ kg} \quad (\text{Exact theoretical } \rho V = 1025.20 \text{ kg})$$
@@ -76,7 +76,7 @@ All simulation examples are located in [`psierra/examples/05_simulation/`](../ex
 
 ### 2.3 Simulation 03: Linear Dynamic Hookean (Implicit Generalized-$\alpha$)
 
-- **Script**: [`sim03_linear_dynamic_hookean.py`](../examples/05_simulation/sim03_linear_dynamic_hookean.py)
+- **Script**: [`0301_dynamic_beam.py`](../examples/03_linear_dynamic/0301_dynamic_beam.py)
 - **Physics**: Transient dynamic oscillation under suddenly applied gravitational acceleration with Rayleigh proportional damping ($\alpha = 2.0, \beta = 0.001$).
 - **Time Stepping**: $\Delta t = 0.005 \text{ s}$, $N_{steps} = 100$ (total duration $0.50 \text{ s}$).
 - **Solver Optimization**: Single pre-factorization of effective dynamic matrix $\boldsymbol{K}_{eff} = \boldsymbol{K}_{ff} + a_0 \boldsymbol{M}_{ff} + a_1 \boldsymbol{C}_{ff}$.
@@ -85,13 +85,13 @@ All simulation examples are located in [`psierra/examples/05_simulation/`](../ex
 
 - **Dynamic Amplification Factor**: Under a suddenly applied step load, the maximum transient displacement reaches $234.83 \text{ mm}$ at $t = 0.30 \text{ s}$, which is roughly **twice the steady-state deflection**. This illustrates the fundamental dynamic principle: a suddenly applied static load generates dynamic overshoot due to accumulated kinetic energy.
 - **Smooth Damped Decay**: Rayleigh damping progressively dissipates this kinetic energy, causing the amplitude to decay smoothly over time.
-- **Export**: 21 VTU snapshots exported to `sim03_output/result.pvd`.
+- **Export**: 21 VTU snapshots exported to `results/03_linear_dynamic/0301_dynamic_beam/result.pvd`.
 
 ---
 
 ### 2.4 Simulation 04: Nonlinear Static Hookean (Large Deformation Gravity)
 
-- **Script**: [`sim04_nonlinear_static_hookean.py`](../examples/05_simulation/sim04_nonlinear_static_hookean.py)
+- **Script**: [`0401_svk_beam.py`](../examples/04_nonlinear_static/0401_svk_beam.py)
 - **Physics**: Finite rotation Total Lagrangian bending under gravitational body load ($0.5g = -4905 \text{ mm/s}^2$).
 - **Solver**: Incremental Newton-Raphson across 10 load steps ($\lambda = 0.1 \dots 1.0$) with backtracking line search.
 
@@ -109,7 +109,7 @@ All simulation examples are located in [`psierra/examples/05_simulation/`](../ex
 
 ### 2.5 Simulation 05: Nonlinear Dynamic Hookean (Total Lagrangian Transient)
 
-- **Script**: [`sim05_nonlinear_dynamic_hookean.py`](../examples/05_simulation/sim05_nonlinear_dynamic_hookean.py)
+- **Script**: [`0501_svk_beam.py`](../examples/05_nonlinear_dynamic/0501_svk_beam.py)
 - **Physics**: Finite deformation dynamic oscillation under gravity ($E = 70000 \text{ MPa}$, $\Delta t = 0.005 \text{ s}$, 100 steps).
 
 **Verification Results & Physical Meaning**:
@@ -121,7 +121,7 @@ All simulation examples are located in [`psierra/examples/05_simulation/`](../ex
 
 ### 2.6 Simulation 06: Nonlinear Static Neo-Hookean (Hyperelasticity)
 
-- **Script**: [`sim06_nonlinear_static_neohookean.py`](../examples/05_simulation/sim06_nonlinear_static_neohookean.py)
+- **Script**: [`0402_tl_beam.py`](../examples/04_nonlinear_static/0402_tl_beam.py)
 - **Physics**: Finite-strain compressible Neo-Hookean hyperelastic beam under full gravitational load ($1.0g = -9810 \text{ mm/s}^2$).
 - **Material**: Compressible Neo-Hookean with shear modulus $\mu = 7777.78 \text{ MPa}$ and bulk modulus $K = 23333.33 \text{ MPa}$.
 
@@ -136,7 +136,7 @@ All simulation examples are located in [`psierra/examples/05_simulation/`](../ex
 
 ### 2.7 Simulation 07: Nonlinear Dynamic Neo-Hookean (Hyperelastic Transient)
 
-- **Script**: [`sim07_nonlinear_dynamic_neohookean.py`](../examples/05_simulation/sim07_nonlinear_dynamic_neohookean.py)
+- **Script**: [`0502_tl_beam.py`](../examples/05_nonlinear_dynamic/0502_tl_beam.py)
 - **Physics**: Extended dynamic transient simulation ($N_{steps} = 200$, duration $1.00 \text{ s}$) of hyperelastic beam swinging under gravity with Rayleigh damping.
 
 **Verification Results & Physical Meaning**:
@@ -148,7 +148,7 @@ All simulation examples are located in [`psierra/examples/05_simulation/`](../ex
 
 ### 2.8 Simulation 08: Tet10 vs Tet4 Cantilever Beam (Shear Locking Alleviation)
 
-- **Script**: [`sim08_tet10_vs_tet4_cantilever.py`](../examples/05_simulation/sim08_tet10_vs_tet4_cantilever.py)
+- **Script**: [`0701_static_beam_tet.py`](../examples/07_benchmarks/0701_static_beam_tet.py)
 - **Physics**: Cantilever beam bending comparison under transverse tip shear load $F_z = -1000 \text{ N}$ to quantify artificial shear locking alleviation.
 - **Formulations Compared**:
   - Base Linear Model: 245 nodes, 788 `Tet4` elements, 735 DOFs.
@@ -167,7 +167,7 @@ All simulation examples are located in [`psierra/examples/05_simulation/`](../ex
 
 ### 2.9 Simulation 09: Square Plate Bending Benchmark (Shell3 vs Shell6 vs Navier)
 
-- **Script**: [`sim09_plate_bending_shell.py`](../examples/05_simulation/sim09_plate_bending_shell.py)
+- **Script**: [`0203_plate_bending_shell.py`](../examples/02_linear_static/0203_plate_bending_shell.py)
 - **Physics**: Simply supported square thin plate ($1000 \times 1000 \times 10 \text{ mm}$) subjected to uniform transverse pressure load $q = -0.010 \text{ MPa}$ ($-10 \text{ kPa}$).
 - **Material**: Isotropic Hookean ($E = 210000 \text{ MPa}$, $\nu = 0.30$, flexural rigidity $D = 6.41 \times 10^6 \text{ N}\cdot\text{mm}$).
 - **Analytical Solution (Navier Double Fourier Series)**:
@@ -183,7 +183,7 @@ All simulation examples are located in [`psierra/examples/05_simulation/`](../ex
 
 ### 2.10 Simulation 10: Shell-Covered Soft Beam Under Self-Weight Gravity
 
-- **Script**: [`sim10_shell_covered_beam_gravity.py`](../examples/05_simulation/sim10_shell_covered_beam_gravity.py)
+- **Script**: [`0204_solid_shell_beam.py`](../examples/02_linear_static/0204_solid_shell_beam.py)
 - **Physics**: 3D Cantilever beam ($230 \text{ mm}$ span) undergoing gravity sag ($-9.81 \text{ m/s}^2$ downward along $Y$), demonstrating sag mitigation when a soft parenchymal tissue core is covered with a stiff outer membrane via `CoupledSolidShellDomain`.
 - **Constitutive Properties**:
   - **Soft Parenchymal Core**: $E = 50.0 \text{ kPa}$, $\nu = 0.40$, $\rho = 1000 \text{ kg/m}^3$ (total weight $9.143 \text{ N}$).
@@ -205,7 +205,7 @@ All simulation examples are located in [`psierra/examples/05_simulation/`](../ex
 
 ### 2.11 Simulation 11: Corotational vs Linear Self-Weight Gravity Bending
 
-- **Script**: [`sim11_corotational_cantilever_large_rotation.py`](../examples/05_simulation/sim11_corotational_cantilever_large_rotation.py)
+- **Script**: [`0403_cr_beam.py`](../examples/04_nonlinear_static/0403_cr_beam.py)
 - **Physics**: Soft tissue cantilever beam ($230 \text{ mm}$ span) undergoing large self-weight gravity sag ($g = -9.81 \text{ m/s}^2$ downward along $-Y$), demonstrating the elimination of artificial volume expansion and the capture of curvature-induced axial shortening via `CorotationalTet4`.
 - **Constitutive Properties**: Soft parenchymal organ tissue ($E = 150.0 \text{ kPa}$, $\nu = 0.35$, $\rho = 1100 \text{ kg/m}^3$, total weight $10.057 \text{ N}$).
 - **Models Compared**:
@@ -225,7 +225,7 @@ All simulation examples are located in [`psierra/examples/05_simulation/`](../ex
 
 ### 2.12 Simulation 12: Updated Lagrangian Static Neo-Hookean
 
-- **Script**: [`sim12_updated_lagrangian_static_neohookean.py`](../examples/05_simulation/sim12_updated_lagrangian_static_neohookean.py)
+- **Script**: [`0404_ul_beam.py`](../examples/04_nonlinear_static/0404_ul_beam.py)
 - **Physics**: Hyperelastic cantilever beam undergoing large finite deformations under incremental gravity ($10$ steps) formulated in current spatial configuration via spatial shape function gradients ($\boldsymbol{b}_n = \nabla_{\boldsymbol{x}} N_n$) and push-forward spatial elasticity tensor $\mathbb{c}^{\tau}$.
 - **Constitutive Law**: Compressible Neo-Hookean ($E = 21000 \text{ MPa}, \nu = 0.35$).
 - **Verification Results**:
@@ -237,7 +237,7 @@ All simulation examples are located in [`psierra/examples/05_simulation/`](../ex
 
 ### 2.13 Simulation 13: Updated Lagrangian Dynamic Neo-Hookean (Generalized-$\alpha$)
 
-- **Script**: [`sim13_updated_lagrangian_dynamic_neohookean.py`](../examples/05_simulation/sim13_updated_lagrangian_dynamic_neohookean.py)
+- **Script**: [`0503_ul_beam.py`](../examples/05_nonlinear_dynamic/0503_ul_beam.py)
 - **Physics**: Transient dynamic oscillation of finite-strain hyperelastic beam formulated in Updated Lagrangian with Generalized-$\alpha$ time integration ($\rho_\infty = 0.8$) and Rayleigh damping ($\alpha = 1.0, \beta = 0.001$).
 - **Verification Results**:
   - Peak dynamic deflection of $\sim 243.9 \text{ mm}$, smoothly decaying and settling at the static equilibrium position ($205.7 \text{ mm}$).
@@ -248,7 +248,7 @@ All simulation examples are located in [`psierra/examples/05_simulation/`](../ex
 
 ### 2.14 Simulation 14: Solid Formulations Comparison (Linear vs Corotational vs TL vs UL)
 
-- **Script**: [`sim14_formulations_comparison_gravity.py`](../examples/05_simulation/sim14_formulations_comparison_gravity.py)
+- **Script**: [`0702_kinematic_formulations.py`](../examples/07_benchmarks/0702_kinematic_formulations.py)
 - **Physics**: 4-way benchmark on identical cantilever beam mesh under identical gravitational acceleration comparing:
   1. Small-strain Linear `Tet4`
   2. Corotational `CorotationalTet4`
@@ -262,7 +262,7 @@ All simulation examples are located in [`psierra/examples/05_simulation/`](../ex
 
 ### 2.15 Simulation 15: Hyperelastic Material Models Comparison
 
-- **Script**: [`sim15_hyperelastic_models_comparison.py`](../examples/05_simulation/sim15_hyperelastic_models_comparison.py)
+- **Script**: [`0703_hyperelastic_models.py`](../examples/07_benchmarks/0703_hyperelastic_models.py)
 - **Physics**: Side-by-side verification of non-linear constitutive formulations under tip shear loading:
   1. **Linear Hookean**: Reference constant-tangent baseline.
   2. **Neo-Hookean**: Classical 1-parameter strain-energy function for moderate polymer/rubber strains.
@@ -276,7 +276,7 @@ All simulation examples are located in [`psierra/examples/05_simulation/`](../ex
 
 ### 2.16 Simulation 16: Dynamic Time Integration Scheme Comparison
 
-- **Script**: [`sim16_dynamic_time_integration_comparison.py`](../examples/05_simulation/sim16_dynamic_time_integration_comparison.py)
+- **Script**: [`0704_time_integrators.py`](../examples/07_benchmarks/0704_time_integrators.py)
 - **Physics**: Direct comparison of high-frequency spectral radius $\rho_\infty \in [0.0, 1.0]$ in Generalized-$\alpha$ dynamic analysis under sudden step load:
   1. $\rho_\infty = 1.0$ (Undamped Newmark / Midpoint Rule): Energy-preserving, zero algorithmic damping.
   2. $\rho_\infty = 0.8$ (Optimal Generalized-$\alpha$, Default): Selective high-frequency dissipation with minimal low-frequency damping.
@@ -290,7 +290,7 @@ All simulation examples are located in [`psierra/examples/05_simulation/`](../ex
 
 ### 2.17 Simulation 17: Severe Axial Torsion of Hyperelastic Beam (Poynting Effect & Cross-Sectional Warping)
 
-- **Script**: [`sim17_axial_torsion_hyperelastic_beam.py`](../examples/05_simulation/sim17_axial_torsion_hyperelastic_beam.py)
+- **Script**: [`0705_axial_torsion_material.py`](../examples/07_benchmarks/0705_axial_torsion_material.py)
 - **Physics**: Severe progressive axial twisting of a 3D continuum cantilever beam up to a full half-turn ($180^\circ$ / $\pi \text{ rad}$) rotation to demonstrate finite-strain kinematics, the second-order **Poynting axial effect**, and **Saint-Venant cross-sectional warping**.
 - **Kinematic Setup**:
   - Root face ($Z = -30 \text{ mm}$): Fully clamped ($u_x = u_y = u_z = 0$).
@@ -301,13 +301,13 @@ All simulation examples are located in [`psierra/examples/05_simulation/`](../ex
   - **Root Reaction Torque**: Restoring moment reaches $M_z = -214.13 \text{ kN}\cdot\text{m}$ (Neo-Hookean), $-210.03 \text{ kN}\cdot\text{m}$ (Mooney-Rivlin), and $-216.51 \text{ kN}\cdot\text{m}$ (Yeoh) at $180^\circ$.
   - **Constitutive Comparison**: All three models achieve 18/18 step convergence with zero element inversion ($\det \boldsymbol{F} > 0$).
   - **ParaView PVD Collections**: Time-series collections for side-by-side visualization exported to:
-    - `examples/05_simulation/sim17_output/neohookean/result.pvd`
-    - `examples/05_simulation/sim17_output/mooney_rivlin/result.pvd`
-    - `examples/05_simulation/sim17_output/yeoh/result.pvd`
+    - `results/07_benchmarks/0705_axial_torsion_material/neohookean/result.pvd`
+    - `results/07_benchmarks/0705_axial_torsion_material/mooney_rivlin/result.pvd`
+    - `results/07_benchmarks/0705_axial_torsion_material/yeoh/result.pvd`
 
 ### 2.18 Simulation 01 (Interactive): Real-Time Online Dynamic Cantilever Simulation
 
-- **Script**: [`sim01_online_dynamic_cantilever.py`](../examples/06_interactive/sim01_online_dynamic_cantilever.py)
+- **Script**: [`0601_online_cantilever.py`](../examples/06_interactive/0601_online_cantilever.py)
 - **Physics**: Real-time interactive FEA simulation of a 3D continuum cantilever beam under self-weight gravity and dynamic user perturbations (impulse forces, sinusoidal resonance driving) using Generalized-$\alpha$ integration ($\rho_\infty = 0.8$) and single-factorization SuperLU reuse.
 - **Key Capabilities**:
   - **Physics / Render Clock Decoupling**: Physics advances at fixed $\Delta t = 2 \text{ ms}$ ($500 \text{ Hz}$), synchronized with wall-clock time via `advance_wall_clock()` to prevent lag spikes.
@@ -315,27 +315,27 @@ All simulation examples are located in [`psierra/examples/05_simulation/`](../ex
   - **In-Place VTK Mutation**: Direct point buffer update (`update_pyvista_grid()`) enables smooth $60+ \text{ FPS}$ 3D visualization without VTK memory reallocations.
   - **Interactive Disturbance Handling**: Real-time keyboard callbacks (`[I]` downward impulse, `[U]` upward impulse, `[H]` harmonic resonance excitation, `[C]` clear forces, `[R]` reset rest state).
   - **Headless & CI Execution**: Automated fallback to non-GUI demonstration sequence when running without an X11/Wayland display (`--headless`).
-  - **Snapshot Streaming**: Saves time-series snapshots and collection file to `examples/06_interactive/sim01_output/sim01_online_dynamic.pvd`.
+  - **Snapshot Streaming**: Saves time-series snapshots and collection file to `results/06_interactive/0601_online_cantilever/result.pvd`.
 
 ### 2.19 Simulation 18: Nonlinear Quadratic Tetrahedral (Tet10) Hyperelastic Beam Bending
 
-- **Script**: [`sim18_tet10_nonlinear_hyperelastic_beam.py`](../examples/05_simulation/sim18_tet10_nonlinear_hyperelastic_beam.py)
+- **Script**: [`0706_tet10_nonlinear_beam.py`](../examples/07_benchmarks/0706_tet10_nonlinear_beam.py)
 - **Physics**: Finite-strain hyperelastic bending of a 3D continuum cantilever beam comparing linear Tet4, nonlinear Tet4 (Total Lagrangian), and nonlinear Tet10 (Total & Updated Lagrangian) to evaluate shear-locking alleviation and TL/UL formulation equivalence.
 - **Key Findings**:
   - **Shear-Locking Elimination**: Constant-strain linear tetrahedra (`Tet4`) lock in bending, underpredicting deflection ($-18.83 \text{ mm}$). Quadratic `Tet10` elements recover true flexural curvature with **$1.51\times$ higher compliance** ($-28.43 \text{ mm}$).
   - **TL vs UL Machine Precision**: Total Lagrangian and Updated Lagrangian on quadratic `Tet10` elements yield identical displacements to $|\boldsymbol{u}_{\text{TL}} - \boldsymbol{u}_{\text{UL}}| = 4.26 \times 10^{-14} \text{ mm}$.
   - **Convergence**: Solves 5 load increments in 4-5 Newton-Raphson iterations per step with asymptotic quadratic residual reduction.
-  - **ParaView Collections**: Multi-model snapshots and master PVD files exported to `examples/05_simulation/sim18_output/`.
+  - **ParaView Collections**: Multi-model snapshots and master PVD files exported to `results/07_benchmarks/0706_tet10_nonlinear_beam/`.
 
 ### 2.20 Simulation 02 (Interactive): Real-Time Dynamic 3D Axial Torsion Pipeline
 
-- **Script**: [`sim02_online_dynamic_axial_torsion.py`](../examples/06_interactive/sim02_online_dynamic_axial_torsion.py)
+- **Script**: [`0602_online_axial_torsion.py`](../examples/06_interactive/0602_online_axial_torsion.py)
 - **Physics**: Real-time online dynamic simulation of a 3D continuum cantilever beam subjected to pure torsional twisting moments ($M_z$), torsional wave propagation, and elastic spring-back using Generalized-$\alpha$ dynamic time integration with support for Corotational, Linear, and Hyperelastic formulations.
 - **Key Capabilities**:
   - **Pure Torsional Force Couple**: Evaluates an exact tangential force couple over tip face boundary nodes with zero net linear shear force, generating pure twisting moments $M_z$.
   - **Interactive Torsion Handling**: Interactive keyboard clockwise torque (`[T]`), counter-clockwise torque (`[Y]`), harmonic torsional resonance (`[H]`), instant torque release for free spring-back vibration (`[C]`), and simulation reset (`[R]`).
   - **Diverging Colormap Visualization**: Real-time extraction of local twist rotation angles $\theta_z$ rendered in a perceptually uniform diverging `coolwarm` palette centered at $0.0^\circ$ (neutral grey), with positive clockwise twist in warm red and negative counter-clockwise twist in cool blue.
-  - **Headless & Snapshot Support**: Runs automated headless verification sequence (`--headless`) and streams time-series `.vtu` and `.pvd` collections to `examples/06_interactive/sim02_output/`.
+  - **Headless & Snapshot Support**: Runs automated headless verification sequence (`--headless`) and streams time-series `.vtu` and `.pvd` collections to `results/06_interactive/0602_online_axial_torsion/result.pvd`.
 
 ---
 
@@ -370,16 +370,16 @@ All simulation examples are located in [`psierra/examples/05_simulation/`](../ex
 
 All simulation outputs can be visualized and animated directly in [ParaView](https://www.paraview.org/):
 
-1. **Static Solid & Shell Analyses (`sim01`, `sim02`, `sim04`, `sim06`, `sim08`, `sim09`, `sim11`, `sim12`, `sim17`)**:
-   - File $\to$ Open $\to$ `examples/05_simulation/simXX_output/result.vtu` (or `sim17_output/<model>/result.pvd` for animated torsion progression).
+1. **Static Solid & Shell Analyses**:
+   - File $\to$ Open $\to$ `results/<category>/<script_stem>/result.vtu` (or `result_[variant].vtu`).
    - Click **Apply**.
    - Under **Coloring**, choose `Displacement`, `Displacement Magnitude`, `Von Mises Stress`, or `Cauchy Stress`.
    - Coordinates in `.vtu` exports are automatically deformed ($x = X + u$), rendering the physical deflected state immediately.
-2. **Coupled Multi-Domain Assemblies (`sim10`)**:
-   - File $\to$ Open $\to$ `examples/05_simulation/sim10_output/beam_shell_covered.pvd`.
+2. **Coupled Multi-Domain Assemblies (`0204_solid_shell_beam`)**:
+   - File $\to$ Open $\to$ `results/02_linear_static/0204_solid_shell_beam/result_coupled.vtu`.
    - Click **Apply**.
-   - ParaView automatically loads both the solid continuum core (`part="0"`) and outer shell skin (`part="1"`) into the 3D pipeline simultaneously.
-3. **Dynamic Transient Analyses (`sim03`, `sim05`, `sim07`, `sim13`, `sim16`)**:
-   - File $\to$ Open $\to$ `examples/05_simulation/simXX_output/result.pvd` (or `sim16_output/rho_XXX/result.pvd`).
+   - ParaView loads the unified coupled solid-shell mesh (threshold by `Domain ID` [0=Solid, 1=Shell]).
+3. **Dynamic Transient & Contact Analyses**:
+   - File $\to$ Open $\to$ `results/<category>/<script_stem>/result.pvd` (or `[variant]/result.pvd`).
    - Click **Apply**.
    - Click the green **Play** button in the animation toolbar to scrub through the dynamic oscillation.

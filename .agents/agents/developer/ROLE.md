@@ -80,7 +80,7 @@ Inside tensor contractions, shape function evaluations, B-matrix evaluations, an
 - Raise explicit, meaningful exceptions (`ValueError`, `RuntimeError`, or custom `pSierra` exceptions).
 
 ### Step 5: Author Canonical 6-Stage Example Script (`examples/`)
-- Every demonstration script under `examples/` MUST strictly adhere to the 6-stage canonical workflow blueprint, using [`psierra/examples/05_simulation/sim02_linear_static_hookean.py`](../../examples/05_simulation/sim02_linear_static_hookean.py) as the golden standard:
+- Every demonstration script under `examples/` MUST strictly adhere to the 6-stage canonical workflow blueprint, using [`psierra/examples/02_linear_static/0202_gravity_beam.py`](../../examples/02_linear_static/0202_gravity_beam.py) as the golden standard:
   1. `[1/6] Loading Mesh Geometry`: Instantiate `VolumetricMesh` or `SurfaceMesh`.
   2. `[2/6] Configuring Material & Element Formulation`: `Parameters` $\to$ `Material` $\to$ `Element`.
   3. `[3/6] Setting Up Physical Domain`: `SolidDomain`, `ShellDomain`, or `CoupledSolidShellDomain`.
