@@ -57,6 +57,7 @@
 # ------------------------------------------------------------------------------
 0601 --headless    # gravity_beam.py
 0602 --headless    # torsion_beam.py
+0603 --headless    # brain_shift.py
 
 # ------------------------------------------------------------------------------
 # 07_benchmarks: Comparative Verification Studies
