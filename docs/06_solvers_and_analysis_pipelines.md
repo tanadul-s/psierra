@@ -154,27 +154,63 @@ $$\frac{\|\boldsymbol{R}_{free}\|}{\max(\|\boldsymbol{f}_{ext, free}\|, 1.0)} < 
 - **The Out-of-Balance Residual $\boldsymbol{R}$**: Physically represents the **unbalanced net external force** acting on each free node. If $\boldsymbol{R} \neq \boldsymbol{0}$, the internal stresses do not yet balance the applied load, causing a virtual acceleration. Newton-Raphson iteratively adjusts the deformed shape until the internal elastic restoring force perfectly counterbalances the applied load.
 - **Physical Necessity of Load Stepping ($\lambda = 0.1 \dots 1.0$)**: In non-linear mechanics, applying 100% of the load in a single step often causes convergence failure because the initial tangent $\boldsymbol{K}_0$ points in the wrong direction for large rotations. Incrementally ramping up $\lambda$ traces the quasi-static equilibrium path step-by-step, capturing large non-linear geometric changes (like beam axial pull-in and progressive bending).
 
-### 3.2 Backtracking Line Search & Inversion Guard
+### 3.2 Robust Backtracking Line Search & Inversion Guard
 
-During large steps or localized instabilities, an unconstrained Newton increment $\Delta \boldsymbol{u}$ may deform elements beyond physical limits, causing negative volume ratios ($J = \det(\boldsymbol{F}) \le 0$).
+During finite-strain loading increments or localized shear bands, an unconstrained full Newton step $\Delta \boldsymbol{u}$ may push tetrahedral elements beyond physical admissibility, triggering inverted volumes ($\det(\boldsymbol{F}) \le 0$) or non-physical residual spikes.
 
-To prevent numerical divergence, `pSierra` incorporates a backtracking line search:
+To guarantee robust convergence in finite elasticity and contact without stalling asymptotic quadratic convergence, `pSierra` employs a multi-criterion backtracking line search:
 
 ```python
 alpha = 1.0
-for _ in range(8):
+best_u_candidate = None
+best_candidate_norm = np.inf
+
+for trial in range(16):
     u_candidate = u_current.copy()
     u_candidate[free_dofs] += alpha * du_free
     self.domain.update_state(u=u_candidate)
     try:
         self.domain.assemble_internal_forces()
-        u_current = u_candidate
-        break
-    except ValueError:
-        alpha *= 0.5  # Halve step size when det(F) <= 0
+        R_trial = lambda_k * f_ext - self.domain.internal_force
+        candidate_norm = np.linalg.norm(R_trial[free_dofs])
+    except (ValueError, FloatingPointError):
+        # Element inversion guard: det(F) <= 0 rejected immediately
+        candidate_norm = np.inf
+
+    if np.isfinite(candidate_norm):
+        if candidate_norm < best_candidate_norm:
+            best_candidate_norm = candidate_norm
+            best_u_candidate = u_candidate
+
+        # Multi-criterion acceptance:
+        # 1. Absolute tolerance achieved: candidate_norm <= tol
+        # 2. Strict monotonic decrease: candidate_norm <= residual_norm
+        # 3. Armijo condition: candidate_norm^2 <= (1 - 2e-4 * alpha) * residual_norm^2
+        # 4. Full Newton step bounded: alpha == 1.0 and candidate_norm < 1.5 * residual_norm
+        if (
+            candidate_norm <= inner_tolerance
+            or candidate_norm <= residual_norm
+            or candidate_norm**2 <= (1.0 - 2.0e-4 * alpha) * residual_norm**2
+            or (alpha == 1.0 and candidate_norm < 1.5 * residual_norm)
+        ):
+            u_current = u_candidate
+            line_search_success = True
+            break
+
+    alpha *= 0.5  # Halve step size when trial diverges or inverts
+
+# Fallback mechanism: if all 16 backtracking trials fail to strictly decrease residual,
+# advance along the best candidate if its residual remains bounded (< 5.0 * residual_norm)
+if not line_search_success and best_u_candidate is not None:
+    if best_candidate_norm < 5.0 * residual_norm:
+        u_current = best_u_candidate
+        line_search_success = True
 ```
 
-- **Physical Meaning**: When a full Newton step ($\alpha = 1.0$) would pinch or invert a tetrahedral element, the line search scales down the displacement increment ($\alpha \leftarrow 0.5 \alpha$), guiding the mesh along a physically valid deformation path where all elements maintain positive volume ($J > 0$).
+#### Physical & Mathematical Principles of the Line Search:
+1. **Geometric Inversion Guard ($\det(\boldsymbol{F}) > 0$)**: Prevents non-physical topological element collapse where a tetrahedron turns inside out.
+2. **Preservation of Quadratic Asymptotic Convergence ($\alpha = 1.0$)**: Standard Armijo criteria often falsely reject full Newton steps due to microscopic numerical non-monotonicity. Allowing bounded full Newton steps ($\|R_{\text{cand}}\| < 1.5 \|R_{\text{prev}}\|$ at $\alpha=1.0$) enables rapid quadratic convergence in 3–5 iterations.
+3. **Safe Best-Candidate Fallback**: Prevents unnecessary solver abortion on stiff contact updates or high geometric curvature by keeping the best state and allowing subsequent iterations to recover equilibrium.
 
 ---
 
@@ -291,14 +327,170 @@ For surgical robotics training, interactive virtual reality, and haptic feedback
 
 ---
 
-## 8. References & Further Reading
+## 8. Master Map of All Analysis Cases: Equations, Computational Flows & Code Architecture
+
+This section provides an educational reference and architectural roadmap synthesizing **all analysis pipelines** implemented in `pSierra`.
+
+### 8.1 Global Analysis Selection Decision Tree
+
+```mermaid
+flowchart TD
+    Start["Physical Engineering Problem"] --> TimeDep{"Time-Dependent<br/>Dynamics?"}
+
+    TimeDep -- No: Static --> Nonlin{"Geometric or<br/>Material Nonlinearity?"}
+    Nonlin -- "No: Small Strain (ε << 1)" --> Case1["<b>Case 1: Linear Static</b><br/>LinearStaticAnalysis<br/>Direct Sparse SuperLU"]
+    Nonlin -- "Yes: Large Strain / Rotation" --> ContactCheck{"Contact Constraints<br/>Present?"}
+    ContactCheck -- No --> Case3["<b>Case 3: Nonlinear Static</b><br/>NonlinearStaticAnalysis<br/>Incremental Newton-Raphson + Line Search"]
+    ContactCheck -- Yes --> Case6A["<b>Case 6A: Static Contact</b><br/>Augmented Lagrangian / Penalty<br/>Static Rigid / Deformable Floor"]
+
+    TimeDep -- Yes: Dynamic --> Realtime{"Execution Mode"}
+    Realtime -- "Real-Time Interactive (>60 FPS)" --> Case5["<b>Case 5: Interactive Dynamic</b><br/>InteractiveDynamicSimulation<br/>Online Pre-Factorized Gen-α"]
+    Realtime -- "Batch / High-Fidelity Transient" --> DynNonlin{"Nonlinear Effects<br/>(Strain / Contact)?"}
+    DynNonlin -- "No: Small Strain Linear" --> Case2["<b>Case 2: Linear Dynamic</b><br/>LinearDynamicAnalysis<br/>Implicit Generalized-α (Single Factorization)"]
+    DynNonlin -- "Yes: Finite Strain / Contact" --> DynContact{"Contact Impact?"}
+    DynContact -- No --> Case4["<b>Case 4: Nonlinear Dynamic</b><br/>NonlinearDynamicAnalysis<br/>Newton-Raphson Generalized-α"]
+    DynContact -- Yes --> Case6B["<b>Case 6B: Dynamic Contact</b><br/>Generalized-α with Impact Filtering<br/>Rigid Floor & Self-Contact"]
+```
+
+---
+
+### 8.2 Master Comparative Synthesis Table
+
+The following master matrix cross-references every analysis case against its underlying continuum equations, discrete algebraic system, computational complexity, and code implementation:
+
+| Analysis Case | Physical Regime & Kinematics | Continuum Governing Equation | Discrete Algebraic System & Residual | Solution Algorithm | Primary Code Classes & Methods | Canonical Examples & Output Formats |
+| :--- | :--- | :--- | :--- | :--- | :--- | :--- |
+| **Case 1: Linear Static** | Infinitesimal small strains ($\|\nabla \boldsymbol{u}\| \ll 1$), time-independent steady state | $\nabla \cdot \boldsymbol{\sigma} + \boldsymbol{b} = \boldsymbol{0}$<br/>$\boldsymbol{\varepsilon} = \frac{1}{2}(\nabla \boldsymbol{u} + \nabla \boldsymbol{u}^T)$<br/>$\boldsymbol{\sigma} = \mathbb{C} : \boldsymbol{\varepsilon}$ | $\boldsymbol{K}_{ff} \boldsymbol{u}_f = \boldsymbol{f}_f - \boldsymbol{K}_{fp} \boldsymbol{u}_p$<br/>$\boldsymbol{R} = \boldsymbol{K}\boldsymbol{u} - \boldsymbol{f}_{ext} = \boldsymbol{0}$ | Direct sparse SuperLU factorization ($\boldsymbol{P}\boldsymbol{K}\boldsymbol{Q} = \boldsymbol{L}\boldsymbol{U}$) with COLAMD ordering; single substitution $\mathcal{O}(N^{1.5})$ | [`LinearStaticAnalysis.solve()`](../src/psierra/analysis/linear_static.py)<br/>[`SolidDomain.assemble_stiffness_matrix()`](../src/psierra/domain/solid.py)<br/>[`DirichletManager.condense_system()`](../src/psierra/boundary/dirichlet.py) | [`0201_tip_load_beam.py`](../examples/02_linear_static/0201_tip_load_beam.py)<br/>[`0202_gravity_beam.py`](../examples/02_linear_static/0202_gravity_beam.py)<br/>[`0204_solid_shell_beam.py`](../examples/02_linear_static/0204_solid_shell_beam.py)<br/>Output: `result.vtu` |
+| **Case 2: Linear Dynamic** | Small strains with inertia, Rayleigh viscous damping, and transient vibrations | $\rho \ddot{\boldsymbol{u}} + \mu \dot{\boldsymbol{u}} - \nabla \cdot \boldsymbol{\sigma} = \boldsymbol{b}(t)$<br/>$\boldsymbol{\sigma} = \mathbb{C} : \boldsymbol{\varepsilon}$ | $\boldsymbol{M}\ddot{\boldsymbol{u}} + \boldsymbol{C}\dot{\boldsymbol{u}} + \boldsymbol{K}\boldsymbol{u} = \boldsymbol{f}_{ext}(t)$<br/>$\boldsymbol{K}_{eff}\boldsymbol{u}_{f, n+1} = \boldsymbol{f}_{eff, n+1}$<br/>$\boldsymbol{C} = \alpha \boldsymbol{M} + \beta \boldsymbol{K}$ | Implicit Generalized-$\alpha$ method ($\rho_\infty \in [0, 1]$). $\boldsymbol{K}_{eff}$ is factorized **once** at $t=0$; subsequent time steps execute via back-substitution $\mathcal{O}(N)$ | [`LinearDynamicAnalysis.solve()`](../src/psierra/analysis/linear_dynamic.py)<br/>[`RayleighDamping.assemble_damping_matrix()`](../src/psierra/damping/rayleigh.py)<br/>[`SolidDomain.assemble_mass_matrix()`](../src/psierra/domain/solid.py) | [`0301_dynamic_beam.py`](../examples/03_linear_dynamic/0301_dynamic_beam.py)<br/>[`0704_time_integrators.py`](../examples/07_benchmarks/0704_time_integrators.py)<br/>Output: `result.pvd` + `step_xxxxx.vtu` |
+| **Case 3: Nonlinear Static** | Finite strains, large 3D rotations, hyperelasticity (Hookean, Neo-Hookean, Mooney-Rivlin, Yeoh), chord preservation, Poynting effect | $\nabla_{\boldsymbol{X}} \cdot (\boldsymbol{F}\boldsymbol{S}) + \boldsymbol{b}_0 = \boldsymbol{0}$ (TL)<br/>$\nabla_{\boldsymbol{x}} \cdot \boldsymbol{\sigma} + \boldsymbol{b} = \boldsymbol{0}$ (UL)<br/>$\boldsymbol{F} = \boldsymbol{R}\boldsymbol{U}$ (CR) | $\boldsymbol{R}(\boldsymbol{u}) = \lambda \boldsymbol{f}_{ext} - \boldsymbol{f}_{int}(\boldsymbol{u}) = \boldsymbol{0}$<br/>$\boldsymbol{K}_{tan}(\boldsymbol{u}_k)\Delta \boldsymbol{u}_k = \boldsymbol{R}(\boldsymbol{u}_k)$<br/>$\boldsymbol{K}_{tan} = \boldsymbol{K}_{mat} + \boldsymbol{K}_{geo}$ | Incremental load stepping ($\lambda = \frac{s}{N_{steps}}$) + Newton-Raphson equilibrium iterations + 16-trial backtracking line search with element inversion guard ($\det(\boldsymbol{F}) > 0$) | [`NonlinearStaticAnalysis.solve()`](../src/psierra/analysis/nonlinear_static.py)<br/>[`SolidDomain.assemble_tangent_stiffness()`](../src/psierra/domain/solid.py)<br/>[`SolidDomain.assemble_internal_forces()`](../src/psierra/domain/solid.py) | [`0401_svk_beam.py`](../examples/04_nonlinear_static/0401_svk_beam.py)<br/>[`0402_tl_beam.py`](../examples/04_nonlinear_static/0402_tl_beam.py)<br/>[`0403_cr_beam.py`](../examples/04_nonlinear_static/0403_cr_beam.py)<br/>[`0404_ul_beam.py`](../examples/04_nonlinear_static/0404_ul_beam.py)<br/>[`0702_kinematic_formulations.py`](../examples/07_benchmarks/0702_kinematic_formulations.py)<br/>[`0703_hyperelastic_models.py`](../examples/07_benchmarks/0703_hyperelastic_models.py)<br/>[`0706_tet10_nonlinear_beam.py`](../examples/07_benchmarks/0706_tet10_nonlinear_beam.py)<br/>Output: `result.vtu` or `result_[variant].vtu` |
+| **Case 4: Nonlinear Dynamic** | Large-strain dynamic vibrations, large-amplitude swinging, shock wave mitigation, finite deformation inertia | $\rho_0 \ddot{\boldsymbol{u}} + \mu_0 \dot{\boldsymbol{u}} - \nabla_{\boldsymbol{X}} \cdot (\boldsymbol{F}\boldsymbol{S}) = \boldsymbol{b}_0(t)$ | $\boldsymbol{R}_{mid} = \boldsymbol{f}_{ext}(t_{n+1-\alpha_f}) - \boldsymbol{M}\ddot{\boldsymbol{u}}_{n+1-\alpha_m}$<br/>$\quad - \boldsymbol{C}\dot{\boldsymbol{u}}_{n+1-\alpha_f} - \boldsymbol{f}_{int}(\boldsymbol{u}_{n+1-\alpha_f}) = \boldsymbol{0}$<br/>$\boldsymbol{K}_{eff}\delta \boldsymbol{u} = \boldsymbol{R}_{mid}$ | Implicit Generalized-$\alpha$ predictor-corrector with inner Newton-Raphson tangent updates and high-frequency spectral filtering ($\rho_\infty$) | [`NonlinearDynamicAnalysis.solve()`](../src/psierra/analysis/nonlinear_dynamic.py)<br/>[`PvdCollectionWriter`](../src/psierra/exchange/pvd.py) | [`0501_svk_beam.py`](../examples/05_nonlinear_dynamic/0501_svk_beam.py)<br/>[`0502_tl_beam.py`](../examples/05_nonlinear_dynamic/0502_tl_beam.py)<br/>[`0503_ul_beam.py`](../examples/05_nonlinear_dynamic/0503_ul_beam.py)<br/>[`0504_cr_beam.py`](../examples/05_nonlinear_dynamic/0504_cr_beam.py)<br/>Output: `result.pvd` + `step_xxxxx.vtu` |
+| **Case 5: Interactive Dynamic** | Real-time virtual reality, surgical simulators, haptics ($>1000\text{ Hz}$ physics, $60+\text{ FPS}$ GUI) with asynchronous external user probes | $\boldsymbol{M}\ddot{\boldsymbol{u}} + \boldsymbol{C}\dot{\boldsymbol{u}} + \boldsymbol{K}\boldsymbol{u} = \boldsymbol{f}_{ext} + \boldsymbol{f}_{user}(t)$ | $\boldsymbol{K}_{eff}\boldsymbol{u}_{n+1} = \boldsymbol{f}_{eff}(t, \boldsymbol{f}_{perturb}, \boldsymbol{f}_{harm})$ | Online Generalized-$\alpha$ with decoupled wall-clock / rendering timers (`advance_wall_clock()`), single SuperLU factorization, and in-place VTK grid buffer updates | [`InteractiveDynamicSimulation.step()`](../src/psierra/analysis/interactive_dynamic.py)<br/>[`InteractiveDynamicSimulation.advance_wall_clock()`](../src/psierra/analysis/interactive_dynamic.py)<br/>[`InteractiveDynamicSimulation.update_pyvista_grid()`](../src/psierra/analysis/interactive_dynamic.py) | [`0601_online_cantilever.py`](../examples/06_interactive/0601_online_cantilever.py)<br/>[`0602_online_axial_torsion.py`](../examples/06_interactive/0602_online_axial_torsion.py)<br/>Output: Live PyVista 3D UI + optional `result.pvd` |
+| **Case 6: Contact Mechanics** | Non-penetration contact constraints (Signorini-Hertz condition: $g_N \ge 0, \lambda_N \ge 0, \lambda_N g_N = 0$), rigid obstacle floors, deformable self-contact | $\boldsymbol{t} \cdot \boldsymbol{n} \le 0$ on contact boundary $\Gamma_c$<br/>$g_N = (\boldsymbol{x}_{slave} - \boldsymbol{x}_{master}) \cdot \boldsymbol{n} \ge 0$ | $\boldsymbol{R}_c(\boldsymbol{u}) = \boldsymbol{f}_{ext} - \boldsymbol{f}_{int}(\boldsymbol{u}) + \boldsymbol{f}_{contact}(\boldsymbol{u}, \boldsymbol{\lambda}) = \boldsymbol{0}$<br/>$\boldsymbol{K}_{tot} = \boldsymbol{K}_{tan} + \boldsymbol{K}_{contact}$ | Penalty Method ($\boldsymbol{f}_c = k_c g_N \boldsymbol{n}$) or Augmented Lagrangian updates ($\lambda_N \leftarrow \max(0, \lambda_N + k_c g_N)$) integrated inside Newton-Raphson or dynamic time steps | [`StaticRigidFloorContact`](../src/psierra/boundary/contact.py)<br/>[`SelfContactManager`](../src/psierra/contact/self_contact.py)<br/>[`DynamicRigidContact`](../src/psierra/analysis/contact_dynamic.py) | [`0801_static_rigid_floor.py`](../examples/08_contact/0801_static_rigid_floor.py)<br/>[`0803_dynamic_rigid_floor.py`](../examples/08_contact/0803_dynamic_rigid_floor.py)<br/>[`0805_self_contact_bunny.py`](../examples/08_contact/0805_self_contact_bunny.py)<br/>Output: `result.vtu` (static) or `result.pvd` (dynamic) |
+
+---
+
+### 8.3 Detailed Computational Flowcharts
+
+#### Flowchart A: Linear Static Pipeline (`LinearStaticAnalysis`)
+
+```mermaid
+flowchart TD
+    A1["Define Geometry, Material & Elements"] --> A2["Build SolidDomain / ShellDomain / CoupledDomain"]
+    A2 --> A3["DirichletManager: Assign Boundary Constraints"]
+    A3 --> A4["GravityLoad / NodalForce: Assemble External Force f_ext"]
+    A4 --> A5["Domain: Assemble Global Sparse Stiffness K"]
+    A5 --> A6["DirichletManager: Partition DOFs into Free (f) and Prescribed (p)"]
+    A6 --> A7["Static Condensation: f_eff = f_f - K_fp * u_p"]
+    A7 --> A8["Sparse Direct Solver (SuperLU): K_ff * u_f = f_eff"]
+    A8 --> A9["Reconstruct Full Displacement: u = [u_f, u_p]"]
+    A9 --> A10["Recover Support Reactions: R = K * u - f_ext"]
+    A10 --> A11["Compute Stresses: Cauchy, von Mises, St. Venant"]
+    A11 --> A12["Save State: Export result.vtu (Deformed Coordinates x = X + u)"]
+```
+
+#### Flowchart B: Linear Dynamic Pipeline (`LinearDynamicAnalysis`)
+
+```mermaid
+flowchart TD
+    B1["Initialize Initial Conditions: u_0 = 0, v_0 = 0, a_0 = 0"] --> B2["User Input: Spectral Radius ρ_∞ (Default: 0.8)"]
+    B2 --> B3["Calculate Chung-Hulbert Parameters: α_m, α_f, γ, β"]
+    B3 --> B4["Assemble Constant Global Matrices: K, M, and C = α M + β K"]
+    B4 --> B5["Form Effective Dynamic Matrix: K_eff = (1-α_f) K_ff + (1-α_m) a_0 M_ff + (1-α_f) a_1 C_ff"]
+    B5 --> B6["<b>Single Factorization at t=0</b>: SuperLU factorize(K_eff)"]
+    B6 --> B7["Time Loop: Step n = 0 to N_steps"]
+    B7 --> B8["Assemble Dynamic RHS: f_eff,n+1 using u_n, v_n, a_n"]
+    B8 --> B9["Fast Back-Substitution O(N): u_f,n+1 = solve_step(f_eff,n+1)"]
+    B9 --> B10["Newmark Corrections: Update v_n+1, a_n+1"]
+    B10 --> B11["Write VTK Snapshot: step_xxxxx.vtu & update result.pvd"]
+    B11 --> B12{"More Steps?"}
+    B12 -- Yes --> B7
+    B12 -- No --> B13["Finalize PVD Collection & Verification Summary"]
+```
+
+#### Flowchart C: Nonlinear Static Pipeline (`NonlinearStaticAnalysis`)
+
+```mermaid
+flowchart TD
+    C1["Set Initial State: u_0 = 0, Load Increment s = 1 to N_steps"] --> C2["Compute Load Factor: λ_s = s / N_steps"]
+    C2 --> C3["Initialize Newton-Raphson Loop: Iteration k = 0"]
+    C3 --> C4["Domain: Assemble Tangent Stiffness K_tan(u_k) & Internal Forces f_int(u_k)"]
+    C4 --> C5["Calculate Out-of-Balance Residual: R_k = λ_s * f_ext - f_int(u_k)"]
+    C5 --> C6{"Residual Norm Converged?<br/>||R_free|| / ||f_ext|| < tol"}
+    C6 -- Yes --> C7["Accept Load Step s!"]
+    C7 --> C8{"More Load Steps?"}
+    C8 -- Yes --> C2
+    C8 -- No --> C9["Save Final State: result.vtu (or result_variant.vtu)"]
+
+    C6 -- No --> C10["Solve Newton Increment: K_tan,ff * du_free = R_k,free"]
+    C10 --> C11["Line Search: Initialize α = 1.0 (Backtracking up to 16 trials)"]
+    C11 --> C12["Form Candidate: u_cand = u_k + α * du"]
+    C12 --> C13{"Constitutive Evaluation:<br/>Is det(F) > 0 for all elements?"}
+    C13 -- "No: Inverted Element" --> C14["Halve step: α = 0.5 * α"] --> C12
+    C13 -- "Yes: Admissible" --> C15{"Acceptance Check:<br/>Candidate residual bounded or decreasing?"}
+    C15 -- Yes --> C16["Update State: u_k+1 = u_cand, k = k + 1"] --> C3
+    C15 -- No --> C14
+```
+
+#### Flowchart D: Nonlinear Dynamic Pipeline (`NonlinearDynamicAnalysis`)
+
+```mermaid
+flowchart TD
+    D1["Dynamic Initial Conditions: u_0, v_0, a_0, Spectral Radius ρ_∞"] --> D2["Time Stepping Loop: t_n+1 = t_n + Δt"]
+    D2 --> D3["Newmark Predictor: Predict u_pred, v_pred with a = 0"]
+    D3 --> D4["Newton-Raphson Equilibrium Loop: Iteration k"]
+    D4 --> D5["Compute Midpoint State: u_mid = (1-α_f) u + α_f u_n,<br/>v_mid = (1-α_f) v + α_f v_n,<br/>a_mid = (1-α_m) a + α_m a_n"]
+    D5 --> D6["Assemble Internal Force f_int(u_mid) and Tangent Matrix K_tan(u_mid)"]
+    D6 --> D7["Calculate Dynamic Midpoint Residual:<br/>R_mid = f_ext(t_mid) - M * a_mid - C * v_mid - f_int(u_mid)"]
+    D7 --> D8{"||R_mid|| < tol?"}
+    D8 -- Yes: Equilibrium --> D9["Correct Final Velocity & Acceleration: v_n+1, a_n+1"]
+    D9 --> D10["Export step_xxxxx.vtu and update result.pvd"]
+    D10 --> D11{"More Time Steps?"}
+    D11 -- Yes --> D2
+    D11 -- No --> D12["Simulation Complete"]
+
+    D8 -- No: Unbalanced --> D13["Form Dynamic Matrix: K_eff = (1-α_f) K_tan + (1-α_m) a_0 M + (1-α_f) a_1 C"]
+    D13 --> D14["Solve Displacement Correction: K_eff * δu = R_mid"]
+    D14 --> D15["Line Search & Update: u = u + α * δu"] --> D4
+```
+
+---
+
+### 8.4 Kinematic Formulations Comparison Matrix
+
+`pSierra` supports four distinct kinematic continuum descriptions spanning small to finite strains:
+
+| Kinematic Formulation | Element Classes | Reference Configuration | Strain Measure & Definition | Stress Tensor & Work Conjugate | Geometric Stiffness Matrix ($\boldsymbol{K}_{geo}$) | Physical Character & Ideal Use Case |
+| :--- | :--- | :--- | :--- | :--- | :--- | :--- |
+| **Linear Small-Strain** | `Tet4Linear`, `Tet10Linear`, `Shell3Linear`, `Shell6Linear` | Initial undeformed $\Omega_0$ | Infinitesimal Cauchy-Green strain:<br/>$\boldsymbol{\varepsilon} = \frac{1}{2}(\nabla \boldsymbol{u} + (\nabla \boldsymbol{u})^T)$ | Cauchy stress $\boldsymbol{\sigma} = \mathbb{C} : \boldsymbol{\varepsilon}$ | None ($\boldsymbol{K}_{geo} = \boldsymbol{0}$)<br/>Constant stiffness $\boldsymbol{K}_0$ | Small deformations ($\|\nabla \boldsymbol{u}\| < 0.05$). Artificially dilates (balloons) under large rigid-body rotations. |
+| **Corotational (CR)** | `Tet4Corotational`, `Shell3Corotational` | Element corotating local frame $\boldsymbol{R} \in \mathrm{SO}(3)$ via SVD polar decomposition $\boldsymbol{F} = \boldsymbol{R}\boldsymbol{U}$ | Local linear strain in unrotated frame:<br/>$\boldsymbol{\varepsilon}_l = \boldsymbol{B}_L \boldsymbol{u}_l$<br/>$\boldsymbol{u}_l = \boldsymbol{R}^T \boldsymbol{x} - \boldsymbol{X}$ | Local rotated Cauchy stress:<br/>$\boldsymbol{\sigma}_l = \mathbb{C} : \boldsymbol{\varepsilon}_l$<br/>$\boldsymbol{f}_{int} = \boldsymbol{\mathcal{R}} \boldsymbol{K}_0 \boldsymbol{u}_l$ | Geometric rotation filtering matrix $\boldsymbol{\mathcal{R}}$ maintains symmetry $\boldsymbol{K}_{tan} = \boldsymbol{\mathcal{R}} \boldsymbol{K}_0 \boldsymbol{\mathcal{R}}^T$ | Moderate to large rotations with small to moderate local strains. Ideal for thin biological membranes, beam flexure, and fast surgery simulators without numerical locking. |
+| **Total Lagrangian (TL)** | `Tet4TotalLagrangian`, `Tet10TotalLagrangian` | Initial undeformed material coordinates $\boldsymbol{X} \in \Omega_0$ | Green-Lagrange strain tensor:<br/>$\boldsymbol{E} = \frac{1}{2}(\boldsymbol{F}^T\boldsymbol{F} - \boldsymbol{I})$ | Second Piola-Kirchhoff stress:<br/>$\boldsymbol{S} = 2 \frac{\partial \Psi}{\partial \boldsymbol{C}}$<br/>Work conjugate to $\boldsymbol{E}$ | Initial-stress matrix:<br/>$\boldsymbol{K}_{geo} = \int_{\Omega_0} \boldsymbol{G}^T \hat{\boldsymbol{S}} \boldsymbol{G} \, d\Omega_0$ | Arbitrarily large strains and finite rotations. Shape function gradients $\nabla_{\boldsymbol{X}} N_a$ are evaluated once in $\Omega_0$, saving spatial gradient updates. |
+| **Updated Lagrangian (UL)** | `Tet4UpdatedLagrangian`, `Tet10UpdatedLagrangian` | Current deformed spatial coordinates $\boldsymbol{x} \in \Omega_t$ | Almansi strain tensor:<br/>$\boldsymbol{e} = \frac{1}{2}(\boldsymbol{I} - \boldsymbol{F}^{-T}\boldsymbol{F}^{-1})$ | Cauchy true stress:<br/>$\boldsymbol{\sigma} = \frac{1}{J} \boldsymbol{F} \boldsymbol{S} \boldsymbol{F}^T$<br/>Work conjugate to rate of deformation $\boldsymbol{d}$ | Spatial stress stiffness:<br/>$\boldsymbol{k}_{geo} = \int_{\Omega_t} \boldsymbol{g}^T \hat{\boldsymbol{\sigma}} \boldsymbol{g} \, d\Omega_t$ | Exact mathematical equivalence to Total Lagrangian (within machine precision $< 10^{-13}\text{ mm}$), while using spatial gradients $\nabla_{\boldsymbol{x}} N_a$ matching spatial contact formulations. |
+
+---
+
+### 8.5 Constitutive Material Models Synthesis
+
+All non-linear solid continuum elements interface modularly with any hyperelastic material model:
+
+| Constitutive Model | Class Name | Strain Energy Density Potential $\Psi(\boldsymbol{C})$ | Second Piola-Kirchhoff Stress $\boldsymbol{S} = 2 \frac{\partial \Psi}{\partial \boldsymbol{C}}$ | Tangent Elasticity Tensor $\mathbb{C} = 4 \frac{\partial^2 \Psi}{\partial \boldsymbol{C} \partial \boldsymbol{C}}$ | Physical Behavior & Recommended Application |
+| :--- | :--- | :--- | :--- | :--- | :--- |
+| **Hookean (Saint Venant-Kirchhoff)** | [`Hookean`](../src/psierra/material/hookean.py) | $\Psi = \frac{\lambda}{2}(\operatorname{tr} \boldsymbol{E})^2 + \mu \operatorname{tr}(\boldsymbol{E}^2)$ | $\boldsymbol{S} = \lambda \operatorname{tr}(\boldsymbol{E})\boldsymbol{I} + 2\mu \boldsymbol{E}$ | $\mathbb{C}_{ijkl} = \lambda \delta_{ij}\delta_{kl} + \mu(\delta_{ik}\delta_{jl} + \delta_{il}\delta_{jk})$ | Linear stress-strain relation in Green-Lagrange strain. Accurate for finite rotations with moderate strains ($\|\boldsymbol{E}\| < 0.10$). |
+| **Compressible Neo-Hookean** | [`NeoHookean`](../src/psierra/material/neohookean.py) | $\Psi = \frac{\mu}{2}(\bar{I}_1 - 3) + \frac{K}{2}(\ln J)^2$ | $\boldsymbol{S} = \mu J^{-2/3}\left(\boldsymbol{I} - \frac{\bar{I}_1}{3}\boldsymbol{C}^{-1}\right) + K \ln(J)\boldsymbol{C}^{-1}$ | Deviatoric projection $\mathbb{P} : \mathbb{I}$ plus volumetric logarithmic stiffness | Classical 1-parameter hyperelasticity for rubber, elastomers, and soft parenchyma. Infinite repulsive barrier prevents element collapse ($J \to 0$). |
+| **Mooney-Rivlin (2-Parameter)** | [`MooneyRivlin`](../src/psierra/material/mooney_rivlin.py) | $\Psi = c_{10}(\bar{I}_1 - 3) + c_{01}(\bar{I}_2 - 3) + \frac{K}{2}(J - 1)^2$ | $\boldsymbol{S} = 2 \frac{\partial \Psi}{\partial \bar{I}_1}\frac{\partial \bar{I}_1}{\partial \boldsymbol{C}} + 2 \frac{\partial \Psi}{\partial \bar{I}_2}\frac{\partial \bar{I}_2}{\partial \boldsymbol{C}} + K(J-1)J\boldsymbol{C}^{-1}$ | Invariant-based tensor expansion across both first ($\bar{I}_1$) and second ($\bar{I}_2$) invariants | Captures distinct tension vs compression stiffness asymmetry in vulcanized rubbers and silicone elastomers up to $150\%$ stretch. |
+| **Yeoh (3-Parameter Soft Tissue)** | [`Yeoh`](../src/psierra/material/yeoh.py) | $\Psi = \sum_{i=1}^3 c_{i0}(\bar{I}_1 - 3)^i + \frac{K}{2}(\ln J)^2$ | $\boldsymbol{S} = 2 \left[\sum_{i=1}^3 i c_{i0}(\bar{I}_1 - 3)^{i-1}\right]\frac{\partial \bar{I}_1}{\partial \boldsymbol{C}} + K \ln(J)\boldsymbol{C}^{-1}$ | Higher-order polynomial invariant derivatives capturing stretch stiffening | Characteristic physiological strain-stiffening (collagen fiber recruitment) in arteries, organ capsules, liver, and brain tissue. Prevents runaway sag under heavy gravity. |
+
+---
+
+## 9. References & Further Reading
 
 - **J. Chung and G.M. Hulbert**, *A Time Integration Algorithm for Structural Dynamics with Improved Numerical Dissipation: The Generalized-$\alpha$ Method*, Journal of Applied Mechanics, 60(2):371-375, 1993.
 - **H.M. Hilber, T.J.R. Hughes, and R.L. Taylor**, *Improved Numerical Dissipation for Time Integration Algorithms in Structural Dynamics*, Earthquake Engineering & Structural Dynamics, 5(3):283-292, 1977.
 - **W.L. Wood, M. Bossak, and O.C. Zienkiewicz**, *An Alpha Modification of Newmark's Method*, International Journal for Numerical Methods in Engineering, 15(10):1562-1566, 1980.
 - **N.M. Newmark**, *A Method of Computation for Structural Dynamics*, Journal of the Engineering Mechanics Division, ASCE, 85:67-94, 1959.
-- **K.J. Bathe**, *Finite Element Procedures*, Chapter 9: Dynamic Analysis and Time Integration.
-- **T. Belytschko et al.**, *Nonlinear Finite Elements for Continua and Structures*, Chapter 6: Nonlinear Dynamic Solutions.
+- **K.J. Bathe**, *Finite Element Procedures*, 2nd Edition, Prentice Hall, 2014.
+- **T. Belytschko, W.K. Liu, B. Moran, and K.I. Elkhodary**, *Nonlinear Finite Elements for Continua and Structures*, 2nd Edition, Wiley, 2014.
+- **J. Bonet and R.D. Wood**, *Nonlinear Continuum Mechanics for Finite Element Analysis*, 2nd Edition, Cambridge University Press, 2008.
+- **G.A. Holzapfel**, *Nonlinear Solid Mechanics: A Continuum Approach for Engineering*, John Wiley & Sons, 2000.
 
 ---
 

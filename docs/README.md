@@ -106,16 +106,24 @@ flowchart TD
 ### 6. [Structural Analysis Solvers & Computational Pipelines](06_solvers_and_analysis_pipelines.md)
 - **Linear Static Analysis**: direct sparse SuperLU factorization for $\boldsymbol{K}_{ff} \boldsymbol{u}_f = \boldsymbol{f}_{eff}$.
 - **Linear Dynamic Analysis**: Rayleigh damping $\boldsymbol{C} = \alpha \boldsymbol{M} + \beta \boldsymbol{K}$, implicit Generalized-$\alpha$ time integration with controllable high-frequency spectral radius $\rho_\infty$, and pre-factorization of effective stiffness matrix $\boldsymbol{K}_{eff}$.
-- **Nonlinear Static Analysis**: incremental Newton-Raphson iterations, out-of-balance residual $\boldsymbol{R} = \lambda \boldsymbol{f}_{ext} - \boldsymbol{f}_{int}(\boldsymbol{u})$, and backtracking line search guarding against element inversion ($\det(\boldsymbol{F}) \le 0$).
+- **Nonlinear Static Analysis**: incremental Newton-Raphson iterations, out-of-balance residual $\boldsymbol{R} = \lambda \boldsymbol{f}_{ext} - \boldsymbol{f}_{int}(\boldsymbol{u})$, and 16-trial backtracking line search guarding against element inversion ($\det(\boldsymbol{F}) \le 0$).
 - **Nonlinear Dynamic Analysis**: implicit Generalized-$\alpha$ integration coupled with inner Newton-Raphson equilibrium iterations and high-frequency noise dissipation.
-- **ParaView Data Exchange**: `.pvd` XML collection generation linking `.vtu` snapshots.
-- Implementation map: [`LinearStaticAnalysis`](../src/psierra/analysis/linear_static.py), [`LinearDynamicAnalysis`](../src/psierra/analysis/linear_dynamic.py), [`NonlinearStaticAnalysis`](../src/psierra/analysis/nonlinear_static.py), [`NonlinearDynamicAnalysis`](../src/psierra/analysis/nonlinear_dynamic.py), [`PvdCollectionWriter`](../src/psierra/exchange/pvd.py).
+- **Interactive Dynamic Simulation**: real-time simulation ($>12,000\text{ Hz}$ physics, $60+\text{ FPS}$) with online Generalized-$\alpha$, perturbation handling, and in-place VTK grid buffer mutation.
+- **Master Map of All Analysis Cases (Section 8)**: complete synthesis mapping problem physics, governing equations, discrete algebra, solver strategy, code classes, and canonical examples across all analysis pipelines.
+- Implementation map: [`LinearStaticAnalysis`](../src/psierra/analysis/linear_static.py), [`LinearDynamicAnalysis`](../src/psierra/analysis/linear_dynamic.py), [`NonlinearStaticAnalysis`](../src/psierra/analysis/nonlinear_static.py), [`NonlinearDynamicAnalysis`](../src/psierra/analysis/nonlinear_dynamic.py), [`InteractiveDynamicSimulation`](../src/psierra/analysis/interactive_dynamic.py), [`PvdCollectionWriter`](../src/psierra/exchange/pvd.py).
 
 ### 7. [Simulation Tutorials, Analytical Verification & Benchmarks](07_simulation_tutorials_and_verification.md)
-- Verification against Euler-Bernoulli & Timoshenko beam theory.
-- Detailed walkthroughs of all 11 simulation examples (`sim01` through `sim11`).
-- Verification tables: static equilibrium balance, energy conservation, dynamic oscillation, hyperelastic large deformation, shear locking alleviation, Navier plate bending, coupled gravity sag mitigation, and corotational large bending.
-- Post-processing and ParaView visualization instructions for `.vtu` and `.pvd` workflows.
+- Verification against Euler-Bernoulli & Timoshenko beam theory and Navier analytical thin-plate series.
+- Comprehensive walkthroughs across all categorized examples:
+  - `01_basics` (`0101`, `0102`): element-level unit checks and constitutive response.
+  - `02_linear_static` (`0201`–`0204`): tip shear bending, consistent mass gravity, DKT/Reissner plate bending, and monolithic solid-shell coupling.
+  - `03_linear_dynamic` (`0301`, `0302`): transient gravity step oscillation and impulse wave propagation.
+  - `04_nonlinear_static` (`0401`–`0404`): Saint Venant-Kirchhoff, Total Lagrangian Neo-Hookean, Corotational finite rotation, and Updated Lagrangian.
+  - `05_nonlinear_dynamic` (`0501`–`0504`): finite-strain transient dynamics with Generalized-$\alpha$ noise filtering.
+  - `06_interactive` (`0601`, `0602`): real-time online cantilever impulse and pure torsional twisting pipelines.
+  - `07_benchmarks` (`0701`–`0706`): shear locking alleviation, 4-way kinematic formulation equivalence, 4-way hyperelastic constitutive comparison, spectral radius $\rho_\infty$ filtering, severe $180^\circ$ axial torsion (Poynting effect & cross-sectional warping), and quadratic Tet10 bending compliance.
+  - `08_contact` (`0801`–`0806`): static/dynamic rigid floor impact, deformable-on-deformable contact, and Stanford Bunny / cuboid self-contact.
+- Post-processing and ParaView 3D visualization workflows with `.vtu` (static single and variant) and `.pvd` (dynamic time-series) standards.
 
 ---
 
