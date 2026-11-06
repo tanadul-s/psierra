@@ -12,7 +12,7 @@ $$\text{Forward Continuum Mechanics} \longrightarrow \text{Contact Mechanics} \l
 ### Guiding Execution Strategy
 
 * **Lean, High-Value Core Implementations**: For Phases 2–5, implement the robust, battle-tested numerical foundations that provide immediate engineering value and close the pipeline loop.
-* **Defer Complex Research Overhead**: Defer complex, high-friction formulations (such as augmented Lagrangian mortar contact, nonlinear ECSW hyper-reduction, and multi-phase poroelasticity) to the **Post-Loop Enhancement Roadmap (Phase 6+)** to prevent stalling momentum on the highway to iFEM.
+* **Defer Complex Research Overhead**: Defer complex, high-friction formulations (such as augmented Lagrangian mortar contact, DEIM hyper-reduction, and multi-phase poroelasticity) to the **Post-Loop Enhancement Roadmap (Phase 6+)** to prevent stalling momentum on the highway to iFEM.
 
 ```
 [ Phase 1: Linear FEM Core ] (Completed)
@@ -24,13 +24,13 @@ $$\text{Forward Continuum Mechanics} \longrightarrow \text{Contact Mechanics} \l
 [ Phase 3: Contact Mechanics (Penalty & Augmented Lagrangian) ]
             │
             ▼
-[ Phase 4: Model Order Reduction (POD-Galerkin, DEIM & ECSW Hyper-Reduction) ]
+[ Phase 4: Model Order Reduction (Loop 4A: POD-Galerkin ROM; Loop 4B: ECSW) ]
             │
             ▼
 [ Phase 5: Inverse FEM (iFEM) & Parameter Identification ] ★ Primary End Goal ★
             │
             ▼
-[ Phase 6+: Post-Loop Enhancements & Biomechanical Multiphysics ]
+[ Phase 6+: Post-Loop Enhancements (DEIM, Mortar Contact, Multiphysics) ]
 ```
 
 ---
@@ -248,37 +248,37 @@ $$\text{Forward Continuum Mechanics} \longrightarrow \text{Contact Mechanics} \l
 
 ## Phase 4: Model Order Reduction (MOR) & Hyper-Reduction
 
-*Objective*: Accelerate high-dimensional linear and nonlinear FEM to real-time execution (< 1 ms per evaluation), eliminating the $\mathcal{O}(N)$ full-mesh assembly bottleneck via DEIM and ECSW hyper-reduction.
+*Objective*: Accelerate high-dimensional linear and nonlinear FEM to real-time execution (< 1 ms per evaluation), establishing the fast forward-solve foundation required by Inverse FEM (Phase 5).
+
+### Loop 4A: POD-Galerkin ROM & Real-Time Foundation (★ Active / Approved Focus ★)
 
 * [ ] **Offline Snapshot Matrix Management & SVD Basis Generation**:
-  * Collect displacement snapshots matrix $\boldsymbol{S} = [\boldsymbol{u}_1, \boldsymbol{u}_2, \dots, \boldsymbol{u}_m] \in \mathbb{R}^{n \times m}$ from forward dynamic / static simulations.
+  * Collect displacement snapshots matrix $\boldsymbol{S} = [\boldsymbol{u}_1, \boldsymbol{u}_2, \dots, \boldsymbol{u}_m] \in \mathbb{R}^{n \times m}$ from forward dynamic / static simulations (`psierra/mor/snapshots.py`).
   * Thin Singular Value Decomposition (SVD): $\boldsymbol{S} = \boldsymbol{U} \boldsymbol{\Sigma} \boldsymbol{V}^T$.
   * Truncation based on cumulative energy spectrum ($\ge 0.999$).
   * Extract orthonormal reduced basis matrix $\boldsymbol{\Phi} = \boldsymbol{U}[:, :r] \in \mathbb{R}^{n \times r}$ ($r \approx 5\text{--}20$ modes).
 * [ ] **Linear & Corotational POD-Galerkin ROM**:
   * Exact Galerkin projection of structural matrices onto low-dimensional subspace ($r \ll n$):
     $$\boldsymbol{K}_r = \boldsymbol{\Phi}^T \boldsymbol{K} \boldsymbol{\Phi}, \quad \boldsymbol{M}_r = \boldsymbol{\Phi}^T \boldsymbol{M} \boldsymbol{\Phi}, \quad \boldsymbol{f}_r = \boldsymbol{\Phi}^T \boldsymbol{f}$$
-  * Fast online dynamic solver: solves the dense $r \times r$ linear system in $< 0.5$ ms.
-* [ ] **Nonlinear Hyper-Reduction (DEIM & ECSW)**:
-  * **Discrete Empirical Interpolation Method (DEIM / Q-DEIM)**:
-    * Collect nonlinear internal force snapshots: $\boldsymbol{S}_f = [\boldsymbol{f}_{\text{int}}(\boldsymbol{u}_1), \dots, \boldsymbol{f}_{\text{int}}(\boldsymbol{u}_m)]$.
-    * Compute force basis $\boldsymbol{\Psi}_f \in \mathbb{R}^{n \times m}$ via SVD.
-    * Greedy selection of $m$ "magic" interpolation DOFs $\boldsymbol{P} \in \mathbb{R}^{n \times m}$.
-    * Reduced nonlinear force evaluation:
-      $$\boldsymbol{f}_r \approx \boldsymbol{\Phi}^T \boldsymbol{\Psi}_f (\boldsymbol{P}^T \boldsymbol{\Psi}_f)^{-1} \boldsymbol{f}_{\text{int}}(\boldsymbol{u})[\boldsymbol{P}]$$
-      evaluating nonlinear internal forces only at the $m$ sample indices rather than all $n$ DOFs.
-  * **Energy-Conserving Sampling and Weighting (ECSW)**:
-    * Formulates a Non-Negative Least Squares (NNLS) optimization problem to select a sparse sub-mesh of elements $\tilde{\mathcal{E}} \subset \mathcal{E}$ ($|\tilde{\mathcal{E}}| \ll |\mathcal{E}|$) with strictly positive weights $w_e > 0$.
-    * Reduced virtual work integration:
-      $$\boldsymbol{f}_r \approx \sum_{e \in \tilde{\mathcal{E}}} w_e \boldsymbol{\Phi}_e^T \boldsymbol{f}_{\text{int}, e}(\boldsymbol{\Phi}_e \boldsymbol{u}_r)$$
-    * Strictly preserves symmetry and positive-definiteness of the reduced tangent stiffness $\boldsymbol{K}_r$, guaranteeing numerical stability in nonlinear dynamic simulations.
+  * Fast online dynamic solver (`psierra/mor/solver.py`): solves the dense $r \times r$ linear system in $< 0.5$ ms.
 * [ ] **Real-Time Surface Reconstruction**:
   * Pre-extracted surface sub-basis $\boldsymbol{\Phi}_{\text{surf}} = \boldsymbol{\Phi}[\text{surface\_dofs}, :]$ for instantaneous 3D surface rendering:
     $$\boldsymbol{u}_{\text{surf}} = \boldsymbol{\Phi}_{\text{surf}} \boldsymbol{u}_r$$
-* [ ] **Deliverable Demonstrations & Tests**:
+* [ ] **Deliverable Demonstrations & Tests (Loop 4A)**:
   * `tests/test_mor_pod_galerkin.py`: Basis orthonormality ($\boldsymbol{\Phi}^T \boldsymbol{\Phi} = \boldsymbol{I}_r$), ROM vs. FOM accuracy verification ($< 2\%$ relative error).
-  * `tests/test_mor_hyperreduction.py`: DEIM and ECSW hyper-reduction speedup and energy conservation verification.
   * `examples/08_mor/sim17_realtime_reduced_dynamic_beam.py`: Real-time online dynamic simulation running at $> 500$ Hz.
+
+### Loop 4B: Energy-Conserving Hyper-Reduction (ECSW)
+
+* [ ] **Energy-Conserving Sampling and Weighting (ECSW)**:
+  * Offline nonlinear internal force / virtual work snapshot harvesting across nonlinear load histories.
+  * Formulates a Non-Negative Least Squares (NNLS) optimization problem (`scipy.optimize.nnls`) to select a sparse sub-mesh of elements $\tilde{\mathcal{E}} \subset \mathcal{E}$ ($|\tilde{\mathcal{E}}| \ll |\mathcal{E}|$) with strictly positive weights $w_e > 0$.
+  * Reduced virtual work integration:
+    $$\boldsymbol{f}_r \approx \sum_{e \in \tilde{\mathcal{E}}} w_e \boldsymbol{\Phi}_e^T \boldsymbol{f}_{\text{int}, e}(\boldsymbol{\Phi}_e \boldsymbol{u}_r)$$
+  * Strictly preserves symmetry and positive-definiteness of the reduced tangent stiffness $\boldsymbol{K}_r$, guaranteeing numerical stability in nonlinear dynamic simulations.
+* [ ] **Deliverable Demonstrations & Tests (Loop 4B)**:
+  * `tests/test_mor_ecsw.py`: Energy conservation and tangent stiffness symmetry/positive-definiteness verification.
+  * Reduced nonlinear hyperelastic dynamic benchmark comparison against full-order model.
 
 ---
 
@@ -315,6 +315,13 @@ $$\text{Forward Continuum Mechanics} \longrightarrow \text{Contact Mechanics} \l
 
 *Objective*: Advanced research enhancements, non-smooth contact theories, and multiphysics to be added after the end-to-end iFEM loop is fully working and verified.
 
+* [ ] **Discrete Empirical Interpolation Method (DEIM / Q-DEIM Hyper-Reduction)**:
+  * Force snapshot matrix generation $\boldsymbol{S}_f = [\boldsymbol{f}_{\text{int}}(\boldsymbol{u}_1), \dots, \boldsymbol{f}_{\text{int}}(\boldsymbol{u}_m)]$.
+  * SVD basis computation for nonlinear force representation $\boldsymbol{\Psi}_f \in \mathbb{R}^{n \times m}$.
+  * Greedy / Q-DEIM selection of interpolation DOFs $\boldsymbol{P} \in \mathbb{R}^{n \times m}$.
+  * Reduced nonlinear force approximation:
+    $$\boldsymbol{f}_r \approx \boldsymbol{\Phi}^T \boldsymbol{\Psi}_f (\boldsymbol{P}^T \boldsymbol{\Psi}_f)^{-1} \boldsymbol{f}_{\text{int}}(\boldsymbol{u})[\boldsymbol{P}]$$
+    evaluating internal forces only at sample DOFs rather than across the full mesh.
 * [ ] **Advanced Non-Smooth Contact Mechanics & $C^0$ Facet Chattering Mitigation**:
   * **The 3-Pillar Contact Regularization Architecture** (Resolving high-energy dynamic impact breakdowns, facet chattering, and line-search stalls in deformable-to-deformable mesh contact):
     * *Literature References*: P. Wriggers (2006) *Computational Contact Mechanics* (Ch. 6, 10, 11); T. A. Laursen (2002) *Computational Contact and Impact Mechanics* (Ch. 4, 6); FEBio Theory Manual (Sec. 7.1.2, 7.1.3, 8.1).
