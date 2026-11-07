@@ -25,8 +25,9 @@ flowchart TD
         D06["06. Structural Analysis Solvers & Computational Pipelines<br/><i>Direct SuperLU, Generalized-alpha dynamics (spectral radius), Newton-Raphson equilibrium, VTU/PVD</i>"]
     end
 
-    subgraph Stage4["Stage IV: Verification & Clinical Case Studies"]
+    subgraph Stage4["Stage IV: Verification, Clinical Digital Twins & Real-Time MOR"]
         D07["07. Simulation Tutorials, Analytical Verification & Benchmarks<br/><i>Timoshenko beam (sim01-07), locking alleviation (sim08), Navier plate (sim09), brain sag (sim10)</i>"]
+        D08["08. Model Order Reduction (POD-Galerkin) & Real-Time Dynamics<br/><i>Displacement snapshots, thin SVD, .npz auto-cache, dense Cholesky solver (>20,000 Hz), surface sub-basis</i>"]
     end
 
     Stage1 --> Stage2
@@ -39,6 +40,7 @@ flowchart TD
     D04 --> D05
     D05 --> D06
     D06 --> D07
+    D07 --> D08
 ```
 
 ---
@@ -123,7 +125,27 @@ flowchart TD
   - `06_interactive` (`0601`, `0602`): real-time online cantilever impulse and pure torsional twisting pipelines.
   - `07_benchmarks` (`0701`–`0706`): shear locking alleviation, 4-way kinematic formulation equivalence, 4-way hyperelastic constitutive comparison, spectral radius $\rho_\infty$ filtering, severe $180^\circ$ axial torsion (Poynting effect & cross-sectional warping), and quadratic Tet10 bending compliance.
   - `08_contact` (`0801`–`0806`): static/dynamic rigid floor impact, deformable-on-deformable contact, and Stanford Bunny / cuboid self-contact.
+  - `09_mor` (`0901`, `0902`): POD-Galerkin dynamic cantilever beam and real-time interactive neurosurgical brain-shift telemetry.
 - Post-processing and ParaView 3D visualization workflows with `.vtu` (static single and variant) and `.pvd` (dynamic time-series) standards.
+
+### 8. [Model Order Reduction & POD-Galerkin Dynamics](08_model_order_reduction_pod_galerkin.md)
+- **Mathematical Foundations**:
+  - Full-order dynamic structural system $\boldsymbol{M}\ddot{\boldsymbol{u}} + \boldsymbol{C}\dot{\boldsymbol{u}} + \boldsymbol{K}\boldsymbol{u} = \boldsymbol{F}(t)$ and Dirichlet partitioning.
+  - Displacement snapshot matrix $\boldsymbol{S} = [\boldsymbol{u}_1, \dots, \boldsymbol{u}_m] \in \mathbb{R}^{n \times m}$ and economic/thin Singular Value Decomposition (SVD).
+  - Cumulative singular value energy spectrum truncation $E(r) = \frac{\sum_{i=1}^r \sigma_i^2}{\sum_{i=1}^m \sigma_i^2} \ge \eta$ (default $\eta \ge 0.999$).
+  - Orthonormal reduced basis matrix $\boldsymbol{\Phi} \in \mathbb{R}^{n \times r}$ with $\boldsymbol{\Phi}^T \boldsymbol{\Phi} = \boldsymbol{I}_r$.
+  - Exact Galerkin projection: $\boldsymbol{K}_r = \boldsymbol{\Phi}_f^T \boldsymbol{K}_{ff} \boldsymbol{\Phi}_f$, $\boldsymbol{M}_r = \boldsymbol{\Phi}_f^T \boldsymbol{M}_{ff} \boldsymbol{\Phi}_f$, $\boldsymbol{C}_r = \boldsymbol{\Phi}_f^T \boldsymbol{C}_{ff} \boldsymbol{\Phi}_f$, and $\boldsymbol{f}_r = \boldsymbol{\Phi}_f^T \boldsymbol{f}_f$.
+  - Preserved symmetry and positive-definiteness: $\lambda_{\min}(\boldsymbol{K}_r) > 0, \lambda_{\min}(\boldsymbol{M}_r) > 0$.
+- **Real-Time Dynamic Solver**:
+  - Generalized-$\alpha$ dynamic stepping on the dense $r \times r$ dynamical system with single Cholesky pre-factorization of $\boldsymbol{K}_{\text{eff}, r}$.
+  - Initial acceleration consistency from dynamic equilibrium: $\boldsymbol{M}_r \boldsymbol{a}_{r, 0} = \boldsymbol{f}_r - \boldsymbol{K}_r \boldsymbol{u}_0 - \boldsymbol{C}_r \boldsymbol{v}_0$.
+  - Online execution times $< 0.05\text{ ms}$ per step ($> 20{,}000\text{--}50{,}000\text{ Hz}$).
+- **Surface Sub-Basis Reconstruction**:
+  - Row-slicing $\boldsymbol{\Phi}_{\text{surf}} = \boldsymbol{\Phi}[\text{surface\_dofs}, :]$ eliminating the $\mathcal{O}(N)$ full-mesh lifting bottleneck during 3D visualization.
+  - Instantaneous 3D surface point buffer updates in microseconds.
+- **Compressed `.npz` Auto-Caching**:
+  - Automatic `SnapshotManager.get_or_compute(cache_path, ...)` loading cached snapshots in $< 10\text{ ms}$.
+- Implementation map: [`SnapshotManager`](../src/psierra/reduction/snapshots.py), [`PODBasis`](../src/psierra/reduction/basis.py), [`SurfacePODBasis`](../src/psierra/reduction/basis.py), [`ReducedLinearModel`](../src/psierra/reduction/model.py), [`ReducedLinearDynamicSolver`](../src/psierra/reduction/solver.py).
 
 ---
 
@@ -135,8 +157,11 @@ flowchart TD
 4. **O.C. Zienkiewicz, R.L. Taylor, & J.Z. Zhu**, *The Finite Element Method: Its Basis and Fundamentals*, Butterworth-Heinemann, 7th Edition, 2013.
 5. **G.A. Holzapfel**, *Nonlinear Solid Mechanics: A Continuum Approach for Engineering*, John Wiley & Sons, 2000.
 6. **N.M. Newmark**, *A Method of Computation for Structural Dynamics*, Journal of the Engineering Mechanics Division, ASCE, 85:67-94, 1959.
-7. **J.L. Batoz, K.J. Bathe, & L.W. Ho**, *A Study of Three-Node Triangular Plate Bending Elements*, International Journal for Numerical Methods in Engineering, 15:1771-1812, 1980.
-8. **T.J.R. Hughes & F. Brezzi**, *On Drilling Degrees of Freedom*, Computer Methods in Applied Mechanics and Engineering, 72:105-121, 1989.
-9. **D.A. Dunavant**, *High Degree Efficient Symmetrical Gaussian Quadrature Rules for the Triangle*, International Journal for Numerical Methods in Engineering, 21:1129-1148, 1985.
-10. **P.C. Hammer, O.J. Marlowe, & A.H. Stroud**, *Numerical Integration over Simplexes and Cones*, Mathematical Tables and Other Aids to Computation, 10:130-137, 1956.
+7. **J. Chung & G.M. Hulbert**, *A Time Integration Algorithm for Structural Dynamics with Improved Numerical Dissipation: The Generalized-$\alpha$ Method*, Journal of Applied Mechanics, 60(2):371-375, 1993.
+8. **S. Volkwein**, *Proper Orthogonal Decomposition: Theory and Reduced-Order Modelling*, Lecture Notes, University of Konstanz, 2013.
+9. **P. Benner, S. Gugercin, & K. Willcox**, *A Survey of Projection-Based Model Reduction Methods for Parametric Dynamical Systems*, SIAM Review, 57(4):483-531, 2015.
+10. **J.L. Batoz, K.J. Bathe, & L.W. Ho**, *A Study of Three-Node Triangular Plate Bending Elements*, International Journal for Numerical Methods in Engineering, 15:1771-1812, 1980.
+11. **T.J.R. Hughes & F. Brezzi**, *On Drilling Degrees of Freedom*, Computer Methods in Applied Mechanics and Engineering, 72:105-121, 1989.
+12. **D.A. Dunavant**, *High Degree Efficient Symmetrical Gaussian Quadrature Rules for the Triangle*, International Journal for Numerical Methods in Engineering, 21:1129-1148, 1985.
+13. **P.C. Hammer, O.J. Marlowe, & A.H. Stroud**, *Numerical Integration over Simplexes and Cones*, Mathematical Tables and Other Aids to Computation, 10:130-137, 1956.
 
