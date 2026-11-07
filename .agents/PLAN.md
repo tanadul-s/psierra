@@ -346,24 +346,30 @@ $$\text{Forward Continuum Mechanics} \longrightarrow \text{Contact Mechanics} \l
   * **Tier 1 (Canonical Benchmark)**: First prove and verify each inverse formulation on the elastic cantilever beam (`beam.vtk`) under gravity body load with analytical/FOM ground truth.
   * **Tier 2 (Clinical Flagship)**: Once the beam benchmark passes, scale up to the anatomical neurosurgical brain shift model (`brain.vtk`) tracking deep tumor targets from sparse cortical markers.
 
-* [ ] **5.1: Discrete Sensor Observation Operator ($\boldsymbol{H}$)**:
+* [x] **5.1: Discrete Sensor Observation Operator ($\boldsymbol{H}$)**:
   * Spatial point-in-element barycentric locator for arbitrary discrete surface marker coordinates:
     $$\hat{\boldsymbol{u}}_k = \boldsymbol{H}_k \boldsymbol{u} = \sum_{a=1}^{N_{\text{facet}}} N_a(\boldsymbol{\xi}_k) \boldsymbol{u}_a$$
-  * Full-order observation matrix $\boldsymbol{H} \in \mathbb{R}^{3 N_{\text{sensor}} \times n_{\text{dof}}}$.
+  * Full-order observation matrix $\boldsymbol{H} \in \mathbb{R}^{3 N_{\text{sensor}} \times n_{\text{dof}}}$ (`SensorObservationOperator` in `psierra/inverse/observation.py`).
   * Reduced-order observation matrix projected onto modal basis $\boldsymbol{\Phi} \in \mathbb{R}^{n \times r}$:
     $$\boldsymbol{H}_r = \boldsymbol{H} \boldsymbol{\Phi} \in \mathbb{R}^{3 N_{\text{sensor}} \times r}$$
-    enabling $\mathcal{O}(N_{\text{sensor}} \cdot r)$ sensor state evaluation in $< 1\ \mu\text{s}$.
-* [ ] **5.2: Variational Shape Sensing iFEM (Full-Field 3D Reconstruction)**:
+    enabling $\mathcal{O}(N_{\text{sensor}} \cdot r)$ sensor state evaluation in $< 1\ \mu\text{s}$ (`ReducedSensorObservationOperator`).
+  * Verified via 20 unit and benchmark tests in `tests/test_ifem_observation.py` (partition of unity, rigid body translation invariance, exact modal projection identity, and $> 1{,}000{,}000\text{ Hz}$ online evaluation).
+* [x] **5.2: Variational Shape Sensing iFEM (Full-Field 3D Reconstruction)**:
   * Reconstruct full 3D internal displacement and strain fields throughout the entire volume from sparse surface sensor measurements without knowing external boundary loads or intracranial pressures:
     $$\mathcal{J}(\boldsymbol{u}) = \frac{1}{2} \sum_{k=1}^{N_{\text{sensor}}} w_k \|\boldsymbol{H}_k \boldsymbol{u} - \hat{\boldsymbol{u}}_k\|^2 + \frac{\alpha}{2} \boldsymbol{u}^T \boldsymbol{K} \boldsymbol{u}$$
   * Stationarity $\partial \mathcal{J} / \partial \boldsymbol{u} = \boldsymbol{0}$ yields a symmetric positive-definite linear system:
-    * **Full-Order Solve**: $(\boldsymbol{H}^T \boldsymbol{W} \boldsymbol{H} + \alpha \boldsymbol{K}) \boldsymbol{u} = \boldsymbol{H}^T \boldsymbol{W} \hat{\boldsymbol{u}}$ (sparse Cholesky in milliseconds).
-    * **Reduced-Order Solve**: $(\boldsymbol{H}_r^T \boldsymbol{W} \boldsymbol{H}_r + \alpha \boldsymbol{K}_r) \boldsymbol{u}_r = \boldsymbol{H}_r^T \boldsymbol{W} \hat{\boldsymbol{u}}$ (dense Cholesky in $< 15\ \mu\text{s}$, $> 60{,}000\text{ Hz}$).
-  * Instantaneous internal field & tumor centroid recovery: $\boldsymbol{u}_{\text{internal}} = \boldsymbol{\Phi}_{\text{internal}} \boldsymbol{u}_r$.
-* [ ] **5.3: Inverse Material Parameter Identification (Constitutive Calibration)**:
+    * **Full-Order Solve**: $(\boldsymbol{H}^T \boldsymbol{W} \boldsymbol{H} + \alpha \boldsymbol{K}) \boldsymbol{u} = \boldsymbol{H}^T \boldsymbol{W} \hat{\boldsymbol{u}}$ (`FullOrderShapeSensingSolver` in milliseconds).
+    * **Reduced-Order Solve**: $(\boldsymbol{H}_r^T \boldsymbol{W} \boldsymbol{H}_r + \alpha \boldsymbol{K}_r) \boldsymbol{u}_r = \boldsymbol{H}_r^T \boldsymbol{W} \hat{\boldsymbol{u}}$ (`ReducedOrderShapeSensingSolver` in $< 15\ \mu\text{s}$, $> 60{,}000\text{ Hz}$).
+  * Instantaneous internal field & tumor centroid recovery: $\boldsymbol{u}_{\text{internal}} = \boldsymbol{\Phi}_{\text{internal}} \boldsymbol{u}_r$ via `reconstruct_target_displacement`.
+  * Verified via 10 unit and benchmark tests in `tests/test_ifem_shape_sensing.py` (100% passing).
+  * Executable demonstration delivered in `examples/10_inverse/1001_beam_shape_sensing.py` and registered in `scripts/examples.txt`.
+* [x] **5.3: Inverse Material Parameter Identification (Constitutive Calibration)**:
   * Nonlinear least-squares optimization loop (L-BFGS-B / Gauss-Newton / Trust-Region) to calibrate unknown material properties ($E$, $\nu$, hyperelastic $C_{10}$) by minimizing discrepancy between indenter force response and experimental curves:
     $$\min_{\boldsymbol{\theta}} \sum_{j=1}^{M} \left( F_{\text{sim}}(\delta_j; \boldsymbol{\theta}) - F_{\text{exp}}(\delta_j) \right)^2 + \beta \|\boldsymbol{\theta} - \boldsymbol{\theta}_0\|^2$$
-  * Accelerated by forward hyper-ROM forward solves from Phase 4 ($\approx 3\text{ ms/solve}$), converging the optimization in $1\text{--}3$ seconds.
+  * Implemented in `MaterialParameterIdentifier` and `IdentificationResult` (`psierra/inverse/parameter_identification.py`).
+  * Closed-form exact linear least squares `calibrate_linear_elasticity` solving in $< 1\ \mu\text{s}$ to machine precision.
+  * Verified via 12 unit and benchmark tests in `tests/test_ifem_parameter_identification.py` (recovery of $E$ and $C_{10}$ within $< 1\%$ of ground truth, multi-parameter $[E, \nu]$ calibration, and breakdown penalty recovery).
+  * Executable demonstration delivered in `examples/10_inverse/1002_beam_parameter_identification.py` and registered in `scripts/examples.txt`.
 * [ ] **5.4: Stress-Free Reference Configuration Solver (Zero-Pressure Configuration)**:
   * Backward fixed-point inverse elastostatic solver to determine the undeformed, stress-free reference geometry $\boldsymbol{X}_0$ from clinical scans of pre-gravitationally sagged organs:
     $$\boldsymbol{X}_0^{(k+1)} = \boldsymbol{X}_{\text{scan}} - \boldsymbol{u}(\boldsymbol{X}_0^{(k)}; \boldsymbol{g}_{\text{scan}})$$
