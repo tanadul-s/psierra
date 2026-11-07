@@ -77,3 +77,9 @@
 0803    # dynamic_deformable_floor.py
 0804    # self_contact_bunny.py
 0805    # self_contact_cuboid.py
+
+# ------------------------------------------------------------------------------
+# 09_mor: Model Order Reduction (POD-Galerkin ROM & Real-Time Dynamic Simulation)
+# ------------------------------------------------------------------------------
+0901 --headless    # reduced_dynamic_beam.py
+0902 --headless    # interactive_reduced_brain_shift.py
