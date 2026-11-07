@@ -50,6 +50,7 @@ class HyperReducedNonlinearStaticSolver:
         model: HyperReducedNonlinearModel,
         max_iter: int = 25,
         tol: float = 1e-6,
+        contact: Any = None,
     ) -> None:
         """
         Parameters:
@@ -60,11 +61,20 @@ class HyperReducedNonlinearStaticSolver:
             Maximum Newton-Raphson iterations per load step.
         tol : float, default=1e-6
             Relative residual convergence tolerance ||r_r|| / max(||f_r_ext||, 1).
+        contact : HyperReducedRigidContact or Sequence, optional
+            Active contact operators enforcing non-penetration constraints.
         """
         self.model = model
         self.r = model.n_modes
         self.max_iter = int(max_iter)
         self.tol = float(tol)
+
+        if contact is None:
+            self.contacts = []
+        elif isinstance(contact, (list, tuple)):
+            self.contacts = list(contact)
+        else:
+            self.contacts = [contact]
 
         # State in reduced coordinates
         self.u_r = np.zeros(self.r, dtype=np.float64)
@@ -111,7 +121,15 @@ class HyperReducedNonlinearStaticSolver:
 
             for it in range(1, self.max_iter + 1):
                 f_r_int, K_r_t = self.model.evaluate_forces_and_stiffness(self.u_r)
-                residual = f_r_int - f_inc
+
+                f_r_c = np.zeros(self.r, dtype=np.float64)
+                K_r_c = np.zeros((self.r, self.r), dtype=np.float64)
+                for c in self.contacts:
+                    fc, kc = c.evaluate_reduced_forces_and_stiffness(self.u_r)
+                    f_r_c += fc
+                    K_r_c += kc
+
+                residual = f_r_int - f_inc - f_r_c
                 res_norm = float(np.linalg.norm(residual))
                 rel_res = res_norm / f_ref_norm
 
@@ -124,16 +142,21 @@ class HyperReducedNonlinearStaticSolver:
                 if rel_res <= self.tol:
                     break
 
-                # Dense r x r linear solve: K_r_t * delta_u_r = -residual
+                K_total = K_r_t + K_r_c
+                # Dense r x r linear solve: K_total * delta_u_r = -residual
                 try:
-                    delta_u_r = spla.solve(K_r_t, -residual, assume_a="sym")
+                    delta_u_r = spla.solve(K_total, -residual, assume_a="sym")
                 except Exception:
-                    delta_u_r = spla.solve(K_r_t, -residual)
+                    delta_u_r = spla.solve(K_total, -residual)
 
                 self.u_r += delta_u_r
             else:
                 if verbose:
                     print(f"  ⚠️ Warning: Increment {inc} reached max iterations ({self.max_iter}).")
+
+            # Update Uzawa multipliers if augmented lagrangian contacts are present
+            for c in self.contacts:
+                c.update_multipliers(self.u_r)
 
         return self.u_r
 
@@ -171,6 +194,7 @@ class HyperReducedNonlinearDynamicSolver:
         spectral_radius: float = 0.8,
         nr_max_iter: int = 10,
         nr_tol: float = 1e-4,
+        contact: Any = None,
     ) -> None:
         """
         Parameters:
@@ -185,6 +209,8 @@ class HyperReducedNonlinearDynamicSolver:
             Maximum Newton-Raphson iterations per time step.
         nr_tol : float, default=1e-4
             Relative dynamic residual tolerance ||R_dyn|| / max(||f_ext||, 1).
+        contact : HyperReducedRigidContact or Sequence, optional
+            Active contact operators enforcing non-penetration constraints.
         """
         if dt <= 0.0:
             raise ValueError(f"Time step dt must be positive, got {dt}")
@@ -197,6 +223,13 @@ class HyperReducedNonlinearDynamicSolver:
         self.nr_max_iter = max(1, int(nr_max_iter))
         self.nr_tol = float(nr_tol)
         self.r = model.n_modes
+
+        if contact is None:
+            self.contacts = []
+        elif isinstance(contact, (list, tuple)):
+            self.contacts = list(contact)
+        else:
+            self.contacts = [contact]
 
         # Generalized-alpha algorithmic parameters (Chung & Hulbert, 1993)
         rho = self.spectral_radius
@@ -246,6 +279,8 @@ class HyperReducedNonlinearDynamicSolver:
         self.u_r.fill(0.0)
         self.v_r.fill(0.0)
         self._f_perturbation_r.fill(0.0)
+        for c in self.contacts:
+            c.reset_state()
         self._init_equilibrium_acceleration()
         self.sim_time = 0.0
         self.wall_time = 0.0
@@ -310,17 +345,27 @@ class HyperReducedNonlinearDynamicSolver:
             # Evaluate hyper-reduced nonlinear internal force and tangent stiffness
             f_int_mid, K_t_mid = self.model.evaluate_forces_and_stiffness(u_mid)
 
+            # Evaluate active contact force and tangent stiffness contributions
+            f_c_mid = np.zeros(self.r, dtype=np.float64)
+            K_c_mid = np.zeros((self.r, self.r), dtype=np.float64)
+            for c in self.contacts:
+                fc, kc = c.evaluate_reduced_forces_and_stiffness(u_mid, v_mid, a1=self.a1)
+                f_c_mid += fc
+                K_c_mid += kc
+
             # Dynamic residual vector:
-            # R_dyn = f_ext - M_r * a_mid - C_r * v_mid - f_int_mid
-            R_dyn = f_total - self.model.M_r @ a_mid - self.model.C_r @ v_mid - f_int_mid
+            # R_dyn = f_ext + f_c - M_r * a_mid - C_r * v_mid - f_int_mid
+            R_dyn = (
+                f_total + f_c_mid - self.model.M_r @ a_mid - self.model.C_r @ v_mid - f_int_mid
+            )
             res_norm = float(np.linalg.norm(R_dyn))
 
             if res_norm / f_ref_norm <= self.nr_tol:
                 break
 
             # Effective dynamic stiffness:
-            # K_eff = K_eff_const + (1 - alpha_f) * K_t_mid
-            K_eff = K_eff_const + (1.0 - self.alpha_f) * K_t_mid
+            # K_eff = K_eff_const + (1 - alpha_f) * (K_t_mid + K_c_mid)
+            K_eff = K_eff_const + (1.0 - self.alpha_f) * (K_t_mid + K_c_mid)
 
             # Solve for displacement increment: K_eff * delta_u = R_dyn
             try:
@@ -337,6 +382,10 @@ class HyperReducedNonlinearDynamicSolver:
         self.u_r[:] = u_next
         self.v_r[:] = v_next
         self.a_r[:] = a_next
+
+        # 4. Commit contact multiplier updates
+        for c in self.contacts:
+            c.update_multipliers(self.u_r)
 
         t_elapsed = time.perf_counter() - t_start
         self._total_step_time += t_elapsed

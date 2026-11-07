@@ -34,6 +34,8 @@ from psierra.hyperreduction import (
     HyperReducedNonlinearStaticSolver,
     HyperReducedNonlinearDynamicSolver,
     HyperReducedSolverStats,
+    HyperReducedRigidContact,
+    ContactTelemetry,
 )
 
 __version__ = "26.10"
@@ -63,4 +65,6 @@ __all__ = [
     "HyperReducedNonlinearStaticSolver",
     "HyperReducedNonlinearDynamicSolver",
     "HyperReducedSolverStats",
+    "HyperReducedRigidContact",
+    "ContactTelemetry",
 ]

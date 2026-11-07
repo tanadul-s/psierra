@@ -11,6 +11,10 @@ Provides:
 - HyperReducedSolverStats: Execution performance and energy telemetry container.
 """
 
+from psierra.hyperreduction.contact import (
+    HyperReducedRigidContact,
+    ContactTelemetry,
+)
 from psierra.hyperreduction.ecsw import (
     ReducedIntegrationDomain,
     ECSWTrainingMatrix,
@@ -31,4 +35,6 @@ __all__ = [
     "HyperReducedNonlinearStaticSolver",
     "HyperReducedNonlinearDynamicSolver",
     "HyperReducedSolverStats",
+    "HyperReducedRigidContact",
+    "ContactTelemetry",
 ]
