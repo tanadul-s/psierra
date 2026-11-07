@@ -338,28 +338,48 @@ $$\text{Forward Continuum Mechanics} \longrightarrow \text{Contact Mechanics} \l
 
 *Objective*: Infer full-field internal deformations, patient-specific material properties, and stress-free configurations from sparse physical measurements (closing the forward-to-inverse loop).
 
+*Architecture Strategy*:
+* **Dual-Formulation Support**:
+  * **Full-Order iFEM (FOM)**: Unconstrained $n_{\text{dof}} \times n_{\text{dof}}$ sparse system serving as the exact ground-truth benchmark.
+  * **Reduced-Order iFEM (ROM / Hyper-ROM)**: Subspace-projected $r \times r$ dense system ($r \ll n$) delivering microsecond-rate inversion ($> 50{,}000\text{ Hz}$) for real-time surgical navigation and rapid optimizer convergence.
+* **Tiered Verification Pipeline (Strict Rule)**:
+  * **Tier 1 (Canonical Benchmark)**: First prove and verify each inverse formulation on the elastic cantilever beam (`beam.vtk`) under gravity body load with analytical/FOM ground truth.
+  * **Tier 2 (Clinical Flagship)**: Once the beam benchmark passes, scale up to the anatomical neurosurgical brain shift model (`brain.vtk`) tracking deep tumor targets from sparse cortical markers.
+
 * [ ] **5.1: Discrete Sensor Observation Operator ($\boldsymbol{H}$)**:
-  * Linear observation matrix mapping sparse discrete sensor measurement points (e.g., 5–20 surface markers, optical tracking, stereo camera, or ultrasound probe points) to FE degrees of freedom:
-    $$\hat{\boldsymbol{u}}_k = \boldsymbol{H}_k \boldsymbol{u}$$
-  * Spatial point-in-element barycentric locator for arbitrary sensor positions located on the organ surface.
+  * Spatial point-in-element barycentric locator for arbitrary discrete surface marker coordinates:
+    $$\hat{\boldsymbol{u}}_k = \boldsymbol{H}_k \boldsymbol{u} = \sum_{a=1}^{N_{\text{facet}}} N_a(\boldsymbol{\xi}_k) \boldsymbol{u}_a$$
+  * Full-order observation matrix $\boldsymbol{H} \in \mathbb{R}^{3 N_{\text{sensor}} \times n_{\text{dof}}}$.
+  * Reduced-order observation matrix projected onto modal basis $\boldsymbol{\Phi} \in \mathbb{R}^{n \times r}$:
+    $$\boldsymbol{H}_r = \boldsymbol{H} \boldsymbol{\Phi} \in \mathbb{R}^{3 N_{\text{sensor}} \times r}$$
+    enabling $\mathcal{O}(N_{\text{sensor}} \cdot r)$ sensor state evaluation in $< 1\ \mu\text{s}$.
 * [ ] **5.2: Variational Shape Sensing iFEM (Full-Field 3D Reconstruction)**:
-  * Reconstruct full 3D internal displacement and strain fields throughout the entire volume from sparse surface sensor measurements without knowing external boundary loads:
-    $$\mathcal{J}(\boldsymbol{u}) = \sum_{k=1}^{N_{\text{sensor}}} w_k \|\boldsymbol{H}_k \boldsymbol{u} - \hat{\boldsymbol{u}}_k\|^2 + \alpha \cdot \boldsymbol{u}^T \boldsymbol{K} \boldsymbol{u}$$
+  * Reconstruct full 3D internal displacement and strain fields throughout the entire volume from sparse surface sensor measurements without knowing external boundary loads or intracranial pressures:
+    $$\mathcal{J}(\boldsymbol{u}) = \frac{1}{2} \sum_{k=1}^{N_{\text{sensor}}} w_k \|\boldsymbol{H}_k \boldsymbol{u} - \hat{\boldsymbol{u}}_k\|^2 + \frac{\alpha}{2} \boldsymbol{u}^T \boldsymbol{K} \boldsymbol{u}$$
   * Stationarity $\partial \mathcal{J} / \partial \boldsymbol{u} = \boldsymbol{0}$ yields a symmetric positive-definite linear system:
-    $$(\boldsymbol{H}^T \boldsymbol{W} \boldsymbol{H} + \alpha \boldsymbol{K}) \boldsymbol{u} = \boldsymbol{H}^T \boldsymbol{W} \hat{\boldsymbol{u}}$$
-  * Solvable in milliseconds via sparse Cholesky factorization, or in microseconds via POD reduced basis $\boldsymbol{\Phi}$.
+    * **Full-Order Solve**: $(\boldsymbol{H}^T \boldsymbol{W} \boldsymbol{H} + \alpha \boldsymbol{K}) \boldsymbol{u} = \boldsymbol{H}^T \boldsymbol{W} \hat{\boldsymbol{u}}$ (sparse Cholesky in milliseconds).
+    * **Reduced-Order Solve**: $(\boldsymbol{H}_r^T \boldsymbol{W} \boldsymbol{H}_r + \alpha \boldsymbol{K}_r) \boldsymbol{u}_r = \boldsymbol{H}_r^T \boldsymbol{W} \hat{\boldsymbol{u}}$ (dense Cholesky in $< 15\ \mu\text{s}$, $> 60{,}000\text{ Hz}$).
+  * Instantaneous internal field & tumor centroid recovery: $\boldsymbol{u}_{\text{internal}} = \boldsymbol{\Phi}_{\text{internal}} \boldsymbol{u}_r$.
 * [ ] **5.3: Inverse Material Parameter Identification (Constitutive Calibration)**:
-  * Optimization loop (`scipy.optimize.minimize` / L-BFGS-B / Gauss-Newton) to calibrate unknown material parameters (Young's modulus $E$, hyperelastic parameter $C_{10}$) by minimizing discrepancy between simulated indenter response and measured force-displacement curves ($F$ vs. $\delta$):
-    $$\min_{\boldsymbol{\theta}} \sum_{j} \left( F_{\text{FEM}}(\delta_j; \boldsymbol{\theta}) - F_{\text{exp}}(\delta_j) \right)^2$$
-  * Accelerated by forward ROM from Phase 4 for rapid convergence in seconds.
+  * Nonlinear least-squares optimization loop (L-BFGS-B / Gauss-Newton / Trust-Region) to calibrate unknown material properties ($E$, $\nu$, hyperelastic $C_{10}$) by minimizing discrepancy between indenter force response and experimental curves:
+    $$\min_{\boldsymbol{\theta}} \sum_{j=1}^{M} \left( F_{\text{sim}}(\delta_j; \boldsymbol{\theta}) - F_{\text{exp}}(\delta_j) \right)^2 + \beta \|\boldsymbol{\theta} - \boldsymbol{\theta}_0\|^2$$
+  * Accelerated by forward hyper-ROM forward solves from Phase 4 ($\approx 3\text{ ms/solve}$), converging the optimization in $1\text{--}3$ seconds.
 * [ ] **5.4: Stress-Free Reference Configuration Solver (Zero-Pressure Configuration)**:
-  * Fixed-point inverse elastostatic solver to determine the undeformed reference geometry $\boldsymbol{X}_0$ from clinical scans of deformed / gravitationally sagged organs (e.g., intraoperative brain shift, pressurized aorta):
-    $$\boldsymbol{X}^{k+1} = \boldsymbol{X}_{\text{scan}} - \boldsymbol{u}(\boldsymbol{X}^k)$$
-* [ ] **Deliverable Demonstrations & Tests**:
-  * `tests/test_ifem_shape_sensing.py`: Reconstructing full 3D beam deformation from 6 surface sensor points ($< 5\%$ error).
-  * `tests/test_ifem_parameter_identification.py`: Calibrating Young's modulus from simulated indentation test.
-  * `examples/09_inverse/sim18_sparse_sensor_shape_sensing.py`: Full 3D organ deformation reconstruction from surface optical markers.
-  * `examples/09_inverse/sim19_tissue_indentation_parameter_identification.py`: Automated hyperelastic parameter fitting from indenter test.
+  * Backward fixed-point inverse elastostatic solver to determine the undeformed, stress-free reference geometry $\boldsymbol{X}_0$ from clinical scans of pre-gravitationally sagged organs:
+    $$\boldsymbol{X}_0^{(k+1)} = \boldsymbol{X}_{\text{scan}} - \boldsymbol{u}(\boldsymbol{X}_0^{(k)}; \boldsymbol{g}_{\text{scan}})$$
+  * Eliminates double-gravity bias when re-orienting organs into surgical postures.
+* [ ] **Deliverable Demonstrations & Tests (Tiered Verification)**:
+  * `tests/test_ifem_observation.py`: Point-in-facet barycentric locator, $\boldsymbol{H}$ matrix assembly, and reduced projection $\boldsymbol{H}_r = \boldsymbol{H}\boldsymbol{\Phi}$.
+  * `tests/test_ifem_shape_sensing.py`: Full-order vs. reduced-order shape sensing accuracy ($< 2\%$ relative error), Tikhonov regularization $\alpha$ sensitivity.
+  * `tests/test_ifem_parameter_identification.py`: Automatic recovery of $E$ and $C_{10}$ within $1\%$ of ground truth from synthetic indentation tests.
+  * **Tier 1 (Canonical Beam Benchmark under Gravity)**:
+    * `examples/10_inverse/1001_beam_shape_sensing.py`: Reconstructing full 3D beam gravity deflection from 4–8 sparse top-surface markers (comparing FOM vs ROM vs analytical Euler-Bernoulli).
+    * `examples/10_inverse/1002_beam_parameter_identification.py`: Calibrating beam Young's modulus from tip force-deflection curve.
+    * `examples/10_inverse/1003_beam_stress_free_inversion.py`: Recovering undeformed straight beam from gravitationally sagged profile.
+  * **Tier 2 (Clinical Flagship Neurosurgical Brain Shift)**:
+    * `examples/10_inverse/1004_brain_shape_sensing.py`: Real-time 3D brain deformation and tumor drift reconstruction from 10–20 cortical surface markers.
+    * `examples/10_inverse/1005_brain_parameter_identification.py`: Patient-specific soft tissue stiffness calibration from surgical indenter probe.
+    * `examples/10_inverse/1006_brain_stress_free_inversion.py`: Pre-operative zero-gravity reference configuration reconstruction from supine MRI scan.
 
 ---
 
