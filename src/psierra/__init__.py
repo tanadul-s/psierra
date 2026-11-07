@@ -26,6 +26,15 @@ from psierra.reduction import (
     ReducedLinearStaticSolver,
     ReducedSolverStats,
 )
+from psierra.hyperreduction import (
+    ReducedIntegrationDomain,
+    ECSWTrainingMatrix,
+    ECSWOptimizer,
+    HyperReducedNonlinearModel,
+    HyperReducedNonlinearStaticSolver,
+    HyperReducedNonlinearDynamicSolver,
+    HyperReducedSolverStats,
+)
 
 __version__ = "26.10"
 __all__ = [
@@ -47,4 +56,11 @@ __all__ = [
     "ReducedLinearDynamicSolver",
     "ReducedLinearStaticSolver",
     "ReducedSolverStats",
+    "ReducedIntegrationDomain",
+    "ECSWTrainingMatrix",
+    "ECSWOptimizer",
+    "HyperReducedNonlinearModel",
+    "HyperReducedNonlinearStaticSolver",
+    "HyperReducedNonlinearDynamicSolver",
+    "HyperReducedSolverStats",
 ]

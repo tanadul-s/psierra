@@ -144,6 +144,11 @@ class PODBasis:
         """Number of retained reduced basis modes r."""
         return self.basis.shape[1]
 
+    @property
+    def basis_matrix(self) -> np.ndarray:
+        """Modal basis projection matrix Phi in R^(n_dofs x r)."""
+        return self.basis
+
     def project(self, u: np.ndarray) -> np.ndarray:
         """
         Projects full-field state vector into reduced coordinates:
