@@ -252,21 +252,28 @@ $$\text{Forward Continuum Mechanics} \longrightarrow \text{Contact Mechanics} \l
 
 ### Loop 4A: POD-Galerkin ROM & Real-Time Foundation (★ Active / Approved Focus ★)
 
-* [ ] **Offline Snapshot Matrix Management & SVD Basis Generation**:
-  * Collect displacement snapshots matrix $\boldsymbol{S} = [\boldsymbol{u}_1, \boldsymbol{u}_2, \dots, \boldsymbol{u}_m] \in \mathbb{R}^{n \times m}$ from forward dynamic / static simulations (`psierra/mor/snapshots.py`).
+* [ ] **Offline Snapshot Matrix Management & SVD Basis Generation (`psierra/mor/snapshots.py`)**:
+  * Collect displacement snapshot matrix $\boldsymbol{S} = [\boldsymbol{u}_1, \boldsymbol{u}_2, \dots, \boldsymbol{u}_m] \in \mathbb{R}^{n \times m}$ from forward linear dynamic simulations.
+  * Auto-caching via compressed NumPy archive (`.npz`):
+    * If cached `.npz` file exists on disk, load snapshot matrix and metadata instantly.
+    * If not found, execute offline FOM training run, collect snapshots, save compressed `.npz`, and proceed.
   * Thin Singular Value Decomposition (SVD): $\boldsymbol{S} = \boldsymbol{U} \boldsymbol{\Sigma} \boldsymbol{V}^T$.
   * Truncation based on cumulative energy spectrum ($\ge 0.999$).
   * Extract orthonormal reduced basis matrix $\boldsymbol{\Phi} = \boldsymbol{U}[:, :r] \in \mathbb{R}^{n \times r}$ ($r \approx 5\text{--}20$ modes).
-* [ ] **Linear & Corotational POD-Galerkin ROM**:
-  * Exact Galerkin projection of structural matrices onto low-dimensional subspace ($r \ll n$):
-    $$\boldsymbol{K}_r = \boldsymbol{\Phi}^T \boldsymbol{K} \boldsymbol{\Phi}, \quad \boldsymbol{M}_r = \boldsymbol{\Phi}^T \boldsymbol{M} \boldsymbol{\Phi}, \quad \boldsymbol{f}_r = \boldsymbol{\Phi}^T \boldsymbol{f}$$
-  * Fast online dynamic solver (`psierra/mor/solver.py`): solves the dense $r \times r$ linear system in $< 0.5$ ms.
+* [ ] **Linear POD-Galerkin Reduced Model (`psierra/mor/pod.py`)**:
+  * Exact Galerkin projection of linear structural operators onto low-dimensional subspace ($r \ll n$):
+    $$\boldsymbol{K}_r = \boldsymbol{\Phi}_f^T \boldsymbol{K}_{ff} \boldsymbol{\Phi}_f, \quad \boldsymbol{M}_r = \boldsymbol{\Phi}_f^T \boldsymbol{M}_{ff} \boldsymbol{\Phi}_f, \quad \boldsymbol{C}_r = \boldsymbol{\Phi}_f^T \boldsymbol{C}_{ff} \boldsymbol{\Phi}_f, \quad \boldsymbol{f}_r = \boldsymbol{\Phi}_f^T \boldsymbol{f}_f$$
+  * Partitioning with Dirichlet constraints preserving prescribed boundary conditions and free DOFs.
+* [ ] **Fast Online Dynamic Solver (`psierra/mor/solver.py`)**:
+  * Dense Generalized-$\alpha$ dynamic solver: pre-factorizes effective dynamic stiffness $\boldsymbol{K}_{\text{eff}, r} \in \mathbb{R}^{r \times r}$ via Cholesky decomposition.
+  * Ultra-fast online solve per step in $< 0.05$ ms ($> 20,000$ Hz physics rate).
 * [ ] **Real-Time Surface Reconstruction**:
-  * Pre-extracted surface sub-basis $\boldsymbol{\Phi}_{\text{surf}} = \boldsymbol{\Phi}[\text{surface\_dofs}, :]$ for instantaneous 3D surface rendering:
+  * Pre-extracted surface sub-basis $\boldsymbol{\Phi}_{\text{surf}} = \boldsymbol{\Phi}[\text{surface\_dofs}, :]$ for instantaneous 3D surface mesh rendering:
     $$\boldsymbol{u}_{\text{surf}} = \boldsymbol{\Phi}_{\text{surf}} \boldsymbol{u}_r$$
 * [ ] **Deliverable Demonstrations & Tests (Loop 4A)**:
-  * `tests/test_mor_pod_galerkin.py`: Basis orthonormality ($\boldsymbol{\Phi}^T \boldsymbol{\Phi} = \boldsymbol{I}_r$), ROM vs. FOM accuracy verification ($< 2\%$ relative error).
-  * `examples/08_mor/sim17_realtime_reduced_dynamic_beam.py`: Real-time online dynamic simulation running at $> 500$ Hz.
+  * `tests/test_mor_pod_galerkin.py`: Basis orthonormality ($\boldsymbol{\Phi}^T \boldsymbol{\Phi} = \boldsymbol{I}_r$), ROM vs. FOM accuracy verification ($< 2\%$ relative error), `.npz` save/load caching integrity.
+  * `examples/09_mor/0901_reduced_dynamic_beam.py`: Linear dynamic cantilever beam deflection under gravitational body load, comparing FOM vs. ROM accuracy ($< 2\%$ error) and speedup ($> 100\times$) with automatic `.npz` snapshot caching.
+  * `examples/09_mor/0902_interactive_reduced_brain_shift.py`: Real-time interactive surgical brain-shift deformation and telemetry tracking with instant 3D surface reconstruction and instrument perturbation.
 
 ### Loop 4B: Energy-Conserving Hyper-Reduction (ECSW)
 
@@ -315,6 +322,8 @@ $$\text{Forward Continuum Mechanics} \longrightarrow \text{Contact Mechanics} \l
 
 *Objective*: Advanced research enhancements, non-smooth contact theories, and multiphysics to be added after the end-to-end iFEM loop is fully working and verified.
 
+* [ ] **Hierarchical & Streaming Dataset Backends (HDF5 / Zarr)**:
+  * High-capacity out-of-core snapshot streaming and chunked storage for massive-scale multi-gigabyte simulation runs ($> 10^6$ DOFs, continuous trajectory logging).
 * [ ] **Discrete Empirical Interpolation Method (DEIM / Q-DEIM Hyper-Reduction)**:
   * Force snapshot matrix generation $\boldsymbol{S}_f = [\boldsymbol{f}_{\text{int}}(\boldsymbol{u}_1), \dots, \boldsymbol{f}_{\text{int}}(\boldsymbol{u}_m)]$.
   * SVD basis computation for nonlinear force representation $\boldsymbol{\Psi}_f \in \mathbb{R}^{n \times m}$.
