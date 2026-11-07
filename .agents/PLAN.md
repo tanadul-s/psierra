@@ -304,16 +304,31 @@ $$\text{Forward Continuum Mechanics} \longrightarrow \text{Contact Mechanics} \l
 * [x] **Hyper-Reduced Online Solvers (`psierra/hyperreduction/solver.py`)**:
     * `HyperReducedNonlinearStaticSolver`: Incremental Newton-Raphson on $\mathbb{R}^r$ with dense Cholesky/LU linear solves, achieving quadratic convergence in $< 5$ ms without element inversion.
     * `HyperReducedNonlinearDynamicSolver`: Dense Generalized-$\alpha$ dynamic stepping on $\mathbb{R}^r$ with high-frequency numerical dissipation and telemetry stats at $> 900\text{--}1{,}200$ Hz update rates.
+* [x] **Hyper-Reduced Rigid Contact (`HyperReducedRigidContact` in `psierra/hyperreduction/contact.py`)**:
+    * Sub-basis boundary kinematics projection mapping modal coordinates directly to surface configuration: $\boldsymbol{x}_{\text{surf}} = \boldsymbol{X}_{\text{surf}} + \boldsymbol{\Phi}_{\text{surf}} \boldsymbol{u}_r$.
+    * Vectorized collision detection and gap calculation against rigid analytical obstacles (`RigidSphere`, `RigidPlane`, `RigidCylinder`, `RayMeshObstacle`).
+    * Direct modal contact force projection onto the reduced basis:
+      $$\boldsymbol{f}_{r, c} = \sum_{i \in \text{active}} \boldsymbol{\Phi}_{s, i}^T \boldsymbol{f}_{c, i} = \boldsymbol{v}_{\text{proj}}^T \boldsymbol{p}_N \in \mathbb{R}^r$$
+    * Exact symmetric positive semi-definite tangent stiffness projection via rank-1 outer products preserving quadratic Newton-Raphson convergence:
+      $$\boldsymbol{K}_{r, c} = \frac{\partial \boldsymbol{f}_{r, c}}{\partial \boldsymbol{u}_r} = \sum_{i \in \text{active}} k_p^* (\boldsymbol{v}_i \boldsymbol{v}_i^T) \in \mathbb{R}^{r \times r}, \quad \boldsymbol{v}_i = \boldsymbol{\Phi}_{s, i}^T \boldsymbol{n}_i$$
+    * Both Uzawa Augmented Lagrangian (default, accumulating multipliers $\lambda_i \leftarrow \max(0, \lambda_i - k_p g_i)$) and Penalty formulations with runtime toggling (`toggle_formulation()`) and reset.
+    * Integrated into `HyperReducedNonlinearStaticSolver` and `HyperReducedNonlinearDynamicSolver`.
 * [x] **Deliverable Demonstrations & Tests (Loop 4B)**:
+  * `tests/test_hyperreduction_contact.py`: 5 unit and integration tests validating modal contact force projection, exact tangent stiffness symmetry ($\boldsymbol{K}_{r, c} = \boldsymbol{K}_{r, c}^T$ to machine precision $< 10^{-14}$), positive semi-definiteness ($\boldsymbol{w}^T \boldsymbol{K}_{r, c} \boldsymbol{w} \ge 0$), Uzawa multiplier accumulation, formulation toggling, and static/dynamic solvers running with contact at $> 450$ Hz (100% passing).
   * `tests/test_hyperreduction_ecsw.py`: 8 unit and benchmark tests validating RID persistence, training matrix projection identities, stiffness augmentation, greedy NNLS convergence, tangent stiffness symmetry ($\boldsymbol{K}_{r, t} = \boldsymbol{K}_{r, t}^T$ to machine precision $< 10^{-14}$), static equilibrium convergence, and dynamic solve exceeding $> 1{,}000$ Hz (100% passing).
   * `examples/09_mor/0903_hyperreduced_nonlinear_beam.py`: Flagship interactive and headless demonstration comparing full-order finite-strain Neo-Hookean beam against ECSW hyper-ROM:
     * 791 elements $\to$ 4 elements evaluated per step (99.5% reduction, 197.8x element reduction).
     * Solves at $> 925$ Hz with exact matching tip deflection and live PyVista interactive rendering.
     * Registered in `psierra/scripts/examples.txt`.
-  * `examples/09_mor/0904_interactive_hyperreduced_brain_shift.py`: Clinical-scale interactive neurosurgical brain-shift simulator using ECSW hyper-reduction:
+  * `examples/09_mor/0904_hyperreduced_brain_shift.py`: Clinical-scale interactive neurosurgical brain-shift simulator using ECSW hyper-reduction:
     * Full 90,586 element finite element mesh $\to$ 12 evaluated elements (99.99% element reduction, ~7,550x speedup).
     * Solves at $> 330$ Hz with instant sub-microsecond surface and tumor target reconstruction.
     * Interactive head reorientation, surgical presets, transparent cranial vault, and live telemetry HUD.
+    * Registered in `psierra/scripts/examples.txt`.
+  * `examples/09_mor/0905_hyperreduced_brain_shift_contact.py`: Interactive neurosurgical brain shift with rigid instrument indentation contact:
+    * Full anatomical brain mesh (90,586 elements hyper-reduced to 12 integration elements) contacting a movable spherical surgical probe.
+    * Seamless runtime toggling between Augmented Lagrangian (default, robust zero-penetration) and Penalty formulations via key `[C]`.
+    * Interactive 3D probe repositioning (`I/K`, `J/L`, `U/O`), 6 clinical trajectory presets, head rotation (`W/S`, `A/D`, `Q/E`), skull and ghost transparency controls, and live telemetry HUD tracking penetration, normal contact load, and effective solve rate ($> 300\text{--}400$ Hz).
     * Registered in `psierra/scripts/examples.txt`.
   * `docs/09_energy_conserving_hyper_reduction_ecsw.md`: Comprehensive theoretical and computational guide with equations, algorithm flowcharts, and empirical benchmarks.
 
@@ -361,6 +376,12 @@ $$\text{Forward Continuum Mechanics} \longrightarrow \text{Contact Mechanics} \l
   * Reduced nonlinear force approximation:
     $$\boldsymbol{f}_r \approx \boldsymbol{\Phi}^T \boldsymbol{\Psi}_f (\boldsymbol{P}^T \boldsymbol{\Psi}_f)^{-1} \boldsymbol{f}_{\text{int}}(\boldsymbol{u})[\boldsymbol{P}]$$
     evaluating internal forces only at sample DOFs rather than across the full mesh.
+* [ ] **Contact-Aware Empirical Cubature & Enriched POD Basis (Method 2 Hyper-Reduced Contact)**:
+  * Formulate joint cubature optimization in ECSW where the training matrix incorporates virtual work contributions from contact boundary interfaces alongside interior strain energy:
+    $$\boldsymbol{A}_{\text{joint}} = \begin{bmatrix} \boldsymbol{A}_{\text{vol}} \\ \alpha_c \boldsymbol{A}_{\text{contact}} \end{bmatrix}, \quad \boldsymbol{c}_{c, i}^{(k)} = \boldsymbol{\Phi}_{s, i}^T \boldsymbol{f}_{c, i}^{(k)}$$
+  * Automatic clustering of reduced integration domain (RID) elements around high-gradient contact zones, preventing spurious penetration artifacts without requiring manual element tagging.
+  * Localized modal basis enrichment (e.g., Krylov contact vectors, dual-mode basis $\boldsymbol{\Phi} = [\boldsymbol{\Phi}_{\text{bulk}}, \boldsymbol{\Phi}_{\text{contact}}]$) to capture sharp indentation cusps beyond global low-frequency vibration modes.
+  * Hyper-reduced deformable-to-deformable mesh-to-mesh contact coupling with dual reduced integration domains and fast bounding-volume hierarchy (BVH) tracking.
 * [ ] **Advanced Non-Smooth Contact Mechanics & $C^0$ Facet Chattering Mitigation**:
   * **The 3-Pillar Contact Regularization Architecture** (Resolving high-energy dynamic impact breakdowns, facet chattering, and line-search stalls in deformable-to-deformable mesh contact):
     * *Literature References*: P. Wriggers (2006) *Computational Contact Mechanics* (Ch. 6, 10, 11); T. A. Laursen (2002) *Computational Contact and Impact Mechanics* (Ch. 4, 6); FEBio Theory Manual (Sec. 7.1.2, 7.1.3, 8.1).
