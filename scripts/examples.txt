@@ -86,3 +86,11 @@
 0903 --headless    # hyperreduced_nonlinear_beam.py
 0904 --headless    # hyperreduced_brain_shift.py
 0905 --headless    # hyperreduced_brain_shift_contact.py
+
+# ------------------------------------------------------------------------------
+# 10_inverse: Inverse FEM (iFEM) & Parameter Identification
+# ------------------------------------------------------------------------------
+1001    # beam_shape_sensing.py (Variational shape sensing from sparse surface markers)
+1002    # beam_parameter_identification.py (Calibrating Young's modulus from force-deflection curve)
+
+
