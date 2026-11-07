@@ -84,4 +84,5 @@
 0901 --headless    # reduced_dynamic_beam.py
 0902 --headless    # interactive_reduced_brain_shift.py
 0903 --headless    # hyperreduced_nonlinear_beam.py
-0904 --headless    # interactive_hyperreduced_brain_shift.py
+0904 --headless    # hyperreduced_brain_shift.py
+0905 --headless    # hyperreduced_brain_shift_contact.py
