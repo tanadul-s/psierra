@@ -37,6 +37,17 @@ from psierra.hyperreduction import (
     HyperReducedRigidContact,
     ContactTelemetry,
 )
+from psierra.inverse import (
+    DiscreteSensor,
+    SensorObservationOperator,
+    ReducedSensorObservationOperator,
+    ShapeSensingResult,
+    FullOrderShapeSensingSolver,
+    ReducedOrderShapeSensingSolver,
+    ParameterBounds,
+    IdentificationResult,
+    MaterialParameterIdentifier,
+)
 
 __version__ = "26.10"
 __all__ = [
@@ -67,4 +78,13 @@ __all__ = [
     "HyperReducedSolverStats",
     "HyperReducedRigidContact",
     "ContactTelemetry",
+    "DiscreteSensor",
+    "SensorObservationOperator",
+    "ReducedSensorObservationOperator",
+    "ShapeSensingResult",
+    "FullOrderShapeSensingSolver",
+    "ReducedOrderShapeSensingSolver",
+    "ParameterBounds",
+    "IdentificationResult",
+    "MaterialParameterIdentifier",
 ]
