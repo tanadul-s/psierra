@@ -17,6 +17,15 @@ from psierra.collision import (
     RayMeshObstacle,
     CollisionDetector,
 )
+from psierra.reduction import (
+    PODBasis,
+    SurfacePODBasis,
+    SnapshotManager,
+    ReducedLinearModel,
+    ReducedLinearDynamicSolver,
+    ReducedLinearStaticSolver,
+    ReducedSolverStats,
+)
 
 __version__ = "26.10"
 __all__ = [
@@ -31,4 +40,11 @@ __all__ = [
     "RigidCylinder",
     "RayMeshObstacle",
     "CollisionDetector",
+    "PODBasis",
+    "SurfacePODBasis",
+    "SnapshotManager",
+    "ReducedLinearModel",
+    "ReducedLinearDynamicSolver",
+    "ReducedLinearStaticSolver",
+    "ReducedSolverStats",
 ]
