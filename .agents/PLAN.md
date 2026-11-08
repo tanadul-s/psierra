@@ -47,7 +47,8 @@ $$\text{Forward Continuum Mechanics} \longrightarrow \text{Contact Mechanics} \l
 * [x] End-to-end runnable demonstration scripts in `examples/` authored by `developer` with PyVista 3D visualization.
 * [x] **Tiered Automated Test Suite in `tests/`**:
   * [x] `tests/test_material.py`: Parameter conversions, Hookean/Neo-Hookean stress & tangent consistency via finite difference ($< 10^{-4}$).
-  * [x] `tests/test_element_tet4.py`: Volume calculation, shape function partition of unity, B-matrix, patch test ($< 10^{-14}$), rigid body translation & rotation invariance ($< 10^{-10}$).
+  * [x] `tests/test_element_tet4_linear.py` & `tests/test_element_tet4_total_lagrangian.py`: Volume calculation, shape function partition of unity, B-matrix, patch test ($< 10^{-14}$), rigid body translation & rotation invariance ($< 10^{-10}$), small-strain limit consistency, and tangent derivative checks.
+  * [x] `tests/test_element_tet4_corotational.py` & `tests/test_element_tet4_updated_lagrangian.py`: Polar decomposition, invariance, rotated strain equivariance, and exact machine-precision TL/UL equivalence.
   * [x] `tests/test_mesh.py`: VolumetricMesh & SurfaceMesh loading, boundary extraction, volume/area, coordinate transforms.
   * [x] `tests/test_boundary.py`: Dirichlet constraint indexing, DOF reduction, lifecycle (`add`/`remove`/`clear`), nodal force & gravity load assembly.
   * [x] `tests/test_solvers_linear.py`: DirectSolver, FactorizedSolver, and ConjugateGradientSolver solving $A x = b$.
@@ -65,7 +66,7 @@ $$\text{Forward Continuum Mechanics} \longrightarrow \text{Contact Mechanics} \l
   * Shape function gradient evaluations, numerical quadrature (4-point / 5-point Gauss rules in `psierra/element/quadrature.py`), and B-matrix.
   * Exact analytical consistent mass matrix integration.
   * Total Lagrangian formulation with consistent tangent stiffness matrix ($k_{tan}$ matches finite difference to $< 10^{-9}$).
-  * Full suite of 13 unit tests in `tests/test_element_tet10.py` and cantilever shear locking alleviation benchmark ($1.87\times$ flexibility over Tet4) in `tests/test_analysis_linear.py`.
+  * Full suite of unit tests split modularly by formulation (`tests/test_element_tet10_linear.py`, `tests/test_element_tet10_total_lagrangian.py`, and `tests/test_element_tet10_updated_lagrangian.py`) and cantilever shear locking alleviation benchmark ($1.87\times$ flexibility over Tet4) in `tests/test_analysis_linear.py`.
 * [x] **Triangular Structural Shell Elements (`Shell3` / `Shell6`)**:
   * 3-node linear (`Shell3`) and 6-node quadratic (`Shell6`) triangular shell elements matching surface boundary faces of solid tetrahedral meshes (`Tet4`, `Tet10`).
   * `Shell6` provides 100% conforming quadratic interface with `Tet10` solid volume without geometric gap or faceting error.
@@ -379,17 +380,18 @@ $$\text{Forward Continuum Mechanics} \longrightarrow \text{Contact Mechanics} \l
   * Executable demonstration delivered in `examples/10_inverse/1003_beam_stress_free_inversion.py` and registered in `scripts/examples.txt`.
 * [x] **Deliverable Demonstrations & Tests (Tiered Verification)**:
   * `tests/test_ifem_observation.py`: Point-in-facet barycentric locator, $\boldsymbol{H}$ matrix assembly, and reduced projection $\boldsymbol{H}_r = \boldsymbol{H}\boldsymbol{\Phi}$ (20 tests passing).
-  * `tests/test_ifem_shape_sensing.py`: Full-order vs. reduced-order shape sensing accuracy ($< 2\%$ relative error), Tikhonov regularization $\alpha$ sensitivity (10 tests passing).
+  * `tests/test_ifem_shape_sensing.py`: Full-order vs. reduced-order shape sensing accuracy ($< 2\%$ relative error), Tikhonov regularization $\alpha$ sensitivity, dynamic trajectory reconstruction (11 tests passing).
   * `tests/test_ifem_parameter_identification.py`: Automatic recovery of $E$ and $C_{10}$ within $1\%$ of ground truth from synthetic indentation tests (12 tests passing).
   * `tests/test_ifem_stress_free.py`: Reference configuration recovery ($< 10^{-3}\text{ mm}$ error), Aitken acceleration, nonlinear inversion, and posture bias elimination (26 tests passing).
-  * **Tier 1 (Canonical Beam Benchmark under Gravity - Completed)**:
+  * **Tier 1 (Canonical Beam Benchmark under Static & Dynamic Load - Completed)**:
     * [x] `examples/10_inverse/1001_beam_shape_sensing.py`: Reconstructing full 3D beam gravity deflection from 4–8 sparse top-surface markers (comparing FOM vs ROM vs analytical Euler-Bernoulli).
     * [x] `examples/10_inverse/1002_beam_parameter_identification.py`: Calibrating beam Young's modulus from tip force-deflection curve.
     * [x] `examples/10_inverse/1003_beam_stress_free_inversion.py`: Recovering undeformed straight beam from gravitationally sagged profile.
+    * [x] `examples/10_inverse/1004_dynamic_beam_shape_sensing.py`: Continuous real-time dynamic shape sensing (> 33,000 Hz) and deep target tracking under transient vibration with 4D ParaView PVD animation export.
   * **Tier 2 (Clinical Flagship Neurosurgical Brain Shift)**:
-    * `examples/10_inverse/1004_brain_shape_sensing.py`: Real-time 3D brain deformation and tumor drift reconstruction from 10–20 cortical surface markers.
-    * `examples/10_inverse/1005_brain_parameter_identification.py`: Patient-specific soft tissue stiffness calibration from surgical indenter probe.
-    * `examples/10_inverse/1006_brain_stress_free_inversion.py`: Pre-operative zero-gravity reference configuration reconstruction from supine MRI scan.
+    * `examples/10_inverse/1005_brain_shape_sensing.py`: Real-time 3D brain deformation and tumor drift reconstruction from 10–20 cortical surface markers.
+    * `examples/10_inverse/1006_brain_parameter_identification.py`: Patient-specific soft tissue stiffness calibration from surgical indenter probe.
+    * `examples/10_inverse/1007_brain_stress_free_inversion.py`: Pre-operative zero-gravity reference configuration reconstruction from supine MRI scan.
 
 ---
 
