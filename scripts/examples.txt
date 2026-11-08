@@ -92,5 +92,6 @@
 # ------------------------------------------------------------------------------
 1001    # beam_shape_sensing.py (Variational shape sensing from sparse surface markers)
 1002    # beam_parameter_identification.py (Calibrating Young's modulus from force-deflection curve)
+1003    # beam_stress_free_inversion.py (Recovering undeformed reference geometry & eliminating double-gravity bias)
 
 
