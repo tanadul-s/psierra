@@ -18,6 +18,7 @@ from __future__ import annotations
 from pathlib import Path
 import time
 import numpy as np
+import pyvista as pv
 from rich.console import Console
 from rich.panel import Panel
 from rich.table import Table
@@ -67,7 +68,9 @@ def main() -> None:
     )
 
     # 2. Configuring Material & Element Formulation
-    console.print("\n[bold yellow][2/6] Configuring Material & Element Formulation[/bold yellow]")
+    console.print(
+        "\n[bold yellow][2/6] Configuring Material & Element Formulation[/bold yellow]"
+    )
     params = IsotropicElasticParameters()
     params.set_from_youngs_poisson(
         youngs_modulus=21000.0,
@@ -77,15 +80,25 @@ def main() -> None:
     material = Hookean(params)
     element = Tet4Linear(material)
     domain = SolidDomain(mesh, material, element)
-    console.print(f"  • Constitutive Law : [cyan]{material.__class__.__name__}[/cyan] (E = {params.youngs_modulus:.1f} MPa)")
-    console.print(f"  • Element Kinematics: [cyan]{element.__class__.__name__}[/cyan] (3D Linear Tetrahedron)")
+    console.print(
+        f"  • Constitutive Law : [cyan]{material.__class__.__name__}[/cyan] (E = {params.youngs_modulus:.1f} MPa)"
+    )
+    console.print(
+        f"  • Element Kinematics: [cyan]{element.__class__.__name__}[/cyan] (3D Linear Tetrahedron)"
+    )
 
     # 3. Forward Ground Truth Simulation
-    console.print("\n[bold yellow][3/6] Executing Forward Ground Truth Simulation[/bold yellow]")
+    console.print(
+        "\n[bold yellow][3/6] Executing Forward Ground Truth Simulation[/bold yellow]"
+    )
     # Clamped root at Z_min
     z_min = mesh.bounds[4]
-    root_nodes = select_nodes_by_bounds(mesh, bounds=(-100, 100, -100, 100, z_min - 1, z_min + 5))
-    clamp = DirichletConstraint(node_indices=root_nodes, components=(0, 1, 2), value=0.0)
+    root_nodes = select_nodes_by_bounds(
+        mesh, bounds=(-100, 100, -100, 100, z_min - 1, z_min + 5)
+    )
+    clamp = DirichletConstraint(
+        node_indices=root_nodes, components=(0, 1, 2), value=0.0
+    )
     dirichlet = DirichletManager(domain.mesh.n_dofs)
     dirichlet.add_constraint(clamp)
 
@@ -103,11 +116,17 @@ def main() -> None:
     peak_deflection = float(np.max(np.abs(u_ground_truth[1::3])))
     tip_deflection_truth = float(np.mean(np.abs(u_ground_truth[3 * tip_nodes + 1])))
 
-    console.print(f"  • Clamped Root     : [green]{len(root_nodes)}[/green] nodes ({len(clamp.dofs)} DOFs)")
-    console.print(f"  • Peak Deflection  : [green]{peak_deflection:.2f}[/green] mm (Tip Mean: [green]{tip_deflection_truth:.2f}[/green] mm)")
+    console.print(
+        f"  • Clamped Root     : [green]{len(root_nodes)}[/green] nodes ({len(clamp.dofs)} DOFs)"
+    )
+    console.print(
+        f"  • Peak Deflection  : [green]{peak_deflection:.2f}[/green] mm (Tip Mean: [green]{tip_deflection_truth:.2f}[/green] mm)"
+    )
 
     # 4. Sparse Surface Sensor Placement
-    console.print("\n[bold yellow][4/6] Deploying Sparse Discrete Surface Sensors[/bold yellow]")
+    console.print(
+        "\n[bold yellow][4/6] Deploying Sparse Discrete Surface Sensors[/bold yellow]"
+    )
     # Select 8 discrete marker locations distributed along beam longitudinal span
     smesh = mesh.surface
     z_targets = np.linspace(-10.0, 190.0, 8)
@@ -119,7 +138,9 @@ def main() -> None:
     sensor_points = np.array(sensor_points)
 
     op_full = SensorObservationOperator.from_surface_coordinates(mesh, sensor_points)
-    console.print(f"  • Surface Sensors  : [green]{op_full.n_sensors}[/green] discrete markers (24 measurement channels)")
+    console.print(
+        f"  • Surface Sensors  : [green]{op_full.n_sensors}[/green] discrete markers (24 measurement channels)"
+    )
     for i, s in enumerate(op_full.sensors):
         console.print(
             f"    Marker {i}: Coord=({s.coordinates[0]:.1f}, {s.coordinates[1]:.1f}, {s.coordinates[2]:.1f}) mm | "
@@ -129,10 +150,14 @@ def main() -> None:
     # Acquire synthetic measurements at sensors
     d_hat = op_full.observe(u_ground_truth)
     d_hat_3d = op_full.observe_3d(u_ground_truth)
-    console.print(f"  • Peak Sensor Disp : [green]{np.max(np.abs(d_hat_3d)):.2f}[/green] mm")
+    console.print(
+        f"  • Peak Sensor Disp : [green]{np.max(np.abs(d_hat_3d)):.2f}[/green] mm"
+    )
 
     # 5. Executing Variational Shape Sensing (FOM & ROM)
-    console.print("\n[bold yellow][5/6] Executing Variational Shape Sensing Inversion[/bold yellow]")
+    console.print(
+        "\n[bold yellow][5/6] Executing Variational Shape Sensing Inversion[/bold yellow]"
+    )
 
     # 5A: Full-Order iFEM Solve
     console.print("  [cyan]Solving Full-Order iFEM (FOM)...[/cyan]")
@@ -140,9 +165,13 @@ def main() -> None:
     solver_fom = FullOrderShapeSensingSolver(op_full, K, alpha=1e-11)
     res_fom = solver_fom.solve(d_hat)
     t_fom = time.perf_counter() - t0_fom
-    fom_field_err = np.linalg.norm(res_fom.displacement - u_ground_truth) / np.linalg.norm(u_ground_truth)
+    fom_field_err = np.linalg.norm(
+        res_fom.displacement - u_ground_truth
+    ) / np.linalg.norm(u_ground_truth)
     tip_deflection_fom = float(np.mean(np.abs(res_fom.displacement[3 * tip_nodes + 1])))
-    console.print(f"    FOM solved in [green]{t_fom*1e3:.2f} ms[/green] | Relative Field Error: [green]{fom_field_err*100:.2f}%[/green]")
+    console.print(
+        f"    FOM solved in [green]{t_fom*1e3:.2f} ms[/green] | Relative Field Error: [green]{fom_field_err*100:.2f}%[/green]"
+    )
 
     # 5B: Reduced-Order iFEM Solve (ROM)
     console.print("  [cyan]Solving Reduced-Order iFEM (ROM)...[/cyan]")
@@ -162,9 +191,13 @@ def main() -> None:
     t0_rom = time.perf_counter()
     res_rom = solver_rom.solve(d_hat, reconstruct_full_field=True)
     t_rom = time.perf_counter() - t0_rom
-    rom_field_err = np.linalg.norm(res_rom.displacement - u_ground_truth) / np.linalg.norm(u_ground_truth)
+    rom_field_err = np.linalg.norm(
+        res_rom.displacement - u_ground_truth
+    ) / np.linalg.norm(u_ground_truth)
     tip_deflection_rom = float(np.mean(np.abs(res_rom.displacement[3 * tip_nodes + 1])))
-    console.print(f"    ROM solved in [green]{t_rom*1e6:.2f} µs[/green] | Relative Field Error: [green]{rom_field_err*100:.2f}%[/green]")
+    console.print(
+        f"    ROM solved in [green]{t_rom*1e6:.2f} µs[/green] | Relative Field Error: [green]{rom_field_err*100:.2f}%[/green]"
+    )
 
     # 6. Verification Summary & State Export
     console.print("\n[bold yellow][6/6] Verifying Results & State Export[/bold yellow]")
@@ -177,7 +210,9 @@ def main() -> None:
     q = params.mass_density * (b * h) * 9.81e3  # N/mm
     analytical_tip = (q * L**4) / (8.0 * params.youngs_modulus * I_y)
 
-    table = Table(title="1001 Shape Sensing iFEM Benchmark Summary", border_style="cyan")
+    table = Table(
+        title="1001 Shape Sensing iFEM Benchmark Summary", border_style="cyan"
+    )
     table.add_column("Model / Method", style="bold white")
     table.add_column("Tip Deflection (Y)", style="cyan")
     table.add_column("Relative Field Error", style="green")
@@ -218,11 +253,25 @@ def main() -> None:
     # Export reconstructed results
     output_dir = Path("results/10_inverse/1001_beam_shape_sensing")
     output_dir.mkdir(parents=True, exist_ok=True)
-    output_path = output_dir / "reconstructed_beam.vtu"
+    output_path = output_dir / "result.vtu"
 
     domain.update_state(u=res_rom.displacement)
     domain.save_state(filepath=output_path, include_stresses=False)
-    console.print(f"[bold green]✓ Reconstructed shape successfully exported to:[/bold green] [cyan]{output_path}[/cyan]\n")
+    console.print(
+        f"[bold green]✓ Reconstructed shape exported to:[/bold green] [cyan]{output_path}[/cyan]"
+    )
+
+    # Save sparse surface tracking markers points
+    markers_poly = pv.PolyData(sensor_points)
+    markers_poly["Displacement"] = d_hat_3d
+    markers_poly["Marker ID"] = np.arange(op_full.n_sensors, dtype=np.int32)
+    markers_poly["Magnitude"] = np.linalg.norm(d_hat_3d, axis=1)
+
+    markers_vtp_path = output_dir / "markers.vtp"
+    markers_poly.save(str(markers_vtp_path))
+    console.print(
+        f"[bold green]✓ Sparse surface markers exported to:[/bold green] [cyan]{markers_vtp_path}[/cyan]\n"
+    )
 
 
 if __name__ == "__main__":
