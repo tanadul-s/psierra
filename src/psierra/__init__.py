@@ -47,6 +47,8 @@ from psierra.inverse import (
     ParameterBounds,
     IdentificationResult,
     MaterialParameterIdentifier,
+    StressFreeResult,
+    StressFreeConfigurationSolver,
 )
 
 __version__ = "26.10"
@@ -87,4 +89,6 @@ __all__ = [
     "ParameterBounds",
     "IdentificationResult",
     "MaterialParameterIdentifier",
+    "StressFreeResult",
+    "StressFreeConfigurationSolver",
 ]

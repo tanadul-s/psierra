@@ -11,6 +11,8 @@ Provides:
 - ParameterBounds: Boundary constraints and initial values for material parameter calibration.
 - IdentificationResult: Convergence diagnostics, calibrated parameters, and error metrics.
 - MaterialParameterIdentifier: Nonlinear least-squares optimizer for constitutive parameter calibration.
+- StressFreeResult: Undeformed reference configuration reconstruction results and telemetry.
+- StressFreeConfigurationSolver: Backward fixed-point solver for zero-pressure / zero-gravity states.
 """
 
 from psierra.inverse.observation import (
@@ -28,6 +30,10 @@ from psierra.inverse.parameter_identification import (
     IdentificationResult,
     MaterialParameterIdentifier,
 )
+from psierra.inverse.stress_free import (
+    StressFreeResult,
+    StressFreeConfigurationSolver,
+)
 
 __all__ = [
     "DiscreteSensor",
@@ -39,4 +45,6 @@ __all__ = [
     "ParameterBounds",
     "IdentificationResult",
     "MaterialParameterIdentifier",
+    "StressFreeResult",
+    "StressFreeConfigurationSolver",
 ]
