@@ -18,19 +18,19 @@ $$\text{Forward Continuum Mechanics} \longrightarrow \text{Contact Mechanics} \l
 [ Phase 1: Linear FEM Core ] (Completed)
             │
             ▼
-[ Phase 2: Non-Linear Continua & Hyperelasticity ] (In Finalization)
+[ Phase 2: Non-Linear Continua & Hyperelasticity ] (Completed)
             │
             ▼
-[ Phase 3: Contact Mechanics (Penalty & Augmented Lagrangian) ]
+[ Phase 3: Contact Mechanics (Penalty & Augmented Lagrangian) ] (Completed)
             │
             ▼
-[ Phase 4: Model Order Reduction (Loop 4A: POD-Galerkin ROM; Loop 4B: ECSW) ]
+[ Phase 4: Model Order Reduction (Loop 4A: POD-Galerkin ROM; Loop 4B: ECSW) ] (Completed)
             │
             ▼
-[ Phase 5: Inverse FEM (iFEM) & Parameter Identification ] ★ Primary End Goal ★
+[ Phase 5: Inverse FEM (iFEM) & Parameter Identification ] (Completed ★ Primary Loop Closed ★)
             │
             ▼
-[ Phase 6+: Post-Loop Enhancements (DEIM, Mortar Contact, Multiphysics) ]
+[ Phase 6+: Post-Loop Enhancements (DEIM, Mortar Contact, Multiphysics) ] (Active Roadmap)
 ```
 
 ---
@@ -393,6 +393,9 @@ $$\text{Forward Continuum Mechanics} \longrightarrow \text{Contact Mechanics} \l
     * [x] `examples/10_inverse/1006_brain_parameter_identification.py`: Patient-specific soft tissue stiffness calibration from surgical indenter probe (< 0.001% error via closed-form LLS & TRF optimization).
     * [x] `examples/10_inverse/1007_brain_stress_free_inversion.py`: Pre-operative zero-gravity reference configuration reconstruction from supine MRI scan, eliminating up to 10.4 mm of surgical posture double-gravity bias.
     * [x] `tests/test_ifem_brain_clinical.py`: 8 clinical unit, accuracy, and headless CLI smoke tests validating cortical marker projection, deep tumor drift tracking (< 0.2 mm error), stiffness identification, and double-gravity bias elimination (100% passing).
+  * [x] **Educational Documentation**:
+    * `docs/10_inverse_fem_and_parameter_identification.md`: Comprehensive theoretical and computational guide detailing variational shape sensing, discrete barycentric observation operators $\boldsymbol{H}$, exact closed-form and TRF parameter identification, and Sellier fixed-point reference configuration recovery with Aitken $\Delta^2$ dynamic relaxation.
+    * `docs/README.md`: Updated curriculum roadmap (Stage V), curriculum guide chapter summaries, and theoretical bibliography.
 
 ---
 

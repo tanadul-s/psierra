@@ -28,11 +28,17 @@ flowchart TD
     subgraph Stage4["Stage IV: Verification, Clinical Digital Twins & Real-Time MOR"]
         D07["07. Simulation Tutorials, Analytical Verification & Benchmarks<br/><i>Timoshenko beam (sim01-07), locking alleviation (sim08), Navier plate (sim09), brain sag (sim10)</i>"]
         D08["08. Model Order Reduction (POD-Galerkin) & Real-Time Dynamics<br/><i>Displacement snapshots, thin SVD, .npz auto-cache, dense Cholesky solver (>20,000 Hz), surface sub-basis</i>"]
+        D09["09. Energy-Conserving Hyper-Reduction (ECSW)<br/><i>Nonlinear lifting bottleneck, cubature sub-mesh RID, exact tangent symmetry & SPD, NNLS training</i>"]
+    end
+
+    subgraph Stage5["Stage V: Inverse FEM & Clinical Parameter Inversion"]
+        D10["10. Inverse FEM, Constitutive Calibration & Stress-Free Inversion<br/><i>Variational shape sensing (FOM/ROM >50,000 Hz), closed-form LLS & TRF identification, Sellier Aitken inversion</i>"]
     end
 
     Stage1 --> Stage2
     Stage2 --> Stage3
     Stage3 --> Stage4
+    Stage4 --> Stage5
 
     D01 --> D02
     D02 --> D03
@@ -41,6 +47,8 @@ flowchart TD
     D05 --> D06
     D06 --> D07
     D07 --> D08
+    D08 --> D09
+    D09 --> D10
 ```
 
 ---
@@ -147,6 +155,32 @@ flowchart TD
   - Automatic `SnapshotManager.get_or_compute(cache_path, ...)` loading cached snapshots in $< 10\text{ ms}$.
 - Implementation map: [`SnapshotManager`](../src/psierra/reduction/snapshots.py), [`PODBasis`](../src/psierra/reduction/basis.py), [`SurfacePODBasis`](../src/psierra/reduction/basis.py), [`ReducedLinearModel`](../src/psierra/reduction/model.py), [`ReducedLinearDynamicSolver`](../src/psierra/reduction/solver.py).
 
+### 9. [Energy-Conserving Sampling and Weighting (ECSW) Hyper-Reduction](09_energy_conserving_hyper_reduction_ecsw.md)
+- **The Nonlinear Lifting Bottleneck**: Iterating over all $N_e$ elements every Newton-Raphson iteration destroys real-time performance in nonlinear projection-based ROM.
+- **Cubature Approximation**: Approximating reduced internal virtual work over a tiny sub-mesh RID ($|\tilde{\mathcal{E}}| \ll N_e$) with strictly positive weights $w_e > 0$:
+  $$\boldsymbol{f}_{r, \text{int}}(\boldsymbol{u}_r) \approx \sum_{e \in \tilde{\mathcal{E}}} w_e \boldsymbol{\Phi}_e^T \boldsymbol{f}_{\text{int}, e}(\boldsymbol{\Phi}_e \boldsymbol{u}_r)$$
+- **Guaranteed Variational Properties**:
+  - Exact tangent stiffness symmetry $\boldsymbol{K}_{r, t} = \boldsymbol{K}_{r, t}^T$ to machine precision.
+  - Strict positive-definiteness preserving numerical stability and energy conservation.
+- **Sparse Non-Negative Least Squares (NNLS)**: Greedy column selection with active-set Lawson-Hanson solver.
+- **Hyper-Reduced Rigid Contact**: Sub-basis surface projection, vectorized gap evaluation against analytical obstacles, rank-1 symmetric tangent stiffness updates, and Uzawa Augmented Lagrangian multipliers.
+- Implementation map: [`ECSWTrainer`](../src/psierra/hyperreduction/ecsw.py), [`HyperReducedNonlinearModel`](../src/psierra/hyperreduction/model.py), [`HyperReducedNonlinearStaticSolver`](../src/psierra/hyperreduction/solver.py), [`HyperReducedNonlinearDynamicSolver`](../src/psierra/hyperreduction/solver.py), [`HyperReducedRigidContact`](../src/psierra/hyperreduction/contact.py).
+
+### 10. [Inverse FEM (iFEM), Constitutive Calibration & Stress-Free Inversion](10_inverse_fem_and_parameter_identification.md)
+- **Variational Shape Sensing iFEM**:
+  - Tessler & Spangler regularized weighted least-squares functional balancing discrete measurement discrepancy vs. internal strain energy: $\min \frac{1}{2}\|\boldsymbol{H}\boldsymbol{u} - \hat{\boldsymbol{u}}\|_{\boldsymbol{W}}^2 + \frac{\alpha}{2}\boldsymbol{u}^T\boldsymbol{K}\boldsymbol{u}$.
+  - Continuous barycentric sensor observation operator $\boldsymbol{H} \in \mathbb{R}^{3 N_{\text{sensor}} \times n}$ with exact Voronoi facet projection and partition of unity.
+  - Subspace-projected Reduced-Order iFEM (ROM iFEM): Cholesky pre-factorization of dense $r \times r$ normal equations $(\boldsymbol{H}_r^T \boldsymbol{W} \boldsymbol{H}_r + \alpha \boldsymbol{K}_r)$ executing in $< 15\ \mu\text{s}$ ($> 65{,}000\text{ Hz}$).
+  - Instant direct subcortical landmark / tumor tracking: $\boldsymbol{u}_{\text{target}} = \boldsymbol{\Phi}_{\text{target}} \boldsymbol{u}_r$ (< 0.1 mm precision).
+- **Inverse Material Parameter Identification**:
+  - Closed-form exact linear elasticity calibration evaluating in $< 1\ \mu\text{s}$ to machine precision ($< 10^{-14}\%$ error).
+  - Trust-Region Reflective (TRF) and L-BFGS-B non-linear optimization with parameter bounds.
+- **Stress-Free Reference Configuration Inversion**:
+  - Eliminating intraoperative "double-gravity bias" where pre-operative supine MRI scans $\boldsymbol{X}_{\text{scan}}$ are already sagged under in-vivo 1G gravity.
+  - Sellier backward fixed-point iteration: $\boldsymbol{X}_0^{(k+1)} = \boldsymbol{X}_0^{(k)} + \omega_k (\boldsymbol{X}_{\text{scan}} - [\boldsymbol{X}_0^{(k)} + \boldsymbol{u}(\boldsymbol{X}_0^{(k)}; \boldsymbol{g}_{\text{supine}})])$.
+  - Adaptive Aitken $\Delta^2$ dynamic under-relaxation reducing position residuals to $< 0.33\text{ mm}$ in 4 iterations.
+- Implementation map: [`SensorObservationOperator`](../src/psierra/inverse/observation.py), [`ReducedSensorObservationOperator`](../src/psierra/inverse/observation.py), [`FullOrderShapeSensingSolver`](../src/psierra/inverse/shape_sensing.py), [`ReducedOrderShapeSensingSolver`](../src/psierra/inverse/shape_sensing.py), [`MaterialParameterIdentifier`](../src/psierra/inverse/parameter_identification.py), [`StressFreeConfigurationSolver`](../src/psierra/inverse/stress_free.py).
+
 ---
 
 ## Theoretical Bibliography & Reference Literature
@@ -160,8 +194,14 @@ flowchart TD
 7. **J. Chung & G.M. Hulbert**, *A Time Integration Algorithm for Structural Dynamics with Improved Numerical Dissipation: The Generalized-$\alpha$ Method*, Journal of Applied Mechanics, 60(2):371-375, 1993.
 8. **S. Volkwein**, *Proper Orthogonal Decomposition: Theory and Reduced-Order Modelling*, Lecture Notes, University of Konstanz, 2013.
 9. **P. Benner, S. Gugercin, & K. Willcox**, *A Survey of Projection-Based Model Reduction Methods for Parametric Dynamical Systems*, SIAM Review, 57(4):483-531, 2015.
-10. **J.L. Batoz, K.J. Bathe, & L.W. Ho**, *A Study of Three-Node Triangular Plate Bending Elements*, International Journal for Numerical Methods in Engineering, 15:1771-1812, 1980.
-11. **T.J.R. Hughes & F. Brezzi**, *On Drilling Degrees of Freedom*, Computer Methods in Applied Mechanics and Engineering, 72:105-121, 1989.
-12. **D.A. Dunavant**, *High Degree Efficient Symmetrical Gaussian Quadrature Rules for the Triangle*, International Journal for Numerical Methods in Engineering, 21:1129-1148, 1985.
-13. **P.C. Hammer, O.J. Marlowe, & A.H. Stroud**, *Numerical Integration over Simplexes and Cones*, Mathematical Tables and Other Aids to Computation, 10:130-137, 1956.
+10. **C. Farhat, P. Avery, T. Chapman, & J. Cortial**, *Dimensional Reduction of Nonlinear Finite Element Dynamic Models with Energy-Conserving Mesh Sampling and Weighting (ECSW)*, International Journal for Numerical Methods in Engineering, 98(9):625-662, 2014.
+11. **A. Tessler & H.R. Spangler**, *A Variational Principle for Reconstruction of Elastic Deformations in Shear Deformable Plates and Shells*, Computer Methods in Applied Mechanics and Engineering, 194(2-5):327-347, 2005.
+12. **M. Gherlone, P. Cerracchio, M. Mattone, M. Di Sciuva, & A. Tessler**, *Shape Sensing of 3D Frame Structures Using an Inverse Finite Element Method*, Composite Structures, 94(8):2426-2438, 2012.
+13. **M. Sellier**, *An Iterative Method for the Determination of the Stress-Free Configuration of Hyperelastic Materials*, Computer Methods in Applied Mechanics and Engineering, 200(49-52):3381-3388, 2011.
+14. **B.M. Irons & R.C. Tuck**, *A Version of the Aitken Accelerator for Computer Iteration*, International Journal for Numerical Methods in Engineering, 1(3):275-277, 1969.
+15. **A. Tarantola**, *Inverse Problem Theory and Methods for Model Parameter Estimation*, SIAM, 2005.
+16. **J.L. Batoz, K.J. Bathe, & L.W. Ho**, *A Study of Three-Node Triangular Plate Bending Elements*, International Journal for Numerical Methods in Engineering, 15:1771-1812, 1980.
+17. **T.J.R. Hughes & F. Brezzi**, *On Drilling Degrees of Freedom*, Computer Methods in Applied Mechanics and Engineering, 72:105-121, 1989.
+18. **D.A. Dunavant**, *High Degree Efficient Symmetrical Gaussian Quadrature Rules for the Triangle*, International Journal for Numerical Methods in Engineering, 21:1129-1148, 1985.
+19. **P.C. Hammer, O.J. Marlowe, & A.H. Stroud**, *Numerical Integration over Simplexes and Cones*, Mathematical Tables and Other Aids to Computation, 10:130-137, 1956.
 
