@@ -26,7 +26,8 @@ from psierra.mesh import VolumetricMesh
 from psierra.domain import SolidDomain
 from psierra.boundary.selector import select_nodes_by_bounds
 from psierra.boundary import DirichletConstraint, DirichletManager, GravityLoad
-from psierra.analysis import LinearStaticAnalysis
+from psierra.damping import RayleighDamping
+from psierra.analysis import LinearStaticAnalysis, InteractiveDynamicSimulation
 from psierra.reduction.basis import PODBasis
 from psierra.inverse import (
     SensorObservationOperator,
@@ -263,6 +264,78 @@ class TestReducedOrderShapeSensing:
         # Must solve in < 25 microseconds (> 40,000 Hz)
         assert dt_per_solve < 25e-6, f"Solve took {dt_per_solve*1e6:.2f} us (too slow)"
         assert rate_hz > 40_000, f"Solve rate {rate_hz:.0f} Hz is below requirement"
+
+    def test_dynamic_trajectory_shape_sensing_and_target_tracking(
+        self, beam_simulation_setup
+    ) -> None:
+        """Tests continuous dynamic time-series reconstruction and deep internal landmark tracking."""
+        mesh = beam_simulation_setup["mesh"]
+        base_domain = beam_simulation_setup["domain"]
+        domain = SolidDomain(mesh.copy(), base_domain.material, base_domain.element)
+        dirichlet = beam_simulation_setup["dirichlet"]
+        K = beam_simulation_setup["K"]
+
+        # Run short dynamic simulation (40 steps)
+        damping = RayleighDamping(alpha=1.0, beta=0.0015)
+        dt = 0.005
+        n_steps = 40
+        sim = InteractiveDynamicSimulation(
+            domain=domain,
+            damping=damping,
+            dirichlet=dirichlet,
+            dt=dt,
+            spectral_radius=0.8,
+        )
+        tip_nodes = np.where(mesh.nodes[:, 2] > (mesh.bounds[5] - 10.0))[0]
+        sim.f_ext_dynamic[3 * tip_nodes + 1] = -25.0
+
+        u_traj: list[np.ndarray] = []
+        for s in range(n_steps):
+            if s == 2:
+                sim.f_ext_dynamic.fill(0.0)
+            sim.step()
+            u_traj.append(sim.u_full.copy())
+
+        # Construct POD basis
+        S = np.column_stack(u_traj)
+        Phi, s_vals, _ = np.linalg.svd(S, full_matrices=False)
+        r = 3
+        basis = PODBasis(Phi[:, :r], s_vals[:r], 1.0, 1.0)
+        K_r = Phi[:, :r].T @ (K @ Phi[:, :r])
+
+        smesh = mesh.surface
+        z_targets = np.linspace(-10.0, 190.0, 8)
+        sensor_points = []
+        for z in z_targets:
+            candidates = np.where(np.abs(smesh.nodes[:, 2] - z) < 15.0)[0]
+            best_idx = candidates[np.argmax(smesh.nodes[candidates, 0])]
+            sensor_points.append(smesh.nodes[best_idx])
+        sensor_points = np.array(sensor_points)
+
+        op_full = SensorObservationOperator.from_surface_coordinates(
+            mesh, sensor_points
+        )
+        op_rom = op_full.reduce(basis)
+        solver = ReducedOrderShapeSensingSolver(op_rom, K_r, basis, alpha=1e-8)
+
+        # Track internal node
+        center_dists = np.linalg.norm(mesh.nodes - np.array([0.0, 0.0, 85.0]), axis=1)
+        internal_node = int(np.argmin(center_dists))
+
+        target_errors = []
+        for u_t in u_traj:
+            d_hat = op_full.observe(u_t)
+            res = solver.solve(d_hat, reconstruct_full_field=False)
+            u_tgt = solver.reconstruct_target_displacement(
+                res.reduced_coordinates, [internal_node]
+            )[0]
+            target_errors.append(
+                np.linalg.norm(u_tgt - u_t.reshape(-1, 3)[internal_node])
+            )
+
+        assert np.max(target_errors) < 0.01, f"Max target error {np.max(target_errors)} exceeds 0.01 mm"
+        assert np.mean(target_errors) < 0.005, f"Mean target error {np.mean(target_errors)} exceeds 0.005 mm"
+
 
 
 class TestShapeSensingAdversarialAndErrors:
