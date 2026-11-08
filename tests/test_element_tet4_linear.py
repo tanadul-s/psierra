@@ -1,19 +1,37 @@
+"""
+Unit and benchmark tests for Tet4Linear finite element.
+
+Validates:
+1. Reference volume calculation (V = 1/6) and shape function gradient partition of unity.
+2. Inverted element detection (negative Jacobian determinant error).
+3. Mass matrix symmetry, positive-definiteness, and total mass conservation (sum of M_xx = rho * V).
+4. Linear stiffness matrix symmetry, rank, and 6 rigid body modes (3 translations + 3 rotations).
+5. Rigid body translation invariance (zero reaction forces).
+6. Constant strain patch test (exact strain recovery to machine precision).
+7. End-to-end single-element tension equilibrium.
+"""
+
 from __future__ import annotations
 import numpy as np
 import pytest
 
 from psierra.element.tet4_linear import Tet4Linear
-from psierra.element.tet4_total_lagrangian import Tet4TotalLagrangian
 from psierra.material.hookean import Hookean
-from psierra.material.neohookean import NeoHookean
+from psierra.mesh.volumetric import VolumetricMesh
+from psierra.domain.solid import SolidDomain
+from psierra.boundary.dirichlet import DirichletConstraint, DirichletManager
+from psierra.boundary.load import NodalForce
+from psierra.analysis.linear_static import LinearStaticAnalysis, LinearStaticResult
+from psierra.utility.tensor import tensor_to_voigt_strain
 
 
-class TestTet4Element:
-    """Rigorous physical and mathematical verification of 4-node tetrahedral elements."""
+class TestTet4Linear:
+    """Rigorous physical and mathematical verification of 4-node linear tetrahedral elements."""
 
     def test_volume_and_gradients(
         self, hookean_material: Hookean, regular_tet_coords: np.ndarray
     ) -> None:
+        """Standard unit right tetrahedron has volume 1/6 and gradients sum to zero."""
         tet = Tet4Linear(hookean_material)
         V, H = tet.compute_volume_and_gradients(regular_tet_coords)
 
@@ -27,6 +45,7 @@ class TestTet4Element:
     def test_inverted_element_raises(
         self, hookean_material: Hookean, inverted_tet_coords: np.ndarray
     ) -> None:
+        """Negative or zero volume elements must raise ValueError."""
         tet = Tet4Linear(hookean_material)
         with pytest.raises(ValueError, match="volume detected"):
             tet.compute_volume_and_gradients(inverted_tet_coords)
@@ -34,6 +53,7 @@ class TestTet4Element:
     def test_mass_matrix_properties(
         self, hookean_material: Hookean, regular_tet_coords: np.ndarray
     ) -> None:
+        """Mass matrix must be symmetric, positive-definite, and conserve total mass."""
         tet = Tet4Linear(hookean_material)
         V, _ = tet.compute_volume_and_gradients(regular_tet_coords)
         M_e = tet.compute_mass_matrix(V)
@@ -50,11 +70,14 @@ class TestTet4Element:
         rho = hookean_material.mass_density
         total_mass_expected = rho * V
         x_dofs = np.arange(0, 12, 3)
-        assert np.isclose(np.sum(M_e[np.ix_(x_dofs, x_dofs)]), total_mass_expected, rtol=1e-10)
+        assert np.isclose(
+            np.sum(M_e[np.ix_(x_dofs, x_dofs)]), total_mass_expected, rtol=1e-10
+        )
 
     def test_linear_stiffness_matrix_rigid_body_modes(
         self, hookean_material: Hookean, regular_tet_coords: np.ndarray
     ) -> None:
+        """Linear stiffness matrix must have exactly 6 zero eigenvalues and 6 positive eigenvalues."""
         tet = Tet4Linear(hookean_material)
         K_e = tet.compute_linear_stiffness_matrix(regular_tet_coords)
 
@@ -75,8 +98,8 @@ class TestTet4Element:
     def test_pure_translation_invariance(
         self, hookean_material: Hookean, regular_tet_coords: np.ndarray
     ) -> None:
+        """Under arbitrary rigid translation, reaction forces must be zero to machine precision."""
         tet_lin = Tet4Linear(hookean_material)
-        tet_tl = Tet4TotalLagrangian(hookean_material)
         K_e = tet_lin.compute_linear_stiffness_matrix(regular_tet_coords)
 
         # Arbitrary rigid translation vector [tx, ty, tz]
@@ -85,45 +108,20 @@ class TestTet4Element:
 
         # Linear reaction force K * u must be zero within machine precision relative to ||K||*||u||
         f_reaction = K_e @ u_rigid
-        rel_error = np.linalg.norm(f_reaction) / (np.linalg.norm(K_e) * np.linalg.norm(u_rigid))
+        rel_error = np.linalg.norm(f_reaction) / (
+            np.linalg.norm(K_e) * np.linalg.norm(u_rigid)
+        )
         assert rel_error < 1e-12
 
-        # Non-linear internal force must also be zero for both linear and Total Lagrangian
+        # Non-linear interface on Tet4Linear should also vanish under pure translation
         u_nodes = np.tile(t, (4, 1))
-        _, f_int_lin = tet_lin.compute_nonlinear_force_and_tangent_stiffness(regular_tet_coords, u_nodes)
-        rel_error_lin = np.linalg.norm(f_int_lin) / (np.linalg.norm(K_e) * np.linalg.norm(u_rigid))
-        assert rel_error_lin < 1e-12
-
-        _, f_int_tl = tet_tl.compute_nonlinear_force_and_tangent_stiffness(regular_tet_coords, u_nodes)
-        assert np.allclose(f_int_tl, 0.0, atol=1e-10)
-
-    def test_pure_rotation_invariance_nonlinear(
-        self, neohookean_material: NeoHookean, regular_tet_coords: np.ndarray
-    ) -> None:
-        """Under large finite rigid body rotation, Green-Lagrange strain and f_int must be zero."""
-        tet = Tet4TotalLagrangian(neohookean_material)
-
-        # Finite rotation matrix (30 deg about axis [1, 1, 1])
-        theta = np.deg2rad(30.0)
-        axis = np.array([1.0, 1.0, 1.0]) / np.sqrt(3.0)
-        # Rodrigues formula
-        K_mat = np.array(
-            [
-                [0, -axis[2], axis[1]],
-                [axis[2], 0, -axis[0]],
-                [-axis[1], axis[0], 0],
-            ]
+        _, f_int_lin = tet_lin.compute_nonlinear_force_and_tangent_stiffness(
+            regular_tet_coords, u_nodes
         )
-        R = np.eye(3) + np.sin(theta) * K_mat + (1.0 - np.cos(theta)) * (K_mat @ K_mat)
-
-        # Rotated coordinates x = X @ R^T
-        x_rotated = regular_tet_coords @ R.T
-        u_nodes = x_rotated - regular_tet_coords
-
-        k_tan, f_int = tet.compute_nonlinear_force_and_tangent_stiffness(regular_tet_coords, u_nodes)
-
-        # Internal force must vanish under pure rigid rotation
-        assert np.allclose(f_int, 0.0, atol=1e-10)
+        rel_error_lin = np.linalg.norm(f_int_lin) / (
+            np.linalg.norm(K_e) * np.linalg.norm(u_rigid)
+        )
+        assert rel_error_lin < 1e-12
 
     def test_constant_strain_patch_test(
         self, hookean_material: Hookean, regular_tet_coords: np.ndarray
@@ -132,8 +130,6 @@ class TestTet4Element:
         Applies a linear displacement field u(X) = eps_0 @ X.
         Verifies that computed strain equals eps_0 to machine precision.
         """
-        from psierra.utility.tensor import tensor_to_voigt_strain
-
         tet = Tet4Linear(hookean_material)
         _, H = tet.compute_volume_and_gradients(regular_tet_coords)
         B = tet.compute_linear_B_matrix(H)
@@ -153,3 +149,28 @@ class TestTet4Element:
         eps_expected_voigt = tensor_to_voigt_strain(eps_0)
 
         assert np.allclose(eps_computed_voigt, eps_expected_voigt, atol=1e-14)
+
+    def test_end_to_end_single_element_tension(
+        self, hookean_material: Hookean, single_element_mesh: VolumetricMesh
+    ) -> None:
+        """Single element under uniaxial tension verifies equilibrium and displacement."""
+        elem = Tet4Linear(hookean_material)
+        domain = SolidDomain(mesh=single_element_mesh, material=hookean_material, element=elem)
+
+        # Fix base nodes (nodes 0, 1, 2 at Z = 0)
+        clamp = DirichletConstraint([0, 1, 2], components=(0, 1, 2), value=0.0)
+        dirichlet = DirichletManager(domain.mesh.n_dofs)
+        dirichlet.add_constraint(clamp)
+
+        # Tensile load on node 3 in +Z direction
+        f_applied = 500.0
+        load = NodalForce([3], force_vector=[0.0, 0.0, f_applied])
+        f_ext = load.compute_force_vector(domain.mesh.n_dofs)
+
+        analysis = LinearStaticAnalysis(domain)
+        result = analysis.solve(dirichlet=dirichlet, f_ext=f_ext, verbose=False)
+
+        assert isinstance(result, LinearStaticResult)
+        assert result.displacement[11] > 0.0  # Apex node Z-displacement is positive
+        # Reaction balance
+        assert np.isclose(np.sum(result.reactions[2::3]) + f_applied, 0.0, atol=1e-8)
