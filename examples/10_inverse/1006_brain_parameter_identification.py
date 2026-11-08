@@ -93,7 +93,7 @@ def parse_arguments() -> argparse.Namespace:
     parser.add_argument(
         "--output-dir",
         type=str,
-        default="outputs/1006_brain_parameter_identification",
+        default="results/10_inverse/1006_brain_parameter_identification",
         help="Output directory for calibration reports and .vtu exports",
     )
     return parser.parse_args()
@@ -208,7 +208,7 @@ def main() -> None:
 
     # Compliance at indenter site (deflection per unit load)
     compliance_true = -u_unit[indenter_dof_z]  # mm / N
-    stiffness_true = 1.0 / compliance_true      # N / mm
+    stiffness_true = 1.0 / compliance_true  # N / mm
 
     # Ground truth reaction forces for the prescribed indentation depths
     F_true = prescribed_depths * stiffness_true
@@ -223,9 +223,13 @@ def main() -> None:
         )
     else:
         F_exp = F_true
-        console.print("  • Sensor Noise      : [green]Ideal tactile sensor (zero noise)[/green]")
+        console.print(
+            "  • Sensor Noise      : [green]Ideal tactile sensor (zero noise)[/green]"
+        )
 
-    table_data = Table(title="Tactile Indentation Observation Data", border_style="cyan")
+    table_data = Table(
+        title="Tactile Indentation Observation Data", border_style="cyan"
+    )
     table_data.add_column("Indentation Stage", justify="center")
     table_data.add_column("Prescribed Depth δ (mm)", justify="right")
     table_data.add_column("True Reaction Force F (N)", justify="right", style="green")
@@ -353,7 +357,9 @@ def main() -> None:
         "\n[bold yellow][5/5] Clinical Telemetry Report & Calibration Summary[/bold yellow]"
     )
 
-    report_table = Table(title="Brain Parenchyma Stiffness Calibration Summary", border_style="cyan")
+    report_table = Table(
+        title="Brain Parenchyma Stiffness Calibration Summary", border_style="cyan"
+    )
     report_table.add_column("Parameter / Indicator", style="bold white")
     report_table.add_column("Prior (Uncalibrated)", justify="right", style="red")
     report_table.add_column("Closed-Form LLS", justify="right", style="yellow")
@@ -391,31 +397,43 @@ def main() -> None:
     console.print(report_table)
 
     # Export VTU showing displacement under calibrated indentation
-    export_path = out_dir / "brain_calibrated_indentation.vtu"
+    export_path = out_dir / "result.vtu"
     grid = mesh.ugrid.copy()
     # Displacement at calibrated indentation (max depth 2.5 mm)
-    grid.point_data["Indentation_Displacement"] = (2.5 / compliance_true) * u_unit.reshape(-1, 3)
+    grid.point_data["Indentation_Displacement"] = (
+        2.5 / compliance_true
+    ) * u_unit.reshape(-1, 3)
     grid.point_data["Displacement_Magnitude"] = np.linalg.norm(
         grid.point_data["Indentation_Displacement"], axis=1
     )
     grid.save(str(export_path))
-    console.print(f"\n[green]✓ Exported calibrated 3D indentation field to:[/green] [cyan]{export_path}[/cyan]")
+    console.print(
+        f"\n[green]✓ Exported calibrated 3D indentation field to:[/green] [cyan]{export_path}[/cyan]"
+    )
 
     if rel_err_cf < 0.1:
         console.print(
             f"[bold green]✓ CLINICAL CALIBRATION PASSED: Modulus error {rel_err_cf:.4f}% < 0.1% threshold![/bold green]"
         )
     else:
-        console.print(f"[bold yellow]! High calibration error ({rel_err_cf:.4f}%)[/bold yellow]")
+        console.print(
+            f"[bold yellow]! High calibration error ({rel_err_cf:.4f}%)[/bold yellow]"
+        )
 
     # 3D Visual verification (GUI Mode)
     if not is_headless:
-        console.print("\n[bold cyan]Launching Interactive 3D Indentation Visualization...[/bold cyan]")
-        plotter = pv.Plotter(title="pSierra 1006: Patient-Specific Brain Stiffness Calibration")
+        console.print(
+            "\n[bold cyan]Launching Interactive 3D Indentation Visualization...[/bold cyan]"
+        )
+        plotter = pv.Plotter(
+            title="pSierra 1006: Patient-Specific Brain Stiffness Calibration"
+        )
         plotter.set_background("#1e1e1e")
 
         surf_poly = mesh.surface.polydata.copy()
-        surf_disp = (2.5 / compliance_true) * u_unit.reshape(-1, 3)[mesh.surface.node_indices]
+        surf_disp = (2.5 / compliance_true) * u_unit.reshape(-1, 3)[
+            mesh.surface.node_indices
+        ]
         surf_poly.points = mesh.surface.nodes + surf_disp
         surf_poly["Displacement_mm"] = np.linalg.norm(surf_disp, axis=1)
 
@@ -428,8 +446,12 @@ def main() -> None:
         )
 
         # Highlight indentation probe contact point
-        probe_tip = pv.Sphere(radius=2.5, center=indenter_coord + np.array([0, 0, -2.5]))
-        plotter.add_mesh(probe_tip, color="cyan", label="Surgical Indenter Probe (2.5 mm)")
+        probe_tip = pv.Sphere(
+            radius=2.5, center=indenter_coord + np.array([0, 0, -2.5])
+        )
+        plotter.add_mesh(
+            probe_tip, color="cyan", label="Surgical Indenter Probe (2.5 mm)"
+        )
 
         if skull_path.exists():
             skull_pv = pv.read(skull_path)

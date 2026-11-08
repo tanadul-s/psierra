@@ -60,10 +60,20 @@ install(show_locals=False)
 console = Console()
 
 SURGICAL_POSTURES: dict[str, tuple[float, float, float, str]] = {
-    "lateral": (4905.0, -8495.7, 0.0, "30° Lateral Head Rotation (g_x = 0.5g, g_y = -0.866g)"),
+    "lateral": (
+        4905.0,
+        -8495.7,
+        0.0,
+        "30° Lateral Head Rotation (g_x = 0.5g, g_y = -0.866g)",
+    ),
     "supine": (0.0, -9810.0, 0.0, "Standard Supine Posture (g_y = -1.0g)"),
     "prone": (0.0, 9810.0, 0.0, "Prone Surgical Posture (g_y = +1.0g)"),
-    "pterional": (3355.0, -8495.7, -3570.0, "Pterional 3-Axis Tilt (g_x=0.34g, g_y=-0.87g, g_z=-0.36g)"),
+    "pterional": (
+        3355.0,
+        -8495.7,
+        -3570.0,
+        "Pterional 3-Axis Tilt (g_x=0.34g, g_y=-0.87g, g_z=-0.36g)",
+    ),
 }
 
 
@@ -111,7 +121,7 @@ def parse_arguments() -> argparse.Namespace:
     parser.add_argument(
         "--output-dir",
         type=str,
-        default="outputs/1005_brain_shape_sensing",
+        default="results/10_inverse/1005_brain_shape_sensing",
         help="Output directory for reconstructed fields (.vtu) and telemetry",
     )
     return parser.parse_args()
@@ -214,7 +224,9 @@ def main() -> None:
         "\n[bold yellow][3/6] Simulating Ground Truth Surgical Brain Shift[/bold yellow]"
     )
     gx, gy, gz, posture_desc = SURGICAL_POSTURES[args.posture]
-    console.print(f"  • Surgical Posture  : [cyan]{args.posture.upper()}[/cyan] ({posture_desc})")
+    console.print(
+        f"  • Surgical Posture  : [cyan]{args.posture.upper()}[/cyan] ({posture_desc})"
+    )
 
     f_ext = GravityLoad(acceleration=(gx, gy, gz)).compute_force_vector(M_global)
     K_ff = K_global[free_dofs, :][:, free_dofs]
@@ -281,10 +293,14 @@ def main() -> None:
         np.random.seed(42)
         noise = np.random.normal(0.0, args.noise_std, size=d_hat_clean.shape)
         d_hat = d_hat_clean + noise
-        console.print(f"  • Measurement Noise : Gaussian [cyan]sigma = {args.noise_std:.2f} mm[/cyan] applied")
+        console.print(
+            f"  • Measurement Noise : Gaussian [cyan]sigma = {args.noise_std:.2f} mm[/cyan] applied"
+        )
     else:
         d_hat = d_hat_clean
-        console.print("  • Measurement Noise : [green]Ideal optical tracking (clean signal)[/green]")
+        console.print(
+            "  • Measurement Noise : [green]Ideal optical tracking (clean signal)[/green]"
+        )
 
     # --------------------------------------------------------------------------
     # [5/6] Executing Variational Shape Sensing (FOM vs ROM)
@@ -294,7 +310,9 @@ def main() -> None:
     )
 
     # A. Full-Order iFEM Shape Sensing (FOM)
-    console.print("  [dim]Solving Full-Order iFEM System (A_full = H^T W H + alpha * K)...[/dim]")
+    console.print(
+        "  [dim]Solving Full-Order iFEM System (A_full = H^T W H + alpha * K)...[/dim]"
+    )
     fom_solver = FullOrderShapeSensingSolver(
         observation_operator=obs_operator,
         stiffness_matrix=K_global,
@@ -306,7 +324,9 @@ def main() -> None:
 
     # B. Reduced-Order iFEM Shape Sensing (ROM)
     console.print("  [dim]Loading & Projecting POD Subspace Basis...[/dim]")
-    snap_path = resolve_mesh_path("data/mrbraintumor1/mor/0902_reduced_brain_shift/snapshots.npz")
+    snap_path = resolve_mesh_path(
+        "data/mrbraintumor1/mor/0902_reduced_brain_shift/snapshots.npz"
+    )
     snap_mgr = SnapshotManager.load(snap_path)
     basis = snap_mgr.compute_basis(energy_threshold=args.energy_threshold)
     r = basis.n_modes
@@ -359,7 +379,9 @@ def main() -> None:
         "\n[bold yellow][6/6] Clinical Telemetry & Inversion Accuracy Verification[/bold yellow]"
     )
 
-    results_table = Table(title="Neurosurgical Shape Sensing Inversion Benchmark", border_style="cyan")
+    results_table = Table(
+        title="Neurosurgical Shape Sensing Inversion Benchmark", border_style="cyan"
+    )
     results_table.add_column("Metric / Indicator", style="bold white")
     results_table.add_column("Ground Truth", justify="right", style="dim")
     results_table.add_column("FOM Shape Sensing", justify="right", style="yellow")
@@ -398,7 +420,7 @@ def main() -> None:
     console.print(results_table)
 
     # Export VTU for inspection in ParaView / 3D Slicer
-    export_path = out_dir / f"brain_shape_sensing_{args.posture}.vtu"
+    export_path = out_dir / f"result.vtu"
     grid = mesh.ugrid.copy()
     grid.point_data["Displacement_Truth"] = u_truth_3d
     grid.point_data["Displacement_ROM"] = res_rom.displacement_3d
@@ -407,7 +429,9 @@ def main() -> None:
         res_rom.displacement_3d - u_truth_3d, axis=1
     )
     grid.save(str(export_path))
-    console.print(f"\n[green]✓ Exported clinical 3D volumetric fields to:[/green] [cyan]{export_path}[/cyan]")
+    console.print(
+        f"\n[green]✓ Exported clinical 3D volumetric fields to:[/green] [cyan]{export_path}[/cyan]"
+    )
 
     # Check clinical tolerance assertion
     if rom_lesion_err < 0.5:
@@ -423,7 +447,9 @@ def main() -> None:
     # Interactive PyVista 3D Visualization (GUI Mode)
     # --------------------------------------------------------------------------
     if not is_headless:
-        console.print("\n[bold cyan]Launching Interactive 3D Neurosurgical Visualization...[/bold cyan]")
+        console.print(
+            "\n[bold cyan]Launching Interactive 3D Neurosurgical Visualization...[/bold cyan]"
+        )
         plotter = pv.Plotter(title="pSierra 1005: Clinical Brain Shift Shape Sensing")
         plotter.set_background("#1e1e1e")
 

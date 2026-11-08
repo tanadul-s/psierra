@@ -59,9 +59,19 @@ install(show_locals=False)
 console = Console()
 
 SURGICAL_POSTURES: dict[str, tuple[float, float, float, str]] = {
-    "lateral": (4905.0, -8495.7, 0.0, "30° Lateral Head Rotation (g_x = 0.5g, g_y = -0.866g)"),
+    "lateral": (
+        4905.0,
+        -8495.7,
+        0.0,
+        "30° Lateral Head Rotation (g_x = 0.5g, g_y = -0.866g)",
+    ),
     "prone": (0.0, 9810.0, 0.0, "Prone Surgical Posture (g_y = +1.0g)"),
-    "pterional": (3355.0, -8495.7, -3570.0, "Pterional 3-Axis Tilt (g_x=0.34g, g_y=-0.87g, g_z=-0.36g)"),
+    "pterional": (
+        3355.0,
+        -8495.7,
+        -3570.0,
+        "Pterional 3-Axis Tilt (g_x=0.34g, g_y=-0.87g, g_z=-0.36g)",
+    ),
 }
 
 
@@ -97,7 +107,7 @@ def parse_arguments() -> argparse.Namespace:
     parser.add_argument(
         "--output-dir",
         type=str,
-        default="outputs/1007_brain_stress_free_inversion",
+        default="results/10_inverse/1007_brain_stress_free_inversion",
         help="Output directory for stress-free meshes and .vtu exports",
     )
     return parser.parse_args()
@@ -251,7 +261,9 @@ def main() -> None:
     K_scan = domain_naive.assemble_stiffness_matrix()
     M_scan = domain_naive.assemble_mass_matrix()
     f_surg_naive = g_surg.compute_force_vector(M_scan)
-    u_naive_f = spspla.spsolve(K_scan[free_dofs, :][:, free_dofs], f_surg_naive[free_dofs])
+    u_naive_f = spspla.spsolve(
+        K_scan[free_dofs, :][:, free_dofs], f_surg_naive[free_dofs]
+    )
     u_naive = np.zeros(scan_mesh.n_dofs, dtype=np.float64)
     u_naive[free_dofs] = u_naive_f
     x_biased = X_scan + u_naive.reshape(-1, 3)
@@ -262,7 +274,9 @@ def main() -> None:
     K_ref = domain_correct.assemble_stiffness_matrix()
     M_ref = domain_correct.assemble_mass_matrix()
     f_surg_correct = g_surg.compute_force_vector(M_ref)
-    u_correct_f = spspla.spsolve(K_ref[free_dofs, :][:, free_dofs], f_surg_correct[free_dofs])
+    u_correct_f = spspla.spsolve(
+        K_ref[free_dofs, :][:, free_dofs], f_surg_correct[free_dofs]
+    )
     u_correct = np.zeros(ref_mesh.n_dofs, dtype=np.float64)
     u_correct[free_dofs] = u_correct_f
     x_true = X_0_star + u_correct.reshape(-1, 3)
@@ -293,7 +307,10 @@ def main() -> None:
         "\n[bold yellow][5/5] Clinical Verification Report & Volumetric State Export[/bold yellow]"
     )
 
-    comp_table = Table(title="Neurosurgical Double-Gravity Bias Elimination Benchmark", border_style="cyan")
+    comp_table = Table(
+        title="Neurosurgical Double-Gravity Bias Elimination Benchmark",
+        border_style="cyan",
+    )
     comp_table.add_column("Clinical Landmark / Metric", style="bold white")
     comp_table.add_column("Naive Biased Simulation", justify="right", style="red")
     comp_table.add_column("Stress-Free Recovered", justify="right", style="bold green")
@@ -326,7 +343,7 @@ def main() -> None:
     console.print(comp_table)
 
     # Export VTU showing bias distribution and stress-free geometry
-    export_path = out_dir / f"brain_stress_free_{args.surgery_posture}.vtu"
+    export_path = out_dir / f"result.vtu"
     grid = scan_mesh.ugrid.copy()
     grid.point_data["MRI_Scan_Nodes"] = X_scan
     grid.point_data["StressFree_Nodes"] = X_0_star
@@ -334,7 +351,9 @@ def main() -> None:
     grid.point_data["Double_Gravity_Bias_Vector"] = bias_vectors
     grid.point_data["Double_Gravity_Bias_mm"] = bias_magnitudes
     grid.save(str(export_path))
-    console.print(f"\n[green]✓ Exported clinical 3D volumetric fields to:[/green] [cyan]{export_path}[/cyan]")
+    console.print(
+        f"\n[green]✓ Exported clinical 3D volumetric fields to:[/green] [cyan]{export_path}[/cyan]"
+    )
 
     if sf_result.residual_error < 0.1:
         console.print(
@@ -347,8 +366,12 @@ def main() -> None:
 
     # 3D Visual verification (GUI Mode)
     if not is_headless:
-        console.print("\n[bold cyan]Launching Interactive 3D Double-Gravity Bias Visualization...[/bold cyan]")
-        plotter = pv.Plotter(title="pSierra 1007: Zero-Gravity Reference Configuration Recovery")
+        console.print(
+            "\n[bold cyan]Launching Interactive 3D Double-Gravity Bias Visualization...[/bold cyan]"
+        )
+        plotter = pv.Plotter(
+            title="pSierra 1007: Zero-Gravity Reference Configuration Recovery"
+        )
         plotter.set_background("#1e1e1e")
 
         surf_poly = scan_mesh.surface.polydata.copy()

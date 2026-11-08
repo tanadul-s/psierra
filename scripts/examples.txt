@@ -94,5 +94,8 @@
 1002    # beam_parameter_identification.py (Calibrating Young's modulus from force-deflection curve)
 1003    # beam_stress_free_inversion.py (Recovering undeformed reference geometry & eliminating double-gravity bias)
 1004    # dynamic_beam_shape_sensing.py (Continuous real-time dynamic shape sensing & deep target tracking at > 30 kHz)
+1005 --headless    # brain_shape_sensing.py (Real-time clinical 3D brain deformation & tumor drift reconstruction from cortical markers)
+1006 --headless    # brain_parameter_identification.py (Patient-specific brain stiffness calibration from surgical indentation probe)
+1007 --headless --max-iters 3    # brain_stress_free_inversion.py (Zero-gravity reference configuration recovery & eliminating double-gravity bias)
 
 
