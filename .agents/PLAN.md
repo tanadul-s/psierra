@@ -370,18 +370,22 @@ $$\text{Forward Continuum Mechanics} \longrightarrow \text{Contact Mechanics} \l
   * Closed-form exact linear least squares `calibrate_linear_elasticity` solving in $< 1\ \mu\text{s}$ to machine precision.
   * Verified via 12 unit and benchmark tests in `tests/test_ifem_parameter_identification.py` (recovery of $E$ and $C_{10}$ within $< 1\%$ of ground truth, multi-parameter $[E, \nu]$ calibration, and breakdown penalty recovery).
   * Executable demonstration delivered in `examples/10_inverse/1002_beam_parameter_identification.py` and registered in `scripts/examples.txt`.
-* [ ] **5.4: Stress-Free Reference Configuration Solver (Zero-Pressure Configuration)**:
-  * Backward fixed-point inverse elastostatic solver to determine the undeformed, stress-free reference geometry $\boldsymbol{X}_0$ from clinical scans of pre-gravitationally sagged organs:
-    $$\boldsymbol{X}_0^{(k+1)} = \boldsymbol{X}_{\text{scan}} - \boldsymbol{u}(\boldsymbol{X}_0^{(k)}; \boldsymbol{g}_{\text{scan}})$$
+* [x] **5.4: Stress-Free Reference Configuration Solver (Zero-Pressure Configuration)**:
+  * Backward fixed-point inverse elastostatic solver (`StressFreeConfigurationSolver` and `StressFreeResult` in `psierra/inverse/stress_free.py`) determining the undeformed, stress-free reference geometry $\boldsymbol{X}_0^*$ from clinical scans of pre-gravitationally sagged organs:
+    $$\boldsymbol{X}_0^{(k+1)} = \boldsymbol{X}_0^{(k)} + \omega \left(\boldsymbol{X}_{\text{scan}} - \left[\boldsymbol{X}_0^{(k)} + \boldsymbol{u}(\boldsymbol{X}_0^{(k)}; \boldsymbol{L}_{\text{scan}})\right]\right)$$
+  * Supports fixed under-relaxation $\omega \in (0, 1]$, adaptive dynamic Aitken $\Delta^2$ relaxation, and both linear static and nonlinear Total Lagrangian hyperelastic forward analyses.
   * Eliminates double-gravity bias when re-orienting organs into surgical postures.
-* [ ] **Deliverable Demonstrations & Tests (Tiered Verification)**:
-  * `tests/test_ifem_observation.py`: Point-in-facet barycentric locator, $\boldsymbol{H}$ matrix assembly, and reduced projection $\boldsymbol{H}_r = \boldsymbol{H}\boldsymbol{\Phi}$.
-  * `tests/test_ifem_shape_sensing.py`: Full-order vs. reduced-order shape sensing accuracy ($< 2\%$ relative error), Tikhonov regularization $\alpha$ sensitivity.
-  * `tests/test_ifem_parameter_identification.py`: Automatic recovery of $E$ and $C_{10}$ within $1\%$ of ground truth from synthetic indentation tests.
-  * **Tier 1 (Canonical Beam Benchmark under Gravity)**:
-    * `examples/10_inverse/1001_beam_shape_sensing.py`: Reconstructing full 3D beam gravity deflection from 4–8 sparse top-surface markers (comparing FOM vs ROM vs analytical Euler-Bernoulli).
-    * `examples/10_inverse/1002_beam_parameter_identification.py`: Calibrating beam Young's modulus from tip force-deflection curve.
-    * `examples/10_inverse/1003_beam_stress_free_inversion.py`: Recovering undeformed straight beam from gravitationally sagged profile.
+  * Verified via 26 unit and benchmark tests in `tests/test_ifem_stress_free.py` (exact recovery $< 10^{-3}\text{ mm}$ error, Aitken acceleration, nonlinear Neo-Hookean inversion, posture reorientation bias elimination).
+  * Executable demonstration delivered in `examples/10_inverse/1003_beam_stress_free_inversion.py` and registered in `scripts/examples.txt`.
+* [x] **Deliverable Demonstrations & Tests (Tiered Verification)**:
+  * `tests/test_ifem_observation.py`: Point-in-facet barycentric locator, $\boldsymbol{H}$ matrix assembly, and reduced projection $\boldsymbol{H}_r = \boldsymbol{H}\boldsymbol{\Phi}$ (20 tests passing).
+  * `tests/test_ifem_shape_sensing.py`: Full-order vs. reduced-order shape sensing accuracy ($< 2\%$ relative error), Tikhonov regularization $\alpha$ sensitivity (10 tests passing).
+  * `tests/test_ifem_parameter_identification.py`: Automatic recovery of $E$ and $C_{10}$ within $1\%$ of ground truth from synthetic indentation tests (12 tests passing).
+  * `tests/test_ifem_stress_free.py`: Reference configuration recovery ($< 10^{-3}\text{ mm}$ error), Aitken acceleration, nonlinear inversion, and posture bias elimination (26 tests passing).
+  * **Tier 1 (Canonical Beam Benchmark under Gravity - Completed)**:
+    * [x] `examples/10_inverse/1001_beam_shape_sensing.py`: Reconstructing full 3D beam gravity deflection from 4–8 sparse top-surface markers (comparing FOM vs ROM vs analytical Euler-Bernoulli).
+    * [x] `examples/10_inverse/1002_beam_parameter_identification.py`: Calibrating beam Young's modulus from tip force-deflection curve.
+    * [x] `examples/10_inverse/1003_beam_stress_free_inversion.py`: Recovering undeformed straight beam from gravitationally sagged profile.
   * **Tier 2 (Clinical Flagship Neurosurgical Brain Shift)**:
     * `examples/10_inverse/1004_brain_shape_sensing.py`: Real-time 3D brain deformation and tumor drift reconstruction from 10–20 cortical surface markers.
     * `examples/10_inverse/1005_brain_parameter_identification.py`: Patient-specific soft tissue stiffness calibration from surgical indenter probe.
