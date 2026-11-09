@@ -6,6 +6,7 @@ from psierra.element.tet4_linear import Tet4Linear
 from psierra.element.tet4_total_lagrangian import Tet4TotalLagrangian
 from psierra.element.tet4_updated_lagrangian import Tet4UpdatedLagrangian
 from psierra.element.tet4_corotational import Tet4Corotational
+from psierra.element.tet4_fbar import Tet4Fbar
 from psierra.element.tet10_base import Tet10Base
 from psierra.element.tet10_linear import Tet10Linear
 from psierra.element.tet10_total_lagrangian import Tet10TotalLagrangian
@@ -27,6 +28,7 @@ __all__ = [
     "Tet4TotalLagrangian",
     "Tet4UpdatedLagrangian",
     "Tet4Corotational",
+    "Tet4Fbar",
     "Tet10Base",
     "Tet10Linear",
     "Tet10TotalLagrangian",

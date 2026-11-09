@@ -145,15 +145,27 @@ class SolidDomain(Domain):
         --------
         K : spsp.csr_matrix of shape (n_dofs, n_dofs)
         """
+        if hasattr(self.element, "assemble_stiffness_matrix"):
+            return self.element.assemble_stiffness_matrix(self.mesh)
+
+        if hasattr(self.element, "prepare_for_linear_assembly"):
+            self.element.prepare_for_linear_assembly(self.mesh)
+
+        supports_elem_index = getattr(self.element, "supports_element_indexing", False)
         n_elems = self.mesh.n_elements
         nodes = self.mesh.nodes
         elements = self.mesh.elements
 
         for e in range(n_elems):
             coords = nodes[elements[e]]
-            self._k_local_buffer[e] = self.element.compute_linear_stiffness_matrix(
-                coords
-            )
+            if supports_elem_index:
+                self._k_local_buffer[e] = self.element.compute_linear_stiffness_matrix(
+                    coords, elem_index=e
+                )
+            else:
+                self._k_local_buffer[e] = self.element.compute_linear_stiffness_matrix(
+                    coords
+                )
 
         return assemble_sparse_matrix(
             element_matrices=self._k_local_buffer,
@@ -191,6 +203,15 @@ class SolidDomain(Domain):
         --------
         f_int : np.ndarray of shape (n_dofs,)
         """
+        if hasattr(self.element, "assemble_internal_forces"):
+            return self.element.assemble_internal_forces(
+                self.mesh, self.displacement
+            )
+
+        if hasattr(self.element, "prepare_for_assembly"):
+            self.element.prepare_for_assembly(self.mesh, self.displacement)
+
+        supports_elem_index = getattr(self.element, "supports_element_indexing", False)
         n_elems = self.mesh.n_elements
         nodes = self.mesh.nodes
         elements = self.mesh.elements
@@ -200,11 +221,18 @@ class SolidDomain(Domain):
             elem_nodes = elements[e]
             coords = nodes[elem_nodes]
             u_elem = disp[elem_nodes]
-            k_tan_elem, f_int_elem = (
-                self.element.compute_nonlinear_force_and_tangent_stiffness(
-                    coords, u_elem
+            if supports_elem_index:
+                _, f_int_elem = (
+                    self.element.compute_nonlinear_force_and_tangent_stiffness(
+                        coords, u_elem, elem_index=e
+                    )
                 )
-            )
+            else:
+                _, f_int_elem = (
+                    self.element.compute_nonlinear_force_and_tangent_stiffness(
+                        coords, u_elem
+                    )
+                )
             self._f_local_buffer[e] = f_int_elem
 
         return assemble_vector(
@@ -225,6 +253,15 @@ class SolidDomain(Domain):
         --------
         K_tan : spsp.csr_matrix of shape (n_dofs, n_dofs)
         """
+        if hasattr(self.element, "assemble_tangent_stiffness_matrix"):
+            return self.element.assemble_tangent_stiffness_matrix(
+                self.mesh, self.displacement
+            )
+
+        if hasattr(self.element, "prepare_for_assembly"):
+            self.element.prepare_for_assembly(self.mesh, self.displacement)
+
+        supports_elem_index = getattr(self.element, "supports_element_indexing", False)
         n_elems = self.mesh.n_elements
         nodes = self.mesh.nodes
         elements = self.mesh.elements
@@ -234,11 +271,18 @@ class SolidDomain(Domain):
             elem_nodes = elements[e]
             coords = nodes[elem_nodes]
             u_elem = disp[elem_nodes]
-            k_tan_elem, _ = (
-                self.element.compute_nonlinear_force_and_tangent_stiffness(
-                    coords, u_elem
+            if supports_elem_index:
+                k_tan_elem, _ = (
+                    self.element.compute_nonlinear_force_and_tangent_stiffness(
+                        coords, u_elem, elem_index=e
+                    )
                 )
-            )
+            else:
+                k_tan_elem, _ = (
+                    self.element.compute_nonlinear_force_and_tangent_stiffness(
+                        coords, u_elem
+                    )
+                )
             self._k_local_buffer[e] = k_tan_elem
 
         return assemble_sparse_matrix(
