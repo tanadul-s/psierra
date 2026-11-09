@@ -35,10 +35,15 @@ flowchart TD
         D10["10. Inverse FEM, Constitutive Calibration & Stress-Free Inversion<br/><i>Variational shape sensing (FOM/ROM >50,000 Hz), closed-form LLS & TRF identification, Sellier Aitken inversion</i>"]
     end
 
+    subgraph Stage6["Stage VI: Biomechanical Continua & Clinical Digital Twins"]
+        D11["11. Biomechanical Continua, Locking Alleviation & Dynamic Relaxation<br/><i>Tet4Fbar (nu -> 0.5), Flory split, nodal dilatation averaging, consistent tangent K_T</i>"]
+    end
+
     Stage1 --> Stage2
     Stage2 --> Stage3
     Stage3 --> Stage4
     Stage4 --> Stage5
+    Stage5 --> Stage6
 
     D01 --> D02
     D02 --> D03
@@ -49,6 +54,7 @@ flowchart TD
     D07 --> D08
     D08 --> D09
     D09 --> D10
+    D10 --> D11
 ```
 
 ---
@@ -180,6 +186,13 @@ flowchart TD
   - Sellier backward fixed-point iteration: $\boldsymbol{X}_0^{(k+1)} = \boldsymbol{X}_0^{(k)} + \omega_k (\boldsymbol{X}_{\text{scan}} - [\boldsymbol{X}_0^{(k)} + \boldsymbol{u}(\boldsymbol{X}_0^{(k)}; \boldsymbol{g}_{\text{supine}})])$.
   - Adaptive Aitken $\Delta^2$ dynamic under-relaxation reducing position residuals to $< 0.33\text{ mm}$ in 4 iterations.
 - Implementation map: [`SensorObservationOperator`](../src/psierra/inverse/observation.py), [`ReducedSensorObservationOperator`](../src/psierra/inverse/observation.py), [`FullOrderShapeSensingSolver`](../src/psierra/inverse/shape_sensing.py), [`ReducedOrderShapeSensingSolver`](../src/psierra/inverse/shape_sensing.py), [`MaterialParameterIdentifier`](../src/psierra/inverse/parameter_identification.py), [`StressFreeConfigurationSolver`](../src/psierra/inverse/stress_free.py).
+
+### 11. [Biomechanical Continua, Locking Alleviation & Dynamic Relaxation](11_biomechanical_continua_and_dynamic_relaxation.md)
+- Incompressibility regime in soft parenchymal tissues ($\nu \to 0.5$, $K/\mu \approx 500$).
+- Volumetric locking alleviation via Flory multiplicative split ($\bar{\boldsymbol{F}} = (\bar{J}/J)^{1/3} \boldsymbol{F}$).
+- Average Nodal Dilatation: non-local nodal volume smoothing eliminating volumetric over-constraint.
+- Total Lagrangian formulation with consistent material and geometric tangent stiffness matrices $\boldsymbol{K}_T$.
+- Implementation map: [`Tet4Fbar`](../src/psierra/element/tet4_fbar.py).
 
 ---
 
