@@ -1,6 +1,6 @@
-# Project pSierra Development Plan & Roadmap (Loop 2: Phases 1–5)
+# Project pSierra Development Plan & Roadmap (Loop 2: Phases 1–4)
 
-This document outlines the strategic milestones, active task tracking, and architectural roadmap for Project `pSierra`.
+This document outlines the active engineering milestones, mathematical formulations, and architectural roadmap for Project `pSierra`.
 
 > [!NOTE]
 > **Loop 1 (Phases 1 through 5) is fully completed and verified.**
@@ -11,7 +11,7 @@ This document outlines the strategic milestones, active task tracking, and archi
 
 ## 1. Strategic Vision: Closed Loop to Post-Loop Enhancements
 
-Project `pSierra` has successfully closed the primary continuum-to-inverse loop:
+Project `pSierra` has closed the primary continuum-to-inverse loop:
 $$\text{Forward Continuum Mechanics} \longrightarrow \text{Contact Mechanics} \longrightarrow \text{Model Order Reduction (MOR)} \longrightarrow \text{Inverse FEM (iFEM)}$$
 
 ```
@@ -37,20 +37,33 @@ $$\text{Forward Continuum Mechanics} \longrightarrow \text{Contact Mechanics} \l
 ==========================================================================================
        │
        ▼
-==================== LOOP 2: ADVANCED MECHANICS & EXTENSIONS (ACTIVE ROADMAP) ============
-[ Phase 1: Contact Regularization & Non-Smooth Mechanics (3-Pillars, Mortar, Friction) ]
+==================== LOOP 2: BIOMECHANICAL SPECIALIZATION & DIGITAL TWINS ===============
+[ Phase 1: Biomechanical Continua, HDF5 Infrastructure & Dynamic Relaxation ]
+  - Tet4Fbar (locking-free), Viscoelasticity (Prony series), HDF5 container & resume,
+    Dynamic Relaxation solver (kinetic damping), Hydrostatic CSF load (Chen et al.).
        │
        ▼
-[ Phase 2: Advanced Hyper-Reduction (DEIM, Q-DEIM & Contact-Aware ECSW) ]
+[ Phase 2: Advanced Contact Regularization & Non-Smooth Mechanics ]
+  - 3-Pillar Regularization (Adaptive cutback, C¹ vertex pseudonormals, contact-aware line search),
+    Segment-to-segment Mortar contact, Exact Coulomb stick-slip friction.
        │
        ▼
-[ Phase 3: Biomechanical Specialization & Multiphysics Continua ]
+[ Phase 3: Advanced Non-Linear Hyper-Reduction (DEIM & Contact-Aware ECSW) ]
+  - Force snapshot streaming in HDF5, DEIM / Q-DEIM with history variables,
+    Contact-Aware ECSW (Method 2: joint bulk + contact virtual work), low-latency CPU ROM.
        │
        ▼
-[ Phase 4: Advanced Instability Solvers & Structured Hexahedral Discretizations ]
-       │
+[ Phase 4: Clinical Digital Twins & Real-Time Intraoperative Navigation ]
+  - Quasi-static surgical indentation with viscoelastic relaxation,
+    Online hyper-reduced parameter identification, Multi-modal sensor fusion (iUS + markers),
+    Anisotropic Hyperelasticity (Holzapfel-Gasser-Ogden - HGO model for membranes).
+==========================================================================================
+       │ (Future Exploration)
        ▼
-[ Phase 5: High-Capacity Streaming Backends & Clinical Digital Twins ]
+==================== LOOP 3: COUPLED MULTIPHYSICS & HIGH-PERFORMANCE EXTENSIONS ========
+  - Taylor-Hood mixed u-p elements (Tet10-Tet4) for coupled Biot Poroelasticity (hydrocephalus).
+  - GPU (CuPy) acceleration hooks for massive full-order snapshot generation & offline assembly.
+  - Structured Hexahedral volume meshing & elements (Hex8 with B-bar, Hex20, Shell4 / MITC4).
 ==========================================================================================
 ```
 
@@ -72,12 +85,37 @@ All 5 core phases of Loop 1 have been implemented, tested, and documented with 1
 
 ---
 
-## 3. Loop 2 Active Roadmap: Phase 1 to Phase 5
+## 3. Loop 2 Active Roadmap: Phase 1 to Phase 4
 
-This section tracks the active forward-looking engineering milestones extending `pSierra` through Loop 2.
+This roadmap is laser-focused on biological soft-tissue mechanics, robust contact, and real-time clinical digital twins.
 
-### Phase 1: Advanced Contact Mechanics & The 3-Pillar Regularization Architecture
-*Objective*: Resolve high-energy dynamic impact breakdowns, facet edge chattering, and line-search stalls in complex deformable-to-deformable mesh contact.
+### Phase 1: Biomechanical Continua, HDF5 Infrastructure & Dynamic Relaxation
+*Objective*: Establish locking-free soft-tissue kinematics, time-dependent viscoelastic relaxation, chunked single-file HDF5 storage with simulation resume capability, and matrix-free static equilibrium solving.
+* [ ] **Volumetric Locking Alleviation (`Tet4Fbar` / B-bar Mean Dilatation)**:
+  * Implement `Tet4Fbar` with Flory volumetric/isochoric split: $\bar{\boldsymbol{F}} = (\bar{J}/J)^{1/3} \boldsymbol{F}$.
+  * Nodal-averaged volumetric dilatation eliminating locking in nearly incompressible soft tissue ($\nu \to 0.5$).
+  * Formulated within the Total Lagrangian framework; consistent material and geometric tangent stiffness matrices $\boldsymbol{K}_T$.
+* [ ] **Viscoelastic Constitutive Laws**:
+  * Generalized Maxwell / Prony series relaxation spectrum: $G(t) = G_\infty + \sum_{m=1}^{N_p} G_m e^{-t / \tau_m}$.
+  * Internal strain history variable tracking per quadrature point for stress relaxation and creep.
+* [ ] **Unified HDF5 Simulation Storage & Checkpointing (`h5py`)**:
+  * Single-file hierarchical storage container (`.h5`): mesh, constitutive parameters, resizable snapshot datasets, and reduced bases.
+  * Simulation state checkpointing: `SimulationCheckpoint(t_n, u_n, v_n, a_n, lambda_n, dt_n)`.
+  * Seamless resume capability: `analysis.resume(checkpoint, additional_steps=100)` appending directly to HDF5 datasets and PVD XML manifests without memory overhead.
+* [ ] **Dynamic Relaxation Equilibrium Solver (`DynamicRelaxationAnalysis`)**:
+  * Matrix-free explicit static solver using fictitious Gerschgorin-scaled diagonal mass $\boldsymbol{M}_{\text{fict}}$.
+  * Barnes/Underwood kinetic damping ($\boldsymbol{v} \leftarrow \mathbf{0}$ when $dE_k/dt < 0$).
+  * Provides unconditional stability against tangent stiffness singularities ($\det(\boldsymbol{K}_T) \le 0$) during severe non-smooth contact and tissue collapse.
+* [ ] **CSF Hydrostatic Pressure & Buoyancy Load (`HydrostaticPressureLoad`)**:
+  * *References*: Chen et al. (2017, 2019, 2022) IEEE SII & TMRB.
+  * Spatially-varying boundary traction on submerged surface facets: $\boldsymbol{F}_{\text{hydro}} = -\rho_{\text{CSF}} g \max(0, h_{\text{fluid}} - z) A_k \boldsymbol{n}_k$.
+  * Configurable patient head orientation ($\hat{\boldsymbol{u}}_{\text{up}} = -\boldsymbol{g}/\|\boldsymbol{g}\|$) and dynamic CSF drainage fluid level $h_{\text{fluid}}$.
+  * Models Archimedean neutral buoyancy and gravity sag progression as CSF leaks during craniotomy.
+
+---
+
+### Phase 2: Advanced Contact Regularization & Non-Smooth Mechanics
+*Objective*: Resolve high-energy dynamic impact breakdowns, facet edge chattering, and line-search stalls on locking-free continua.
 * *References*: P. Wriggers (2006) *Computational Contact Mechanics*; T.A. Laursen (2002) *Computational Contact and Impact Mechanics*; FEBio Theory Manual.
 * [ ] **Pillar 1: Temporal Regularization (Adaptive Time Substepping & Automatic Cutback)**:
   * Implement `AdaptiveTimeStepController` in `NonlinearDynamicAnalysis`.
@@ -97,66 +135,46 @@ This section tracks the active forward-looking engineering milestones extending 
 
 ---
 
-### Phase 2: Advanced Non-Linear Hyper-Reduction (DEIM, Q-DEIM & Contact-Aware ECSW)
-*Objective*: Evaluate non-linear internal forces and non-polynomial constitutive laws on low-dimensional sample points, and extend hyper-reduction to deformable contact.
+### Phase 3: Advanced Non-Linear Hyper-Reduction (DEIM & Contact-Aware ECSW)
+*Objective*: Evaluate non-linear internal forces on low-dimensional sample points, extend hyper-reduction to deformable contact, and preserve sub-millisecond CPU ROM latency.
 * [ ] **Discrete Empirical Interpolation Method (DEIM / Q-DEIM)**:
-  * Force snapshot matrix assembly: $\boldsymbol{S}_f = [\boldsymbol{f}_{\text{int}}(\boldsymbol{u}_1), \dots, \boldsymbol{f}_{\text{int}}(\boldsymbol{u}_m)] \in \mathbb{R}^{n \times m}$.
+  * Out-of-core force snapshot matrix assembly streamed directly into HDF5 datasets: $\boldsymbol{S}_f = [\boldsymbol{f}_{\text{int}}(\boldsymbol{u}_1), \dots, \boldsymbol{f}_{\text{int}}(\boldsymbol{u}_m)]$.
   * SVD basis extraction for force space: $\boldsymbol{\Psi}_f \in \mathbb{R}^{n \times m_f}$.
   * Greedy DEIM / Q-DEIM row selection determining interpolation indices $\boldsymbol{P} \in \mathbb{R}^{n \times m_f}$.
-  * Online reduced nonlinear force approximation:
-    $$\boldsymbol{f}_r \approx \boldsymbol{\Phi}^T \boldsymbol{\Psi}_f (\boldsymbol{P}^T \boldsymbol{\Psi}_f)^{-1} \boldsymbol{f}_{\text{int}}(\boldsymbol{u})[\boldsymbol{P}]$$
-  * Comparison benchmark between ECSW and DEIM on hyperelastic cantilever beam.
+  * Support for internal history variables (viscoelasticity).
+  * Online reduced nonlinear force approximation: $\boldsymbol{f}_r \approx \boldsymbol{\Phi}^T \boldsymbol{\Psi}_f (\boldsymbol{P}^T \boldsymbol{\Psi}_f)^{-1} \boldsymbol{f}_{\text{int}}(\boldsymbol{u})[\boldsymbol{P}]$.
 * [ ] **Contact-Aware ECSW & Enriched POD Basis (Method 2 Hyper-Reduced Contact)**:
   * Joint cubature training in ECSW incorporating virtual work from contact boundary interfaces:
     $$\boldsymbol{A}_{\text{joint}} = \begin{bmatrix} \boldsymbol{A}_{\text{vol}} \\ \alpha_c \boldsymbol{A}_{\text{contact}} \end{bmatrix}, \quad \boldsymbol{c}_{c, i}^{(k)} = \boldsymbol{\Phi}_{s, i}^T \boldsymbol{f}_{c, i}^{(k)}$$
   * Automatic clustering of reduced integration domain (RID) elements around high-gradient contact zones.
   * Localized modal basis enrichment: Krylov contact vectors and dual-mode basis $\boldsymbol{\Phi} = [\boldsymbol{\Phi}_{\text{bulk}}, \boldsymbol{\Phi}_{\text{contact}}]$.
-  * Deformable-to-deformable hyper-reduced contact with dual RIDs and BVH tracking.
+* [ ] **Pure CPU Low-Latency Execution**:
+  * Retain CPU-optimized dense Cholesky/BLAS for online ROM execution to avoid PCIe bus transfer latency ($< 15\ \mu\text{s}$ response, $> 1,000\text{ Hz}$).
 
 ---
 
-### Phase 3: Biomechanical Specialization & Multiphysics Continua
-*Objective*: Model physiological time-dependent, anisotropic, nearly-incompressible, and fluid-coupled tissue phenomena.
-* [ ] **Viscoelastic Constitutive Laws**:
-  * Generalized Maxwell / Prony series relaxation spectrum:
-    $$G(t) = G_\infty + \sum_{m=1}^{N_p} G_m e^{-t / \tau_m}$$
-  * Internal history variable tracking per quadrature point.
-* [ ] **Nearly-Incompressible Formulations & Volumetric Locking Alleviation**:
-  * `Tet4Fbar` / B-bar (Mean Dilatation) formulation.
-  * Three-field mixed $u-p-\theta$ formulation for soft tissues with $\nu \to 0.5$.
-* [ ] **Anisotropic Hyperelasticity**:
-  * Holzapfel-Gasser-Ogden (`HGO`) model for fiber-reinforced biological membranes (arteries, dura mater, falx cerebri).
-* [ ] **Poroelasticity (Biot Consolidation)**:
-  * Coupled fluid-solid mixed formulation for parenchymal fluid flow (hydrocephalus, edema).
-  * Taylor-Hood `Tet10`-`Tet4` mixed elements satisfying the LBB / inf-sup condition.
-* [ ] **Unified Multi-Physics Law**:
-  * Coupled hyper-visco-poroelastic constitutive laws for perfused parenchymal organs.
-
----
-
-### Phase 4: Advanced Instability Solvers & Structured Hexahedral Discretizations
-*Objective*: Solve non-monotonic post-buckling load-displacement paths and support high-accuracy structured hexahedral elements.
-* [ ] **Arc-Length / Riks Method (`ArcLengthAnalysis`)**:
-  * Crisfield cylindrical arc-length constraint for post-buckling, snap-through, and snap-back equilibrium paths where $\det(\boldsymbol{K}_T) \le 0$.
-* [ ] **Dynamic Relaxation Equilibrium Solver (`DynamicRelaxationAnalysis`)**:
-  * Barnes/Underwood kinetic damping algorithm ($\boldsymbol{v} \leftarrow \mathbf{0}$ at kinetic energy peaks) with Gerschgorin diagonal mass scaling for highly unstable softening paths.
-* [ ] **Structured Hexahedral Volume Discretizations**:
-  * Hexahedral volume meshing infrastructure (structured sweeping, polycube mapping).
-  * Linear 8-node brick element (`Hex8`) with B-bar / Selective Reduced Integration (SRI).
-  * Quadratic 20-node serendipity brick element (`Hex20`).
-  * Quadrilateral shell element (`Shell4` / MITC4).
-
----
-
-### Phase 5: High-Capacity Streaming Backends & Clinical Digital Twins
-*Objective*: Enable out-of-core streaming for massive models and advance closed-loop intraoperative clinical navigation.
-* [ ] **Hierarchical & Streaming Dataset Backends (HDF5 / Zarr)**:
-  * High-capacity out-of-core snapshot streaming and chunked storage for massive simulation runs ($> 10^6$ DOFs, continuous trajectory logging).
-  * Parallel I/O integration with HDF5 and Zarr storage formats.
+### Phase 4: Clinical Digital Twins, Real-Time Navigation & Grand Showcase
+*Objective*: Advance closed-loop intraoperative clinical navigation, and deliver a comprehensive gallery of executable examples showcasing all capabilities of the library.
+* [ ] **Quasi-Static Surgical Indentation with Viscoelastic Relaxation**:
+  * Simulation pipeline for slow surgical probe indentation and holding with stress relaxation.
 * [ ] **Online Hyper-Reduced Inverse Parameter Identification**:
   * Real-time in-vivo tissue stiffness calibration during active robotic tool contact.
 * [ ] **Multi-Modal Intraoperative Sensor Fusion**:
   * Fusing sparse cortical surface optical markers with intraoperative ultrasound (iUS) and stereovision point clouds for enhanced deep-target tracking accuracy.
+* [ ] **Anisotropic Hyperelasticity (Holzapfel-Gasser-Ogden - HGO Model)**:
+  * Fiber-reinforced biological membranes (dura mater, falx cerebri, tentorium).
+* [ ] **Loop 2 Grand Showcase Gallery (All-Capabilities Demonstration)**:
+  * Deliver standalone executable, PyVista-visualized examples covering every simulation mode in `pSierra`:
+    1. `examples/11_advanced_continua/1101_tet4fbar_incompressibility.py`: Tet4 locking vs. Tet4Fbar compliance ($\nu = 0.499$).
+    2. `examples/11_advanced_continua/1102_viscoelastic_relaxation.py`: Probe indentation and 30s stress relaxation holding.
+    3. `examples/11_advanced_continua/1103_dynamic_relaxation_solver.py`: Matrix-free static equilibrium via kinetic damping.
+    4. `examples/11_advanced_continua/1104_csf_hydrostatic_drainage.py`: Chen et al. CSF drainage and buoyancy loss during craniotomy.
+    5. `examples/11_advanced_continua/1105_hdf5_checkpoint_resume.py`: Out-of-core snapshot streaming, stopping, and seamless resume.
+    6. `examples/12_advanced_contact/1201_3pillar_regularized_impact.py`: High-energy dynamic impact with adaptive cutback & $C^1$ pseudonormals.
+    7. `examples/12_advanced_contact/1202_mortar_contact_friction.py`: Segment-to-segment mortar contact with Coulomb stick-slip.
+    8. `examples/13_hyperreduction/1301_deim_hyperelastic_force.py`: Discrete Empirical Interpolation (DEIM) vs. ECSW.
+    9. `examples/13_hyperreduction/1302_contact_aware_ecsw.py`: Deformable contact hyper-reduced with joint bulk + contact cubature.
+    10. `examples/14_clinical_digital_twins/1401_neurosurgical_digital_twin_complete.py`: **The Grand Flagship Simulation** combining patient-specific brain with tumor, Tet4Fbar + viscoelasticity, falx cerebri membrane, CSF drainage, real-time ROM shape sensing, and HDF5 storage.
 
 ---
 
