@@ -165,7 +165,7 @@ This roadmap is laser-focused on biological soft-tissue mechanics, robust contac
   * Fiber-reinforced biological membranes (dura mater, falx cerebri, tentorium).
 * [ ] **Loop 2 Grand Showcase Gallery (All-Capabilities Demonstration)**:
   * Deliver standalone executable, PyVista-visualized examples covering every simulation mode in `pSierra`:
-    1. [x] `examples/11_advanced_continua/1101_tet4fbar_incompressibility.py`: Tet4Linear locking (72.9 mm sag) vs. Tet4Fbar compliance (342.9 mm sag, 4.70x ratio) under 1G gravitational self-weight ($\nu = 0.499, K/\mu = 500$). Exports `result_tet4_linear.vtu` and `result_tet4_fbar.vtu`.
+    1. [x] `examples/11_advanced_continua/1101_tet4fbar_incompressibility.py`: 15-step NonlinearStaticAnalysis (Neo-Hookean, $\nu = 0.499, K/\mu = 500$): Tet4TotalLagrangian locking ($0.043\ \text{mm}$) vs. Tet4Fbar compliance ($0.127\ \text{mm}$, $2.99\times$ ratio). Exports `result_tet4_tl.vtu`, `result_tet4_fbar.vtu`, and `.pvd` animations.
     2. `examples/11_advanced_continua/1102_viscoelastic_relaxation.py`: Probe indentation and 30s stress relaxation holding.
     3. `examples/11_advanced_continua/1103_dynamic_relaxation_solver.py`: Matrix-free static equilibrium via kinetic damping.
     4. `examples/11_advanced_continua/1104_csf_hydrostatic_drainage.py`: Chen et al. CSF drainage and buoyancy loss during craniotomy.
