@@ -22,6 +22,7 @@
 ### Step 1: Requirements & Physics Scoping
 - Identify the physical domain (e.g., solid mechanics, dynamics, hyperelasticity, model order reduction).
 - Establish the governing mathematical formulation (e.g., Total Lagrangian, POD snapshot reduction, Rayleigh damping).
+- Prescribe distributed gravitational body forces (`GravityLoad`) over concentrated point loads whenever demonstrating volumetric locking alleviation, near-incompressibility ($\nu \to 0.5$), or soft-tissue compliance, ensuring bulk constraints are uniformly engaged across the full volume without localized point-load singularities.
 
 ### Step 2: Architectural Placement
 - Map the new feature to its proper namespace under `src/psierra/`:
@@ -92,6 +93,7 @@ class FeatureClass(BaseClass):
 #### 5. Verification Targets for Tester
 - Patch test passes within tolerance $10^{-10}$.
 - Invariance under rigid body rotation and translation.
+- For incompressibility and soft-tissue benchmarks, prefer distributed body loads (`GravityLoad`) over point loads to avoid localized stress singularities and evaluate volume-averaged deformation.
 ```
 
 ---

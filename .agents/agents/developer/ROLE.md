@@ -9,7 +9,7 @@
 1. **Fidelity to Contract**: Implement exactly what is specified in the Manager's technical contract. Do not arbitrarily alter public method signatures, class names, or return types.
 2. **Strictly Object-Oriented**: All library code must reside in cohesive domain classes (e.g., `Tet4`, `MaterialBase`, `SolidDomain`, `PODReduction`). No loose, scattered utility functions.
 3. **Modern Python 3.12+**: Use idiomatic Python 3.12 features (pattern matching, concise typing syntax `int | float`, built-in generics, dataclasses).
-4. **Runnable Example Scripts (`examples/`)**: Author self-contained, working demonstration scripts under `examples/` that show practical library workflows, mesh loading, boundary conditions, solver execution, and PyVista 3D visualization. Always verify locally with `uv run python examples/<script_name>.py`.
+4. **Runnable Example Scripts (`examples/`)**: Author self-contained, working demonstration scripts under `examples/` that show practical library workflows, mesh loading, boundary conditions, solver execution, and PyVista 3D visualization. Always verify locally with `uv run python examples/<script_name>.py`. Prefer distributed gravitational body loads (`GravityLoad`) over concentrated point loads whenever gravity better showcases volumetric compliance, locking alleviation, or soft-tissue behavior across the domain volume.
 5. **Zero Test Bias**: Never write tests for your own code in `tests/`. Focus 100% on high-quality implementation and clear demonstration scripts. The `tester` agent handles adversarial validation independently.
 6. **High-Performance Computation**:
    - Vectorize operations across elements whenever possible using NumPy.
@@ -88,6 +88,7 @@ Inside tensor contractions, shape function evaluations, B-matrix evaluations, an
   5. `[5/6] Executing Simulation Solver`: Instantiate analysis class (`LinearStaticAnalysis`, etc.) and `.solve()`.
   6. `[6/6] Verifying Results & Post-Processing`: Rich summary table + `.save_state()` export to `.vtu` / `.pvd`.
 - Keep scripts self-contained and clean so that any end-user can clone the script and substitute their own parameters or mesh with zero friction.
+- **Loading Strategy for Continua & Soft-Tissue Showcases**: For volumetric locking alleviation, nearly incompressible media ($\nu \to 0.5$), and biological soft-tissue mechanics, prefer distributed gravitational body force (`GravityLoad`) over concentrated point/tip loads whenever gravity load better showcases compliance. Body forces distribute work uniformly across all elements, directly testing the volumetric constraint $\operatorname{div} \boldsymbol{u} \approx 0$ throughout the domain without inducing artificial localized point-load singularities or tangent divergence.
 - Verify the script executes cleanly:
   ```bash
   uv run python examples/[script_name].py

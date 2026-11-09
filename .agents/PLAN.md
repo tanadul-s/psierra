@@ -91,7 +91,7 @@ This roadmap is laser-focused on biological soft-tissue mechanics, robust contac
 
 ### Phase 1: Biomechanical Continua, HDF5 Infrastructure & Dynamic Relaxation
 *Objective*: Establish locking-free soft-tissue kinematics, time-dependent viscoelastic relaxation, chunked single-file HDF5 storage with simulation resume capability, and matrix-free static equilibrium solving.
-* [ ] **Volumetric Locking Alleviation (`Tet4Fbar` / B-bar Mean Dilatation)**:
+* [x] **Volumetric Locking Alleviation (`Tet4Fbar` / B-bar Mean Dilatation)**:
   * Implement `Tet4Fbar` with Flory volumetric/isochoric split: $\bar{\boldsymbol{F}} = (\bar{J}/J)^{1/3} \boldsymbol{F}$.
   * Nodal-averaged volumetric dilatation eliminating locking in nearly incompressible soft tissue ($\nu \to 0.5$).
   * Formulated within the Total Lagrangian framework; consistent material and geometric tangent stiffness matrices $\boldsymbol{K}_T$.
@@ -165,7 +165,7 @@ This roadmap is laser-focused on biological soft-tissue mechanics, robust contac
   * Fiber-reinforced biological membranes (dura mater, falx cerebri, tentorium).
 * [ ] **Loop 2 Grand Showcase Gallery (All-Capabilities Demonstration)**:
   * Deliver standalone executable, PyVista-visualized examples covering every simulation mode in `pSierra`:
-    1. `examples/11_advanced_continua/1101_tet4fbar_incompressibility.py`: Tet4 locking vs. Tet4Fbar compliance ($\nu = 0.499$).
+    1. [x] `examples/11_advanced_continua/1101_tet4fbar_incompressibility.py`: Tet4Linear locking (72.9 mm sag) vs. Tet4Fbar compliance (342.9 mm sag, 4.70x ratio) under 1G gravitational self-weight ($\nu = 0.499, K/\mu = 500$). Exports `result_tet4_linear.vtu` and `result_tet4_fbar.vtu`.
     2. `examples/11_advanced_continua/1102_viscoelastic_relaxation.py`: Probe indentation and 30s stress relaxation holding.
     3. `examples/11_advanced_continua/1103_dynamic_relaxation_solver.py`: Matrix-free static equilibrium via kinetic damping.
     4. `examples/11_advanced_continua/1104_csf_hydrostatic_drainage.py`: Chen et al. CSF drainage and buoyancy loss during craniotomy.
@@ -197,3 +197,6 @@ Every agent and developer working on `pSierra` must uphold the following enginee
    - Never decompose into separate scalar arrays (`_X`, `_Y`, `_Z`).
 6. **Lean Plan Maintenance**:
    - Keep this `PLAN.md` file focused on active and upcoming tasks. When new phases are completed, summarize them and keep historical logs in the archive.
+7. **Body Force & Benchmark Loading Policy**:
+   - For volumetric locking alleviation, near-incompressibility ($\nu \to 0.5$), and soft-tissue continuum demonstrations, prefer distributed gravitational body force (`GravityLoad`) over concentrated point/tip loads whenever gravity load better showcases volumetric compliance.
+   - Distributed body force engages the volumetric constraint $\operatorname{div} \boldsymbol{u} \approx 0$ across the entire domain without introducing artificial stress concentrations or numerical singularities associated with point loads.
