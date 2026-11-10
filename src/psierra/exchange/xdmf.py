@@ -194,7 +194,9 @@ class XdmfWriter:
         vel_arr: np.ndarray | None = None
         if velocity is not None:
             vel_arr = np.asarray(velocity, dtype=np.float64)
-        elif domain is not None and np.any(domain.v != 0.0):
+        elif domain is not None and hasattr(domain, "v") and (
+            np.any(domain.v != 0.0) or (hasattr(domain, "a") and np.any(domain.a != 0.0))
+        ):
             vel_arr = np.asarray(domain.v, dtype=np.float64).reshape(-1, 3)
 
         if vel_arr is not None:
@@ -215,7 +217,9 @@ class XdmfWriter:
         acc_arr: np.ndarray | None = None
         if acceleration is not None:
             acc_arr = np.asarray(acceleration, dtype=np.float64)
-        elif domain is not None and np.any(domain.a != 0.0):
+        elif domain is not None and hasattr(domain, "a") and (
+            np.any(domain.v != 0.0) or np.any(domain.a != 0.0)
+        ):
             acc_arr = np.asarray(domain.a, dtype=np.float64).reshape(-1, 3)
 
         if acc_arr is not None:

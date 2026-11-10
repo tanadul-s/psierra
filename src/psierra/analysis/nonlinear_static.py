@@ -18,7 +18,7 @@ from psierra.boundary import (
 from psierra.solver.sparse_linear_solver import SparseLinearSolver, DirectSolver
 from psierra.analysis.base import Analysis
 from psierra.analysis.augmentation import ContactAugmentation
-from psierra.exchange import PvdCollectionWriter
+from psierra.exchange.pvd import PvdWriter
 from psierra.exchange.writer import SimulationWriter
 
 
@@ -194,35 +194,25 @@ class NonlinearStaticAnalysis(Analysis):
             )
 
         save_dir = Path(save_directory) if save_directory is not None else None
+        created_internal_writer = False
         if save_dir is not None:
             save_dir.mkdir(parents=True, exist_ok=True)
+            if writer is None:
+                writer = PvdWriter(
+                    output_path=save_dir / f"{output_name}.pvd",
+                    mesh=getattr(self.domain, "mesh", None),
+                    store_checkpoints=False,
+                )
+                created_internal_writer = True
 
         u_current = self.domain.u.copy()
         iteration_history: list[int] = []
         al_iterations_history: list[int] = []
         exported_files: list[Path] = []
-        pvd_writer = (
-            PvdCollectionWriter(save_dir / f"{output_name}.pvd")
-            if save_dir is not None
-            else None
-        )
 
         # Save Step 0 (Initial state at lambda = 0.0)
         if writer is not None and initial_step == 0:
             writer.add_timestep(time=initial_time, domain=self.domain, step_index=0)
-
-        if save_dir is not None and pvd_writer is not None:
-            vtu_name = "step_00000.vtu"
-            vtu_path = save_dir / vtu_name
-            self.domain.update_state(u=u_current)
-            self.domain.save_state(
-                vtu_path,
-                include_stresses=include_stresses,
-                smooth_to_nodes=smooth_to_nodes,
-            )
-            pvd_writer.add_timestep(0.0, vtu_name)
-            pvd_writer.write()
-            exported_files.append(vtu_path)
 
         if verbose:
             print(
@@ -297,8 +287,8 @@ class NonlinearStaticAnalysis(Analysis):
                     except (ValueError, FloatingPointError):
                         self.domain.update_state(u=accepted_u, v=accepted_v, a=accepted_a)
                         augmentation.restore(multiplier_snapshot)
-                        if pvd_writer is not None:
-                            pvd_writer.write()
+                        if writer is not None:
+                            writer.close()
                         raise
 
                     # 3. Compute Out-of-Balance Residual Vector: R = F_ext_step + F_contact - F_int
@@ -430,8 +420,8 @@ class NonlinearStaticAnalysis(Analysis):
                 except (ValueError, FloatingPointError):
                     self.domain.update_state(u=accepted_u, v=accepted_v, a=accepted_a)
                     augmentation.restore(multiplier_snapshot)
-                    if pvd_writer is not None:
-                        pvd_writer.write()
+                    if writer is not None:
+                        writer.close()
                     raise
                 if verbose and augmentation.contacts:
                     print(
@@ -458,8 +448,10 @@ class NonlinearStaticAnalysis(Analysis):
                 u_current = accepted_u
                 self.domain.update_state(u=accepted_u, v=accepted_v, a=accepted_a)
                 augmentation.restore(multiplier_snapshot)
-                if save_dir is not None and pvd_writer is not None:
-                    pvd_writer.write()
+                if created_internal_writer and writer is not None:
+                    writer.close()
+                elif writer is not None and hasattr(writer, "write"):
+                    writer.write()
                 f_contact_step = sum(
                     (
                         c.evaluate_forces(
@@ -482,7 +474,7 @@ class NonlinearStaticAnalysis(Analysis):
                     steps_completed=step - 1,
                     iteration_history=iteration_history,
                     al_iterations_history=al_iterations_history,
-                    time_series_files=exported_files,
+                    time_series_files=getattr(writer, "exported_files", []) if writer is not None else [],
                 )
 
             # Save frame if directory specified and matching save_interval or final step
@@ -490,23 +482,6 @@ class NonlinearStaticAnalysis(Analysis):
             t_current = initial_time + float(load_factor)
             if writer is not None and (step % save_interval == 0 or step == n_steps):
                 writer.add_timestep(time=t_current, domain=self.domain, step_index=step_idx)
-
-            if (
-                save_dir is not None
-                and pvd_writer is not None
-                and (step % save_interval == 0 or step == n_steps)
-            ):
-                vtu_name = f"step_{step:05d}.vtu"
-                vtu_path = save_dir / vtu_name
-                self.domain.save_state(
-                    vtu_path,
-                    factor=factor,
-                    include_stresses=include_stresses,
-                    smooth_to_nodes=smooth_to_nodes,
-                )
-                pvd_writer.add_timestep(float(load_factor), vtu_name)
-                pvd_writer.write()
-                exported_files.append(vtu_path)
 
         # Simulation successfully completed all steps
         self.domain.update_state(u=u_current)
@@ -522,8 +497,13 @@ class NonlinearStaticAnalysis(Analysis):
         )
         reactions = f_int_final - f_ext - f_contact_final
 
-        if save_dir is not None and pvd_writer is not None:
-            pvd_writer.write()
+        # Finalize writer output
+        if writer is not None:
+            if created_internal_writer:
+                writer.close()
+            elif hasattr(writer, "write"):
+                writer.write()
+            exported_files = getattr(writer, "exported_files", [])
 
         if verbose:
             print(

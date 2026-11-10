@@ -10,7 +10,7 @@ from psierra.domain.base import Domain
 from psierra.boundary.dirichlet import DirichletManager, DirichletConstraint
 from psierra.damping.rayleigh import RayleighDamping
 from psierra.analysis.base import Analysis
-from psierra.exchange import PvdCollectionWriter
+from psierra.exchange.pvd import PvdWriter
 from psierra.exchange.writer import SimulationWriter
 
 
@@ -177,8 +177,16 @@ class LinearDynamicAnalysis(Analysis):
             )
 
         save_dir = Path(save_directory) if save_directory is not None else None
+        created_internal_writer = False
         if save_dir is not None:
             save_dir.mkdir(parents=True, exist_ok=True)
+            if writer is None:
+                writer = PvdWriter(
+                    output_path=save_dir / f"{output_name}.pvd",
+                    mesh=getattr(self.domain, "mesh", None),
+                    store_checkpoints=False,
+                )
+                created_internal_writer = True
 
         hold_counter = 0
         steady_state_converged = False
@@ -255,28 +263,16 @@ class LinearDynamicAnalysis(Analysis):
         # 6. Time Loop Preparation
         time_points = np.linspace(0, n_steps * dt, n_steps + 1)
         exported_files: list[Path] = []
-        pvd_writer = (
-            PvdCollectionWriter(save_dir / f"{output_name}.pvd")
-            if save_dir is not None
-            else None
-        )
 
         # Save Initial State (Step 0)
         if writer is not None and initial_step == 0:
-            writer.add_timestep(time=initial_time, domain=self.domain, step_index=0)
-
-        if save_dir is not None and pvd_writer is not None:
-            vtu_name = "step_00000.vtu"
-            vtu_path = save_dir / vtu_name
-            self.domain.update_state(u=u_full, v=v_full, a=a_full)
-            self.domain.save_state(
-                vtu_path,
-                include_stresses=include_stresses,
-                smooth_to_nodes=smooth_to_nodes,
+            writer.add_timestep(
+                time=initial_time,
+                domain=self.domain,
+                velocity=self.domain.v,
+                acceleration=self.domain.a,
+                step_index=0,
             )
-            pvd_writer.add_timestep(0.0, vtu_name)
-            pvd_writer.write()
-            exported_files.append(vtu_path)
 
         if verbose:
             print(
@@ -316,26 +312,16 @@ class LinearDynamicAnalysis(Analysis):
 
             self.domain.update_state(u=u_full, v=v_full, a=a_full)
 
-            # Save frame if directory specified and matching save_interval
+            # Save frame if writer present and matching save_interval
             saved_current_step = False
             if writer is not None and (step % save_interval == 0 or step == n_steps):
-                writer.add_timestep(time=t_current, domain=self.domain, step_index=step_idx)
-
-            if (
-                save_dir is not None
-                and pvd_writer is not None
-                and (step % save_interval == 0 or step == n_steps)
-            ):
-                vtu_name = f"step_{step:05d}.vtu"
-                vtu_path = save_dir / vtu_name
-                self.domain.save_state(
-                    vtu_path,
-                    include_stresses=include_stresses,
-                    smooth_to_nodes=smooth_to_nodes,
+                writer.add_timestep(
+                    time=t_current,
+                    domain=self.domain,
+                    velocity=self.domain.v,
+                    acceleration=self.domain.a,
+                    step_index=step_idx,
                 )
-                pvd_writer.add_timestep(t_current, vtu_name)
-                pvd_writer.write()
-                exported_files.append(vtu_path)
                 saved_current_step = True
 
             if verbose and (step % max(1, n_steps // 10) == 0 or step == n_steps):
@@ -371,21 +357,14 @@ class LinearDynamicAnalysis(Analysis):
                     steady_state_step = step
 
                     # Ensure the final snapshot is saved upon reaching steady state
-                    if (
-                        save_dir is not None
-                        and pvd_writer is not None
-                        and not saved_current_step
-                    ):
-                        vtu_name = f"step_{step:05d}.vtu"
-                        vtu_path = save_dir / vtu_name
-                        self.domain.save_state(
-                            vtu_path,
-                            include_stresses=include_stresses,
-                            smooth_to_nodes=smooth_to_nodes,
+                    if writer is not None and not saved_current_step:
+                        writer.add_timestep(
+                            time=t_current,
+                            domain=self.domain,
+                            velocity=self.domain.v,
+                            acceleration=self.domain.a,
+                            step_index=step_idx,
                         )
-                        pvd_writer.add_timestep(t_current, vtu_name)
-                        pvd_writer.write()
-                        exported_files.append(vtu_path)
 
                     if verbose:
                         print(
@@ -394,9 +373,13 @@ class LinearDynamicAnalysis(Analysis):
                         )
                     break
 
-        # 8. Write Master .pvd Animation File for ParaView
-        if save_dir is not None and pvd_writer is not None:
-            pvd_writer.write()
+        # Finalize writer output
+        if writer is not None:
+            if created_internal_writer:
+                writer.close()
+            elif hasattr(writer, "write"):
+                writer.write()
+            exported_files = getattr(writer, "exported_files", [])
 
         steps_done = steady_state_step if steady_state_converged else n_steps
         time_out = time_points[: steps_done + 1]

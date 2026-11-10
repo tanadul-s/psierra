@@ -7,7 +7,7 @@ import numpy as np
 from psierra.domain.base import Domain
 from psierra.exchange.checkpoint import SimulationCheckpoint
 from psierra.exchange.xdmf import XdmfWriter
-from psierra.exchange.pvd_writer import PvdWriter
+from psierra.exchange.pvd import PvdWriter
 
 
 class SimulationWriter:
@@ -80,6 +80,13 @@ class SimulationWriter:
         if isinstance(self._backend, XdmfWriter):
             return len(self._backend.steps)
         return self._backend.step_count
+
+    @property
+    def exported_files(self) -> list[Path]:
+        """List of exported file paths (e.g. .vtu snapshots or .xdmf/.h5 pair)."""
+        if isinstance(self._backend, XdmfWriter):
+            return [self._backend.xdmf_path, self._backend.h5_path]
+        return getattr(self._backend, "exported_files", [])
 
     def add_timestep(
         self,

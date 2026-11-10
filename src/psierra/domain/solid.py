@@ -462,9 +462,8 @@ class SolidDomain(Domain):
             grid.points = self.mesh.nodes + factor * self.displacement
 
         grid.point_data["Displacement"] = self.displacement
-        if np.any(self.v != 0.0):
+        if np.any(self.v != 0.0) or np.any(self.a != 0.0):
             grid.point_data["Velocity"] = self.v.reshape(-1, 3)
-        if np.any(self.a != 0.0):
             grid.point_data["Acceleration"] = self.a.reshape(-1, 3)
         grid.set_active_scalars("Displacement")
         
