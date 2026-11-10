@@ -224,3 +224,61 @@ print(f"Converged: {result.converged} in {result.steps_completed} steps")
 print(f"Max Displacement: {result.displacement.max():.4f} mm")
 ```
 
+---
+
+## 8. Hydrostatic Pressure & Buoyancy Loads (`HydrostaticPressureLoad`, `BuoyancyLoad`)
+
+### 8.1 Physical Motivation & Medical Relevance
+In soft-tissue biomechanics, human organs are immersed in physiological fluids that provide critical Archimedean neutral buoyant support:
+- The human brain ($\rho_{\text{brain}} \approx 1040\text{ kg/m}^3$) is suspended in Cerebrospinal Fluid (CSF, $\rho_{\text{CSF}} \approx 1000\text{ kg/m}^3$).
+- Intact CSF buoyant lift counteracts **$96.2\%$** of the brain's downward gravitational weight, reducing the net effective mechanical load from $\sim 14.5\text{ N}$ to a gentle $\sim 0.56\text{ N}$, preventing brainstem herniation.
+- During neurosurgical craniotomy (Chen et al. 2017, 2019, 2022), CSF drainage lowers the fluid level ($h_{\text{fluid}}$), stripping away buoyant relief and causing gravitational parenchymal sag and subcortical tumor migration up to $10 - 15\text{ mm}$.
+
+### 8.2 Surface Facet Hydrostatic Pressure Formulation (`HydrostaticPressureLoad`)
+The hydrostatic fluid pressure at spatial coordinate $\boldsymbol{x}$ is:
+$$p(\boldsymbol{x}) = \rho_{\text{fluid}} \|\boldsymbol{g}\| \max\left(0,\, h_{\text{fluid}} - \boldsymbol{x} \cdot \hat{\boldsymbol{u}}_{\text{up}}\right)$$
+where $\hat{\boldsymbol{u}}_{\text{up}} = -\boldsymbol{g} / \|\boldsymbol{g}\|$ is the upward unit vector opposite to gravity, and $h_{\text{fluid}}$ is the elevation of the fluid free surface.
+
+The inward normal surface traction on exterior boundary facets is:
+$$\boldsymbol{t}(\boldsymbol{x}) = - p(\boldsymbol{x}) \boldsymbol{n}(\boldsymbol{x})$$
+
+For each triangular boundary facet with area $A_k$ and outward unit normal $\boldsymbol{n}_k$, the exact 2nd-order surface quadrature yields the nodal force on facet vertex $i \in \{1, 2, 3\}$:
+$$\boldsymbol{F}_i^{\text{facet}} = -\boldsymbol{n}_k A_k \left( \frac{p_i + p_1 + p_2 + p_3}{12} \right)$$
+
+By Gauss's divergence theorem, the net vertical resultant over a closed submerged surface identically recovers Archimedes' buoyant force to machine precision ($< 10^{-12}$ relative error):
+$$\oint_{\partial \Omega} -p \boldsymbol{n} \, dA = \rho_{\text{fluid}} V_{\text{sub}} (-\boldsymbol{g})$$
+while simultaneously capturing the lateral hydrostatic compression (squeezing) of the continuum.
+
+### 8.3 Volumetric Buoyancy Body Force (`BuoyancyLoad`)
+As an upward volumetric body force opposing gravity:
+$$\boldsymbol{F}_{\text{buoyancy}} = -\rho_{\text{fluid}} \int_{\Omega_{\text{sub}}} \boldsymbol{g} \, dV$$
+For fully submerged continua, evaluated via the assembled mass matrix:
+$$\boldsymbol{F}_{\text{buoyancy}} = \frac{\rho_{\text{fluid}}}{\rho_{\text{solid}}} \boldsymbol{M} (-\boldsymbol{g})$$
+or via tetrahedral element volume summation for partially submerged bodies.
+
+### 8.4 Usage in Forward Analyses
+
+```python
+from psierra.boundary import GravityLoad, HydrostaticPressureLoad, BuoyancyLoad
+
+# 1. Downward gravity body force
+gravity = GravityLoad(acceleration=(0.0, 0.0, -9810.0))
+f_gravity = gravity.compute_force_vector(M)
+
+# 2. Upward buoyancy load
+buoyancy = BuoyancyLoad(
+    fluid_density=1000e-12,  # Water / CSF: 1000 kg/m^3 in tonne/mm^3
+    acceleration=(0.0, 0.0, -9810.0),
+    fluid_level=80.0,
+)
+f_buoyancy = buoyancy.compute_force_vector(domain)
+
+# 3. Net submerged force vector
+f_net = f_gravity + f_buoyancy
+```
+
+### 8.5 Verification Examples
+- **[`1106_hydrostatic_buoyancy_beam.py`](../examples/11_advanced_continua/1106_hydrostatic_buoyancy_beam.py)**: Cantilever beam under gravity and water buoyancy across all 4 analyses (Linear Static, Linear Dynamic, TL Static, TL Dynamic), demonstrating a 50% buoyant sag reduction.
+- **[`1107_hydrostatic_buoyancy_brain.py`](../examples/11_advanced_continua/1107_hydrostatic_buoyancy_brain.py)**: Patient-specific MRI brain shift under gravity and CSF buoyancy across all 4 analyses, demonstrating $96.2\%$ buoyant gravitational relief and subcortical tumor drift telemetry.
+
+

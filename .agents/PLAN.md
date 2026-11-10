@@ -111,11 +111,14 @@ This roadmap is laser-focused on biological soft-tissue mechanics, robust contac
   * Barnes/Underwood kinetic damping ($\boldsymbol{v} \leftarrow \mathbf{0}$ when $dE_k/dt < 0$) and viscous mass-proportional damping.
   * Provides unconditional stability against tangent stiffness singularities ($\det(\boldsymbol{K}_T) \le 0$) during severe non-smooth contact and tissue collapse.
   * Unified single-class architecture seamlessly handling both linear elastic and nonlinear hyperelastic continua without matrix factorizations.
-* [ ] **CSF Hydrostatic Pressure & Buoyancy Load (`HydrostaticPressureLoad`)**:
+* [x] **CSF Hydrostatic Pressure & Buoyancy Load (`HydrostaticPressureLoad`, `BuoyancyLoad`)**:
   * *References*: Chen et al. (2017, 2019, 2022) IEEE SII & TMRB.
   * Spatially-varying boundary traction on submerged surface facets: $\boldsymbol{F}_{\text{hydro}} = -\rho_{\text{CSF}} g \max(0, h_{\text{fluid}} - z) A_k \boldsymbol{n}_k$.
+  * Exact 2nd-order surface quadrature $\boldsymbol{F}_i^{\text{facet}} = -\boldsymbol{n}_k A_k (p_i + \sum p_j)/12$ identically recovering Archimedes' buoyant force to $< 10^{-12}$ relative error.
+  * Volumetric body force counterpart `BuoyancyLoad` for full/partial submergence.
   * Configurable patient head orientation ($\hat{\boldsymbol{u}}_{\text{up}} = -\boldsymbol{g}/\|\boldsymbol{g}\|$) and dynamic CSF drainage fluid level $h_{\text{fluid}}$.
-  * Models Archimedean neutral buoyancy and gravity sag progression as CSF leaks during craniotomy.
+  * Models Archimedean neutral buoyancy (96.2% gravitational relief on brain parenchyma) and craniotomy CSF leak sag progression.
+  * Complete 4-analysis suites implemented and verified across both cantilever beam (`1106_hydrostatic_buoyancy_beam.py`) and patient MRI brain anatomy (`1107_hydrostatic_buoyancy_brain.py`).
 
 ---
 
