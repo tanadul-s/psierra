@@ -101,10 +101,11 @@ This roadmap is laser-focused on biological soft-tissue mechanics, robust contac
   * Algorithmic tangent scaling: $\mathbb{C}_{n+1} = \eta(\Delta t) \mathbb{C}^0_{n+1}$.
   * Full integration with domain lifecycle (`SolidDomain.set_time_step`, `commit_state`, `revert_state`) and element classes (`Tet4Base`, `Tet4TotalLagrangian`, `Tet4Fbar`).
   * Unit tested across 13 comprehensive test scenarios (100% pass) and validated on dynamic beam and patient-specific neurosurgical brain shift benchmarks.
-* [ ] **Unified HDF5 Simulation Storage & Checkpointing (`h5py`)**:
-  * Single-file hierarchical storage container (`.h5`): mesh, constitutive parameters, resizable snapshot datasets, and reduced bases.
-  * Simulation state checkpointing: `SimulationCheckpoint(t_n, u_n, v_n, a_n, lambda_n, dt_n)`.
-  * Seamless resume capability: `analysis.resume(checkpoint, additional_steps=100)` appending directly to HDF5 datasets and PVD XML manifests without memory overhead.
+* [x] **Unified HDF5 Simulation Storage & Checkpointing (`h5py`, `SimulationWriter`)**:
+  * Unified single class `SimulationWriter` toggling between modern `format="xdmf"` (clean 2-file binary storage with single-mesh topology and standard XDMF 3.0 XML for ParaView) and legacy `format="pvd"` (multi-file VTU snapshots).
+  * Binary simulation state checkpointing: `SimulationCheckpoint(step, time, dt, u, v, a, history_variables, metadata)`.
+  * Exact simulation resume verified with $0.00\times 10^0$ error against continuous baselines.
+  * Successfully demonstrated across all 4 continuum simulation classes (Linear Static, Linear Dynamic, Nonlinear Static, Nonlinear Dynamic) in `1104_unified_beam_storage_and_resume.py`.
 * [ ] **Dynamic Relaxation Equilibrium Solver (`DynamicRelaxationAnalysis`)**:
   * Matrix-free explicit static solver using fictitious Gerschgorin-scaled diagonal mass $\boldsymbol{M}_{\text{fict}}$.
   * Barnes/Underwood kinetic damping ($\boldsymbol{v} \leftarrow \mathbf{0}$ when $dE_k/dt < 0$).
