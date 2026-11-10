@@ -126,7 +126,9 @@ class Tet4Base(Element):
     # Linear Stiffness & Mass Matrices
     # =========================================================================
 
-    def compute_linear_stiffness_matrix(self, node_coords: np.ndarray) -> np.ndarray:
+    def compute_linear_stiffness_matrix(
+        self, node_coords: np.ndarray, elem_index: int | None = None
+    ) -> np.ndarray:
         """Computes the 12x12 linear stiffness matrix k_e = (B^T C B) * V_e."""
         V, H = self.compute_volume_and_gradients(node_coords)
         BL = self.compute_linear_B_matrix(H)

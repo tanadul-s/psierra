@@ -22,11 +22,17 @@ class Tet4UpdatedLagrangian(Tet4Base):
     current spatial geometry.
     """
 
+    supports_element_indexing: bool = True
+
     def __init__(self, material: Material) -> None:
         super().__init__(material)
+        self.supports_element_indexing = True
 
     def compute_nonlinear_force_and_tangent_stiffness(
-        self, node_coords: np.ndarray, u_nodes: np.ndarray
+        self,
+        node_coords: np.ndarray,
+        u_nodes: np.ndarray,
+        elem_index: int | None = None,
     ) -> tuple[np.ndarray, np.ndarray]:
         """
         Computes the Updated Lagrangian tangent stiffness matrix k_tan (12x12)
@@ -38,6 +44,8 @@ class Tet4UpdatedLagrangian(Tet4Base):
             Reference nodal coordinates X.
         u_nodes : np.ndarray of shape (4, 3)
             Current nodal displacements u.
+        elem_index : int, optional
+            Global element index for history-dependent materials (e.g. Viscoelastic).
 
         Returns:
         --------
@@ -65,7 +73,12 @@ class Tet4UpdatedLagrangian(Tet4Base):
         v = J * V
 
         # Query material model for constitutive tangent C and 2nd PK stress S
-        C, S = self._material.compute_stress_and_tangent(F)
+        if elem_index is not None and getattr(
+            self._material, "supports_element_indexing", False
+        ):
+            C, S = self._material.compute_stress_and_tangent(F, elem_index=elem_index)
+        else:
+            C, S = self._material.compute_stress_and_tangent(F)
 
         # Cauchy stress tensor: sigma = (1 / J) * F @ S @ F^T
         sigma = (1.0 / J) * (F @ S @ F.T)

@@ -124,6 +124,10 @@ class InteractiveDynamicSimulation(Analysis):
         if len(self.free_dofs) == 0:
             raise ValueError("All degrees of freedom are constrained. Nothing to solve.")
 
+        # Configure time increment on domain for rate/history-dependent materials
+        if hasattr(self.domain, "set_time_step"):
+            self.domain.set_time_step(self.dt)
+
         # Assemble Mass, Stiffness, and Damping matrices
         self.M = self.domain.assemble_mass_matrix()
         self.K = self.domain.assemble_stiffness_matrix()
@@ -319,6 +323,10 @@ class InteractiveDynamicSimulation(Analysis):
 
         # Update domain state
         self.domain.update_state(u=self.u_full, v=self.v_full, a=self.a_full)
+
+        # Commit history state for viscoelastic materials
+        if hasattr(self.domain, "commit_state"):
+            self.domain.commit_state()
 
         # Increment simulation time and telemetry
         self.current_time += self.dt

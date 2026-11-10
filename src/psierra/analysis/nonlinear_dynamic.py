@@ -385,6 +385,9 @@ class NonlinearDynamicAnalysis(Analysis):
                 f"Total DOFs: {self.domain.n_dofs} | Free DOFs: {len(free_dofs)} | Total Steps: {n_steps} | dt = {dt:.4e} s | rho_inf = {self.spectral_radius:.2f} | Newton Tol = {nr_tol:.1e}\n"
             )
 
+        if hasattr(self.domain, "set_time_step"):
+            self.domain.set_time_step(dt)
+
         # 5. Dynamic Time Stepping Loop
         for step in range(1, n_steps + 1):
             t_current = step * dt
@@ -610,6 +613,8 @@ class NonlinearDynamicAnalysis(Analysis):
 
             if not step_converged:
                 self.domain.update_state(u=accepted_u, v=accepted_v, a=accepted_a)
+                if hasattr(self.domain, "revert_state"):
+                    self.domain.revert_state()
                 augmentation.restore(multiplier_snapshot)
                 if pvd_writer is not None:
                     pvd_writer.write()
@@ -638,6 +643,10 @@ class NonlinearDynamicAnalysis(Analysis):
             v_full[free_dofs] = v_f
             a_full[free_dofs] = a_f
             self.domain.update_state(u=u_full, v=v_full, a=a_full)
+
+            # Accept converged step: commit internal history for viscoelastic materials
+            if hasattr(self.domain, "commit_state"):
+                self.domain.commit_state()
 
             # Save frame
             saved_current_step = False

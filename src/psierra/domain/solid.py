@@ -39,6 +39,10 @@ class SolidDomain(Domain):
         # Ensure element points to the correct material
         self.element.material = self.material
 
+        # Initialize material internal history variables (viscoelasticity)
+        if hasattr(self.material, "initialize_history"):
+            self.material.initialize_history(self.mesh.n_elements)
+
         # 1. State vectors stored as pure 1D NumPy arrays (Solver-ready)
         self.u = np.zeros(self.mesh.n_dofs, dtype=np.float64)  # Displacement
         self.v = np.zeros(self.mesh.n_dofs, dtype=np.float64)  # Velocity
@@ -132,6 +136,23 @@ class SolidDomain(Domain):
         self.u.fill(0.0)
         self.v.fill(0.0)
         self.a.fill(0.0)
+        if hasattr(self.material, "reset_state"):
+            self.material.reset_state()
+
+    def set_time_step(self, dt: float) -> None:
+        """Sets the active time increment for rate- and history-dependent materials."""
+        if hasattr(self.material, "set_time_step"):
+            self.material.set_time_step(dt)
+
+    def commit_state(self) -> None:
+        """Commits the converged equilibrium state for history-dependent materials."""
+        if hasattr(self.material, "commit_state"):
+            self.material.commit_state()
+
+    def revert_state(self) -> None:
+        """Reverts trial state for history-dependent materials upon solver cutback."""
+        if hasattr(self.material, "revert_state"):
+            self.material.revert_state()
 
     # =========================================================================
     # Global Matrix & Vector Assembly

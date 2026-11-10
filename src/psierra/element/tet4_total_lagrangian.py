@@ -15,8 +15,11 @@ class Tet4TotalLagrangian(Tet4Base):
     Fully captures large displacements, rotations, and finite deformations.
     """
 
+    supports_element_indexing: bool = True
+
     def __init__(self, material: Material) -> None:
         super().__init__(material)
+        self.supports_element_indexing = True
 
     def compute_nonlinear_B_matrix(
         self, H: np.ndarray, u_nodes: np.ndarray
@@ -72,7 +75,10 @@ class Tet4TotalLagrangian(Tet4Base):
         return BL + BNL
 
     def compute_nonlinear_force_and_tangent_stiffness(
-        self, node_coords: np.ndarray, u_nodes: np.ndarray
+        self,
+        node_coords: np.ndarray,
+        u_nodes: np.ndarray,
+        elem_index: int | None = None,
     ) -> tuple[np.ndarray, np.ndarray]:
         """
         Computes the Total Lagrangian tangent stiffness matrix k_tan (12x12)
@@ -84,6 +90,8 @@ class Tet4TotalLagrangian(Tet4Base):
             Reference coordinates X.
         u_nodes : np.ndarray of shape (4, 3)
             Nodal displacements u.
+        elem_index : int, optional
+            Element index for tracking history variables in rate-dependent materials.
 
         Returns:
         --------
@@ -104,7 +112,12 @@ class Tet4TotalLagrangian(Tet4Base):
             raise ValueError(f"Element inversion detected: det(F) = {J:.4e} <= 0.")
 
         # Query material for constitutive tangent C and 2nd PK stress S
-        C, S = self._material.compute_stress_and_tangent(F)
+        if elem_index is not None and getattr(
+            self._material, "supports_element_indexing", False
+        ):
+            C, S = self._material.compute_stress_and_tangent(F, elem_index=elem_index)
+        else:
+            C, S = self._material.compute_stress_and_tangent(F)
 
         # Matrices B(u) and G
         B = self.compute_nonlinear_B_matrix(H, u_nodes)

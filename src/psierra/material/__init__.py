@@ -8,6 +8,7 @@ from psierra.material.hookean import Hookean
 from psierra.material.neohookean import NeoHookean
 from psierra.material.mooney_rivlin import MooneyRivlin
 from psierra.material.yeoh import Yeoh
+from psierra.material.viscoelastic import Viscoelastic, PronyTerm
 
 __all__ = [
     "IsotropicElasticParameters",
@@ -18,4 +19,6 @@ __all__ = [
     "NeoHookean",
     "MooneyRivlin",
     "Yeoh",
+    "Viscoelastic",
+    "PronyTerm",
 ]

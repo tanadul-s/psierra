@@ -320,7 +320,10 @@ class Tet4Fbar(Tet4TotalLagrangian):
         for e in range(n_elems):
             ratio = (J_bar_elems[e] / J_arr[e]) ** (1.0 / 3.0)
             F_bar = ratio * F_list[e]
-            _, S_bar = self._material.compute_stress_and_tangent(F_bar)
+            if getattr(self._material, "supports_element_indexing", False):
+                _, S_bar = self._material.compute_stress_and_tangent(F_bar, elem_index=e)
+            else:
+                _, S_bar = self._material.compute_stress_and_tangent(F_bar)
 
             u_elem = disp[elements[e]]
             B_tot = self.compute_nonlinear_B_matrix(self._H_list[e], u_elem)
@@ -403,7 +406,10 @@ class Tet4Fbar(Tet4TotalLagrangian):
         for e in range(n_elems):
             ratio = (J_bar_elems[e] / J_arr[e]) ** (1.0 / 3.0)
             F_bar = ratio * F_list[e]
-            C_tan, S_bar = self._material.compute_stress_and_tangent(F_bar)
+            if getattr(self._material, "supports_element_indexing", False):
+                C_tan, S_bar = self._material.compute_stress_and_tangent(F_bar, elem_index=e)
+            else:
+                C_tan, S_bar = self._material.compute_stress_and_tangent(F_bar)
             C_dev = C_tan - C_vol
 
             u_elem = disp[elements[e]]
