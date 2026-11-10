@@ -88,7 +88,7 @@ class NonlinearStaticAnalysis(Analysis):
         smooth_to_nodes: bool = False,
         save_directory: Path | str | None = None,
         output_name: str = "result",
-        format: str = "pvd",
+        format: str = "xdmf",
         save_interval: int = 1,
         factor: float = 0.0,
         verbose: bool = True,

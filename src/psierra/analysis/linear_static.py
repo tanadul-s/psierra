@@ -47,7 +47,7 @@ class LinearStaticAnalysis(Analysis):
         smooth_to_nodes: bool = False,
         save_directory: Path | str | None = None,
         output_name: str = "result",
-        format: str = "vtu",
+        format: str = "xdmf",
         verbose: bool = True,
         writer: SimulationWriter | None = None,
     ) -> LinearStaticResult:

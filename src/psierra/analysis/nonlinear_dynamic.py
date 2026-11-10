@@ -170,7 +170,7 @@ class NonlinearDynamicAnalysis(Analysis):
         smooth_to_nodes: bool = False,
         save_directory: Path | str | None = None,
         output_name: str = "result",
-        format: str = "pvd",
+        format: str = "xdmf",
         save_interval: int = 1,
         factor: float = 0.0,
         steady_state_tol: float | None = None,

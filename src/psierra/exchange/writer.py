@@ -48,25 +48,33 @@ class SimulationWriter:
         self.store_checkpoints = store_checkpoints
         self.resume = resume
 
-        if self.format_str in ("xdmf", "h5", "hdf5"):
+        ext = self.output_path.suffix.lower()
+        if ext in (".pvd", ".vtu"):
+            self.format_type = "pvd"
+        elif ext in (".xdmf", ".h5", ".hdf5"):
             self.format_type = "xdmf"
+        elif self.format_str in ("xdmf", "h5", "hdf5"):
+            self.format_type = "xdmf"
+        elif self.format_str in ("pvd", "vtu"):
+            self.format_type = "pvd"
+        else:
+            raise ValueError(
+                f"Unsupported format '{format}'. Supported formats: 'xdmf' (or 'h5') and 'pvd' (or 'vtu')."
+            )
+
+        if self.format_type == "xdmf":
             self._backend: XdmfWriter | PvdWriter = XdmfWriter(
                 output_path=self.output_path,
                 mesh=self.mesh,
                 store_checkpoints=self.store_checkpoints,
                 resume=self.resume,
             )
-        elif self.format_str in ("pvd", "vtu"):
-            self.format_type = "pvd"
+        else:
             self._backend = PvdWriter(
                 output_path=self.output_path,
                 mesh=self.mesh,
                 store_checkpoints=self.store_checkpoints,
                 resume=self.resume,
-            )
-        else:
-            raise ValueError(
-                f"Unsupported format '{format}'. Supported formats: 'xdmf' (or 'h5') and 'pvd' (or 'vtu')."
             )
 
     @property

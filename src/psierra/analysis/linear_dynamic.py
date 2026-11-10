@@ -96,7 +96,7 @@ class LinearDynamicAnalysis(Analysis):
         smooth_to_nodes: bool = False,
         save_directory: Path | str | None = None,
         output_name: str = "result",
-        format: str = "pvd",
+        format: str = "xdmf",
         save_interval: int = 1,
         steady_state_tol: float | None = None,
         kinetic_energy_tol: float | None = None,

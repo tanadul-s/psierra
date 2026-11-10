@@ -47,8 +47,22 @@ class XdmfWriter:
         self.h5_path = self.base_path.with_suffix(".h5")
         self.mesh = mesh
         self.store_checkpoints = store_checkpoints
+        self.topology_type = "Tetrahedron"
+        self.n_nodes = 0
+        self.n_elements = 0
 
-        # Determine topology type from mesh
+        if self.mesh is not None and hasattr(self.mesh, "elements"):
+            self._setup_mesh_metadata(self.mesh)
+
+        self.steps: list[XdmfTimeStepRecord] = []
+        mode = "a" if resume and self.h5_path.exists() else "w"
+
+        self.h5_file = h5py.File(self.h5_path, mode)
+        self._init_hdf5_structure(resume=resume)
+
+    def _setup_mesh_metadata(self, mesh: Any) -> None:
+        """Determines element topology and dimension counts from mesh."""
+        self.mesh = mesh
         n_elem_nodes = int(mesh.elements.shape[1])
         if n_elem_nodes == 4:
             self.topology_type = "Tetrahedron"
@@ -61,31 +75,31 @@ class XdmfWriter:
         else:
             self.topology_type = "Tetrahedron"
 
-        self.n_nodes = int(mesh.n_nodes)
-        self.n_elements = int(mesh.n_elements)
+        self.n_nodes = int(getattr(mesh, "n_nodes", len(mesh.nodes)))
+        self.n_elements = int(getattr(mesh, "n_elements", len(mesh.elements)))
 
-        self.steps: list[XdmfTimeStepRecord] = []
-        mode = "a" if resume and self.h5_path.exists() else "w"
-
-        self.h5_file = h5py.File(self.h5_path, mode)
-        self._init_hdf5_structure(resume=resume)
-
-    def _init_hdf5_structure(self, resume: bool) -> None:
-        """Initializes or resumes HDF5 groups and datasets."""
-        # Reference Mesh group (stored once)
+    def _init_mesh_datasets(self) -> None:
+        """Writes mesh geometry and topology datasets to HDF5 if not already written."""
+        if self.mesh is None:
+            return
         mesh_grp = self.h5_file.require_group("mesh")
-        if "geometry" not in mesh_grp:
+        if "geometry" not in mesh_grp and hasattr(self.mesh, "nodes"):
             mesh_grp.create_dataset(
                 "geometry",
                 data=np.asarray(self.mesh.nodes, dtype=np.float64),
                 compression="gzip",
             )
-        if "topology" not in mesh_grp:
+        if "topology" not in mesh_grp and hasattr(self.mesh, "elements"):
             mesh_grp.create_dataset(
                 "topology",
                 data=np.asarray(self.mesh.elements, dtype=np.int32),
                 compression="gzip",
             )
+
+    def _init_hdf5_structure(self, resume: bool) -> None:
+        """Initializes or resumes HDF5 groups and datasets."""
+        # Reference Mesh group (stored once)
+        self._init_mesh_datasets()
 
         self.h5_file.require_group("time_series")
         self.h5_file.require_group("checkpoints")
@@ -162,12 +176,20 @@ class XdmfWriter:
         else:
             idx = len(self.steps)
 
+        if (self.mesh is None or self.n_nodes == 0) and domain is not None and hasattr(domain, "mesh"):
+            self._setup_mesh_metadata(domain.mesh)
+            self._init_mesh_datasets()
+
         step_key = f"step_{idx:06d}"
         ts_grp = self.h5_file["time_series"].require_group(step_key)
         ts_grp.attrs["time"] = float(time)
         ts_grp.attrs["step"] = idx
 
         step_attributes: list[dict[str, str]] = []
+
+        # 0. Allow custom domain snapshot hook to record state if implemented
+        if domain is not None and hasattr(domain, "save_state") and not hasattr(domain, "to_pyvista"):
+            domain.save_state(self.h5_path.parent / f"step_{idx:05d}.dat")
 
         # 1. Displacement
         disp_arr: np.ndarray | None = None
@@ -178,14 +200,15 @@ class XdmfWriter:
 
         if disp_arr is not None:
             if disp_arr.ndim == 1:
-                disp_arr = disp_arr.reshape(-1, 3)
-            self._write_field(ts_grp, "displacement", disp_arr, "Node", "Vector")
+                disp_arr = disp_arr.reshape(-1, 3) if disp_arr.size % 3 == 0 else disp_arr.reshape(-1, 1)
+            attr_type = "Vector" if disp_arr.shape[1] == 3 else "Scalar"
+            self._write_field(ts_grp, "displacement", disp_arr, "Node", attr_type)
             step_attributes.append(
                 {
                     "name": "Displacement",
                     "dataset_name": "displacement",
                     "center": "Node",
-                    "type": "Vector",
+                    "type": attr_type,
                     "dims": f"{disp_arr.shape[0]} {disp_arr.shape[1]}",
                 }
             )
@@ -197,18 +220,19 @@ class XdmfWriter:
         elif domain is not None and hasattr(domain, "v") and (
             np.any(domain.v != 0.0) or (hasattr(domain, "a") and np.any(domain.a != 0.0))
         ):
-            vel_arr = np.asarray(domain.v, dtype=np.float64).reshape(-1, 3)
+            vel_arr = np.asarray(domain.v, dtype=np.float64)
 
         if vel_arr is not None:
             if vel_arr.ndim == 1:
-                vel_arr = vel_arr.reshape(-1, 3)
-            self._write_field(ts_grp, "velocity", vel_arr, "Node", "Vector")
+                vel_arr = vel_arr.reshape(-1, 3) if vel_arr.size % 3 == 0 else vel_arr.reshape(-1, 1)
+            attr_type = "Vector" if vel_arr.shape[1] == 3 else "Scalar"
+            self._write_field(ts_grp, "velocity", vel_arr, "Node", attr_type)
             step_attributes.append(
                 {
                     "name": "Velocity",
                     "dataset_name": "velocity",
                     "center": "Node",
-                    "type": "Vector",
+                    "type": attr_type,
                     "dims": f"{vel_arr.shape[0]} {vel_arr.shape[1]}",
                 }
             )
@@ -218,20 +242,21 @@ class XdmfWriter:
         if acceleration is not None:
             acc_arr = np.asarray(acceleration, dtype=np.float64)
         elif domain is not None and hasattr(domain, "a") and (
-            np.any(domain.v != 0.0) or np.any(domain.a != 0.0)
+            (hasattr(domain, "v") and np.any(domain.v != 0.0)) or np.any(domain.a != 0.0)
         ):
-            acc_arr = np.asarray(domain.a, dtype=np.float64).reshape(-1, 3)
+            acc_arr = np.asarray(domain.a, dtype=np.float64)
 
         if acc_arr is not None:
             if acc_arr.ndim == 1:
-                acc_arr = acc_arr.reshape(-1, 3)
-            self._write_field(ts_grp, "acceleration", acc_arr, "Node", "Vector")
+                acc_arr = acc_arr.reshape(-1, 3) if acc_arr.size % 3 == 0 else acc_arr.reshape(-1, 1)
+            attr_type = "Vector" if acc_arr.shape[1] == 3 else "Scalar"
+            self._write_field(ts_grp, "acceleration", acc_arr, "Node", attr_type)
             step_attributes.append(
                 {
                     "name": "Acceleration",
                     "dataset_name": "acceleration",
                     "center": "Node",
-                    "type": "Vector",
+                    "type": attr_type,
                     "dims": f"{acc_arr.shape[0]} {acc_arr.shape[1]}",
                 }
             )
@@ -372,6 +397,9 @@ class XdmfWriter:
 
     def _write_xdmf_xml(self) -> None:
         """Generates standard XDMF 3.0 XML pointing to the single HDF5 archive."""
+        if self.mesh is None or not hasattr(self.mesh, "elements") or self.n_elements == 0:
+            return
+
         h5_filename = self.h5_path.name
         n_elem = self.n_elements
         n_nodes = self.n_nodes
