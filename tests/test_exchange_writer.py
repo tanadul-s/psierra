@@ -16,7 +16,6 @@ from psierra.exchange import (
     SimulationWriter,
     SimulationCheckpoint,
     XdmfWriter,
-    PvdWriter,
 )
 
 
@@ -73,7 +72,7 @@ def test_xdmf_writer_file_creation_and_xml_structure(
 def test_pvd_writer_compatibility(
     tmp_path: Path, five_tet_cube_mesh: VolumetricMesh, elastic_domain: SolidDomain
 ) -> None:
-    """Verifies that PvdWriter generates valid .pvd and .vtu files with identical API."""
+    """Verifies that SimulationWriter in PVD mode generates valid .pvd and .vtu files with identical API."""
     out_dir = tmp_path / "sim_pvd"
 
     with SimulationWriter(out_dir, mesh=five_tet_cube_mesh, format="pvd") as writer:
@@ -307,6 +306,57 @@ def test_step_0_zero_velocity_saved_when_dynamic(
     xdmf_text = (tmp_path / "zero_v_xdmf.xdmf").read_text()
     assert 'Attribute Name="Velocity"' in xdmf_text
     assert 'Attribute Name="Acceleration"' in xdmf_text
+
+
+def test_analysis_solver_internal_simulation_writer_pvd_and_xdmf(
+    tmp_path: Path, five_tet_cube_mesh: VolumetricMesh, elastic_domain: SolidDomain
+) -> None:
+    """Verifies analysis solvers internally instantiate and use SimulationWriter for both PVD and XDMF."""
+    from psierra.boundary.dirichlet import DirichletManager, DirichletConstraint
+    from psierra.boundary.selector import select_nodes_by_plane
+    from psierra.analysis.linear_dynamic import LinearDynamicAnalysis
+
+    mesh = five_tet_cube_mesh
+    fixed_nodes = select_nodes_by_plane(mesh, plane="xy", bound="min")
+    dirichlet = DirichletManager(mesh.n_dofs)
+    dirichlet.add_constraint(
+        DirichletConstraint(fixed_nodes, components=(0, 1, 2), value=0.0)
+    )
+    f_ext = np.zeros(mesh.n_dofs)
+    f_ext[1] = -10.0  # Small load
+
+    # 1. Linear dynamic with format="xdmf"
+    dyn_analysis = LinearDynamicAnalysis(elastic_domain, spectral_radius=0.8)
+    dyn_out = tmp_path / "dyn_xdmf"
+    dyn_analysis.solve(
+        dirichlet=dirichlet,
+        f_ext=f_ext,
+        dt=0.01,
+        n_steps=2,
+        save_directory=dyn_out,
+        output_name="result",
+        format="xdmf",
+        verbose=False,
+    )
+    assert (dyn_out / "result.xdmf").exists()
+    assert (dyn_out / "result.h5").exists()
+
+    # 2. Linear dynamic with default format="pvd"
+    dyn_out_pvd = tmp_path / "dyn_pvd"
+    dyn_analysis.solve(
+        dirichlet=dirichlet,
+        f_ext=f_ext,
+        dt=0.01,
+        n_steps=2,
+        save_directory=dyn_out_pvd,
+        output_name="result",
+        format="pvd",
+        verbose=False,
+    )
+    assert (dyn_out_pvd / "result.pvd").exists()
+    assert (dyn_out_pvd / "step_00000.vtu").exists()
+    assert (dyn_out_pvd / "step_00001.vtu").exists()
+
 
 
 
