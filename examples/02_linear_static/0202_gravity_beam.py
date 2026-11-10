@@ -103,8 +103,15 @@ def main() -> None:
 
     # 5. Executing Simulation Solver
     console.print("\n[bold yellow][5/6] Executing Simulation Solver[/bold yellow]")
+    output_dir = Path("results/02_linear_static/0202_gravity_beam")
     analysis = LinearStaticAnalysis(domain)
-    result = analysis.solve(dirichlet=dirichlet, f_ext=f_ext)
+    result = analysis.solve(
+        dirichlet=dirichlet,
+        f_ext=f_ext,
+        include_stresses=True,
+        smooth_to_nodes=True,
+        save_directory=output_dir,
+    )
 
     # 6. Verifying Results & Post-Processing
     console.print(
@@ -148,12 +155,8 @@ def main() -> None:
 
     console.print(summary_table)
 
-    output_dir = Path("results/02_linear_static/0202_gravity_beam")
-    output_dir.mkdir(parents=True, exist_ok=True)
-    output_path = output_dir / "result.vtu"
-    domain.save_state(filepath=output_path, include_stresses=True, smooth_to_nodes=True)
     console.print(
-        f"[bold green]✓ Output successfully exported to:[/bold green] [cyan]{output_path}[/cyan]\n"
+        f"[bold green]✓ Output successfully exported to:[/bold green] [cyan]{output_dir / 'result.xdmf'}[/cyan]\n"
     )
 
 

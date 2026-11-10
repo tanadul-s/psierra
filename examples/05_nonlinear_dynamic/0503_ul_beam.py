@@ -157,9 +157,9 @@ def main() -> None:
     )
     summary_table.add_row("Downward Deflection (Z)", f"{tip_z:.2f} mm", "Transient Sag")
     summary_table.add_row(
-        "Exported VTU Snapshots",
+        "Exported XDMF Files",
         f"{len(result.time_series_files)}",
-        "PVD Collection Items",
+        "XDMF + HDF5 pair",
     )
     summary_table.add_row(
         "Total External Load (F_z)", f"{total_weight:.2f} N", "Applied Load"
@@ -167,7 +167,7 @@ def main() -> None:
 
     console.print(summary_table)
     console.print(
-        f"[bold green]✓ Transient time-series PVD exported to:[/bold green] [cyan]{output_dir / "result.pvd"}[/cyan]\n"
+        f"[bold green]✓ Transient time-series XDMF exported to:[/bold green] [cyan]{output_dir / 'result.xdmf'}[/cyan]\n"
     )
 
 

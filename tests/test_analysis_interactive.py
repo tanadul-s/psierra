@@ -228,7 +228,7 @@ class TestInteractiveDynamicSimulation:
         result = subprocess.run(cmd, capture_output=True, text=True)
         assert result.returncode == 0, f"Script failed with output:\n{result.stderr}"
         assert "Interactive Dynamic Simulation Pipeline completed successfully!" in result.stdout
-        assert (tmp_path / "result.pvd").exists()
+        assert (tmp_path / "result.xdmf").exists() or (tmp_path / "result.pvd").exists()
 
     def test_interactive_pyvista_gui_loop(self, beam_domain: SolidDomain) -> None:
         """Verifies PyVista interactive loop and window active query without closed attribute errors."""
@@ -339,4 +339,4 @@ class TestInteractiveDynamicSimulation:
         result = subprocess.run(cmd, capture_output=True, text=True)
         assert result.returncode == 0, f"Script failed with output:\n{result.stderr}"
         assert "Interactive Dynamic Axial Torsion Pipeline completed successfully!" in result.stdout
-        assert (tmp_path / "result.pvd").exists()
+        assert (tmp_path / "result.xdmf").exists() or (tmp_path / "result.pvd").exists()

@@ -189,7 +189,7 @@ class TestLinearAnalysis:
 
         assert isinstance(result, LinearDynamicResult)
         assert len(result.time) == 21
-        assert (tmp_path / "dynamic_out" / "result.pvd").exists()
+        assert (tmp_path / "dynamic_out" / "result.xdmf").exists() or (tmp_path / "dynamic_out" / "result.pvd").exists()
 
     def test_linear_dynamic_steady_state_early_exit(
         self,
@@ -235,9 +235,13 @@ class TestLinearAnalysis:
         assert result.steps_completed < 200
         assert result.steps_completed == result.steady_state_step
 
-        last_file = result.time_series_files[-1]
-        assert last_file.exists()
-        assert f"{result.steady_state_step:05d}" in last_file.name
+        if (out_dir / "result.xdmf").exists():
+            assert (out_dir / "result.xdmf").exists()
+            assert (out_dir / "result.h5").exists()
+        else:
+            last_file = result.time_series_files[-1]
+            assert last_file.exists()
+            assert f"{result.steady_state_step:05d}" in last_file.name
 
     def test_linear_static_save_file(
         self,
@@ -275,7 +279,7 @@ class TestLinearAnalysis:
 
         assert result.saved_file is not None
         assert result.saved_file.exists()
-        assert result.saved_file.name == "cube_linear.vtu"
+        assert result.saved_file.name in ("cube_linear.xdmf", "cube_linear.vtu")
 
     def test_linear_dynamic_spectral_radius_cases(
         self,

@@ -414,9 +414,9 @@ def main() -> None:
 
     console.print(
         Panel.fit(
-            f"[bold green]✓ Dynamic Self-Contact Results Saved to {output_dir / 'result.pvd'}[/bold green]\n"
+            f"[bold green]✓ Dynamic Self-Contact Results Saved to {output_dir / 'result.xdmf'}[/bold green]\n"
             f"[dim]Total Lagrangian Neo-Hookean flexure squeezed dynamically, slit closed, and rebounded elastically.\n"
-            f"Open result.pvd in ParaView and apply 'Warp By Vector' (Displacement, Scale = 1.0).[/dim]",
+            f"Open result.xdmf in ParaView and apply 'Warp By Vector' (Displacement, Scale = 1.0).[/dim]",
             border_style="green",
         )
     )

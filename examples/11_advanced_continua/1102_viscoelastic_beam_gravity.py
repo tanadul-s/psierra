@@ -279,8 +279,8 @@ def main() -> None:
         f"\n[bold green]✓ Verification Passed:[/bold green] Viscoelastic creep ratio = [bold yellow]{creep_ratio:.2f}×[/bold yellow] "
         f"relative to elastic baseline due to modulus relaxation toward E_∞ = {g_inf*21000:.0f} MPa."
     )
-    console.print(f"  • Hyperelastic ParaView Collection : [cyan]{dir_hyper / 'result.pvd'}[/cyan]")
-    console.print(f"  • Viscoelastic ParaView Collection : [cyan]{dir_visco / 'result.pvd'}[/cyan]\n")
+    console.print(f"  • Hyperelastic ParaView Archive : [cyan]{dir_hyper / 'result.xdmf'}[/cyan]")
+    console.print(f"  • Viscoelastic ParaView Archive : [cyan]{dir_visco / 'result.xdmf'}[/cyan]\n")
 
 
 if __name__ == "__main__":

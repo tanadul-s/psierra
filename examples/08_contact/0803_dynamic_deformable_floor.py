@@ -378,10 +378,10 @@ def main() -> None:
 
     console.print(
         Panel.fit(
-            f"[bold green]✓ Two-Way Deformable Contact Saved to {output_dir / 'result.pvd'}[/bold green]\n"
+            f"[bold green]✓ Two-Way Deformable Contact Saved to {output_dir / 'result.xdmf'}[/bold green]\n"
             f"[dim]Assembly Layer: MultiBodySystem containing both {system.names}[/dim]\n"
             f"[dim]Upper Beam and Lower Flexible Floor deformed simultaneously under two-way interface action-reaction forces.[/dim]\n"
-            f"[dim]Open result.pvd in ParaView and apply 'Warp By Vector' (Displacement) with scale factor 1.0.[/dim]",
+            f"[dim]Open result.xdmf in ParaView and apply 'Warp By Vector' (Displacement) with scale factor 1.0.[/dim]",
             border_style="green",
         )
     )

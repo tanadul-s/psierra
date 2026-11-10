@@ -244,10 +244,10 @@ def main() -> None:
 
     console.print(
         Panel.fit(
-            f"[bold green]✓ Multi-Body Static Contact Saved to {output_dir / 'result.pvd'}[/bold green]\n"
+            f"[bold green]✓ Multi-Body Static Contact Saved to {output_dir / 'result.xdmf'}[/bold green]\n"
             f"[dim]Assembly Layer: MultiBodySystem containing both {system.names}[/dim]\n"
             f"[dim]The Total Lagrangian beam bent across the {args.gap:.1f} mm gap and settled stably onto the 3D floor mesh.[/dim]\n"
-            f"[dim]Open result.pvd in ParaView and apply 'Warp By Vector' (Displacement) to view deformed contact.[/dim]",
+            f"[dim]Open result.xdmf in ParaView and apply 'Warp By Vector' (Displacement) to view deformed contact.[/dim]",
             border_style="green",
         )
     )

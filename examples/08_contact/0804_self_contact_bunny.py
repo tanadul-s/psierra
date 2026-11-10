@@ -187,12 +187,12 @@ def parse_arguments() -> argparse.Namespace:
         "--export-dir",
         type=str,
         default="results/08_contact/0804_self_contact_bunny",
-        help="Directory to save ParaView .pvd and .vtu time series (default: results/08_contact/0805_self_contact_bunny)",
+        help="Directory to save ParaView .xdmf and .h5 time series (default: results/08_contact/0804_self_contact_bunny)",
     )
     parser.add_argument(
         "--no-export",
         action="store_true",
-        help="Disable ParaView PVD / VTU file export",
+        help="Disable ParaView XDMF file export",
     )
     parser.add_argument(
         "--show",
@@ -566,12 +566,12 @@ def main() -> None:
     console.print(profile_table)
 
     if save_dir is not None:
-        pvd_path = save_dir / "result.pvd"
+        xdmf_path = save_dir / "result.xdmf"
         console.print(
-            f"\n[bold green]✓ ParaView PVD collection successfully exported to:[/bold green] [cyan]{pvd_path}[/cyan]"
+            f"\n[bold green]✓ ParaView XDMF archive successfully exported to:[/bold green] [cyan]{xdmf_path}[/cyan]"
         )
         console.print(
-            "[dim]  To visualize in ParaView: Open .pvd -> Apply 'Warp By Vector' (Vectors: Displacement, Scale: 1.0).[/dim]"
+            "[dim]  To visualize in ParaView: Open .xdmf -> Apply 'Warp By Vector' (Vectors: Displacement, Scale: 1.0).[/dim]"
         )
 
     # Optional 3D Visualization

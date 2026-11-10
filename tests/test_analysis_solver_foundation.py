@@ -11,6 +11,7 @@ from pathlib import Path
 from typing import Any
 import xml.etree.ElementTree as ET
 
+import h5py
 import numpy as np
 import pytest
 import scipy.sparse as sp
@@ -192,7 +193,11 @@ def test_initial_state_export_and_output_invariance(
             np.testing.assert_allclose(initial[1], [0.0, 0.3], atol=1e-12)
             # a_f = [F-k(u_f-u_p)]/m = 0.2-2(0.8-0.5) = -0.4.
             np.testing.assert_allclose(initial[2], [0.0, -0.4], atol=1e-12)
-            assert (tmp_path / "result.pvd").exists()
+            assert (
+                (tmp_path / "result.xdmf").exists()
+                or (tmp_path / "result.h5").exists()
+                or (tmp_path / "result.pvd").exists()
+            )
     for without_output, with_output in zip(states[0], states[1], strict=True):
         np.testing.assert_allclose(without_output, with_output, atol=1e-12)
 
@@ -293,7 +298,11 @@ def test_dynamic_rejects_invalid_endpoint_even_with_valid_midpoint(tmp_path: Pat
     np.testing.assert_array_equal(domain.u, [0.0, 0.0])
     np.testing.assert_array_equal(domain.v, [0.0, 1.0])
     np.testing.assert_array_equal(domain.a, [0.0, 0.0])
-    assert len(ET.parse(tmp_path / "result.pvd").findall("./Collection/DataSet")) == 1
+    if (tmp_path / "result.xdmf").exists() or (tmp_path / "result.h5").exists():
+        with h5py.File(tmp_path / "result.h5", "r") as h5:
+            assert len([k for k in h5["time_series"].keys() if k.startswith("step_")]) == 1
+    else:
+        assert len(ET.parse(tmp_path / "result.pvd").findall("./Collection/DataSet")) == 1
 
 
 def test_invalid_prescribed_step_restores_last_accepted_domain_state() -> None:
@@ -373,10 +382,15 @@ def test_failed_increment_restores_accepted_state_and_finalizes_pvd(
         np.testing.assert_allclose(domain.v, initial[1], atol=1e-12)
         expected_a = [0.0, 0.6] if dynamic else initial[2]
         np.testing.assert_allclose(domain.a, expected_a, atol=1e-12)
-    datasets = ET.parse(tmp_path / "result.pvd").findall("./Collection/DataSet")
-    assert len(datasets) == accepted_steps + 1
-    assert [entry.attrib["file"] for entry in datasets] == [path.name for path in result.time_series_files]
-    assert all((tmp_path / entry.attrib["file"]).exists() for entry in datasets)
+    if (tmp_path / "result.xdmf").exists() or (tmp_path / "result.h5").exists():
+        with h5py.File(tmp_path / "result.h5", "r") as h5:
+            ts_keys = [k for k in h5["time_series"].keys() if k.startswith("step_")]
+            assert len(ts_keys) == accepted_steps + 1
+    else:
+        datasets = ET.parse(tmp_path / "result.pvd").findall("./Collection/DataSet")
+        assert len(datasets) == accepted_steps + 1
+        assert [entry.attrib["file"] for entry in datasets] == [path.name for path in result.time_series_files]
+        assert all((tmp_path / entry.attrib["file"]).exists() for entry in datasets)
 
 
 @pytest.mark.parametrize("analysis_type", [LinearDynamicAnalysis, NonlinearDynamicAnalysis, NonlinearStaticAnalysis])

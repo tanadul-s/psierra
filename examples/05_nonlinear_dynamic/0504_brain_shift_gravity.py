@@ -249,7 +249,7 @@ def main() -> None:
 
     t_start = time.perf_counter()
     exported_files: list[Path] = []
-    writer = SimulationWriter(output_dir / "result.pvd", mesh=domain.mesh, format="pvd")
+    writer = SimulationWriter(output_dir / "result.xdmf", mesh=domain.mesh, format="xdmf")
 
     if args.solver == "full":
         # Full Newton-Raphson tangent reassembly per iteration
@@ -373,8 +373,8 @@ def main() -> None:
     )
     summary_table.add_row(
         "Exported ParaView Frames",
-        f"{len(exported_files)} snapshots",
-        f"{output_dir / 'result.pvd'}",
+        f"{len(exported_files)} files",
+        f"{output_dir / 'result.xdmf'}",
     )
 
     console.print(summary_table)
@@ -384,7 +384,7 @@ def main() -> None:
         f"\n[bold green]✓ Clinical Verification Passed:[/bold green] Deep lesion drift = "
         f"[bold yellow]{lesion_drift_mag:.2f} mm[/bold yellow] | Max cortical sag = "
         f"[bold yellow]{max_cortical_disp:.2f} mm[/bold yellow]\n"
-        f"[bold green]✓ ParaView animation written to:[/bold green] [cyan]{output_dir / 'result.pvd'}[/cyan]\n"
+        f"[bold green]✓ ParaView animation written to:[/bold green] [cyan]{output_dir / 'result.xdmf'}[/cyan] (+ .h5)\n"
     )
 
 

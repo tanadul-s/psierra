@@ -371,10 +371,10 @@ def main() -> None:
 
     console.print(
         Panel.fit(
-            f"[bold green]✓ Dynamic Mesh Contact Saved to {output_dir / 'result.pvd'}[/bold green]\n"
+            f"[bold green]✓ Dynamic Mesh Contact Saved to {output_dir / 'result.xdmf'}[/bold green]\n"
             f"[dim]Assembly Layer: MultiBodySystem containing both {system.names}[/dim]\n"
             f"[dim]The Total Lagrangian beam dropped across the {args.gap:.1f} mm gap, struck the 3D floor mesh, and rebounded.[/dim]\n"
-            f"[dim]Open result.pvd in ParaView and apply 'Warp By Vector' (Displacement) to view dynamic motion.[/dim]",
+            f"[dim]Open result.xdmf in ParaView and apply 'Warp By Vector' (Displacement) to view dynamic motion.[/dim]",
             border_style="green",
         )
     )

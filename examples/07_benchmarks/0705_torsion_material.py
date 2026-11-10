@@ -184,7 +184,7 @@ def main() -> None:
         solver = NonlinearStaticAnalysis(domain)
 
         console.print(
-            f"\n  [bold cyan]• Solving model: {name} (Exporting to {model_dir}/result.pvd)...[/bold cyan]"
+            f"\n  [bold cyan]• Solving model: {name} (Exporting to {model_dir}/result.xdmf)...[/bold cyan]"
         )
         result = solver.solve(
             dirichlet=torsion_bc_fn,
@@ -304,18 +304,18 @@ def main() -> None:
         "Root Reaction Torque (Mz)", justify="right", style="magenta"
     )
     summary_table.add_column("Total Newton Iters", justify="center", style="white")
-    summary_table.add_column("Saved ParaView PVD Collection", style="yellow")
+    summary_table.add_column("Saved ParaView XDMF", style="yellow")
 
     for key, name, mat, desc in models:
         d = results_data[key]
-        pvd_rel = d["dir"] / "result.pvd"
+        xdmf_rel = d["dir"] / "result.xdmf"
         summary_table.add_row(
             name,
             f"{d['final_poynting']:+.4f} mm",
             f"{d['final_warping']:.4f} mm",
             f"{d['final_torque'] * 1e-6:+.2f} kN·m",
             f"{sum(d['result'].iteration_history)} ({sum(d['result'].iteration_history)/n_steps:.1f}/step)",
-            f"{pvd_rel}",
+            f"{xdmf_rel}",
         )
 
     console.print(summary_table)
@@ -330,11 +330,11 @@ def main() -> None:
     )
 
     console.print(
-        "[bold green]✓ ParaView Collections Exported for Side-by-Side Visualization:[/bold green]"
+        "[bold green]✓ ParaView XDMF Archives Exported for Side-by-Side Visualization:[/bold green]"
     )
     for key, name, mat, desc in models:
         console.print(
-            f"  • [cyan]{name:<14}[/cyan]: {base_output_dir / key / 'result.pvd'}"
+            f"  • [cyan]{name:<14}[/cyan]: {base_output_dir / key / 'result.xdmf'}"
         )
     console.print()
 

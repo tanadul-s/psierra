@@ -148,14 +148,14 @@ def main() -> None:
         "Max Resultant Displacement", f"{max_disp:.4f} mm", "Transient Dynamic Peak"
     )
     summary_table.add_row(
-        "Exported VTU Snapshots",
+        "Exported XDMF Files",
         f"{len(result.time_series_files)}",
-        "PVD Collection Items",
+        "XDMF + HDF5 pair",
     )
 
     console.print(summary_table)
     console.print(
-        f"[bold green]✓ ParaView animation written to:[/bold green] [cyan]{output_dir / "result.pvd"}[/cyan]\n"
+        f"[bold green]✓ ParaView animation written to:[/bold green] [cyan]{output_dir / 'result.xdmf'}[/cyan]\n"
     )
 
 

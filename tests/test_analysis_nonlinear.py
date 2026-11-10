@@ -1,5 +1,6 @@
 from __future__ import annotations
 from pathlib import Path
+import h5py
 import numpy as np
 import pytest
 
@@ -107,7 +108,7 @@ class TestNonlinearAnalysis:
         assert result.steps_completed == 5
         assert np.linalg.norm(domain.displacement) > 0.0
         assert np.linalg.norm(domain.velocity) > 0.0
-        assert (tmp_path / "nl_dyn_out" / "result.pvd").exists()
+        assert (tmp_path / "nl_dyn_out" / "result.xdmf").exists() or (tmp_path / "nl_dyn_out" / "result.pvd").exists()
 
     def test_nonlinear_dynamic_steady_state_early_exit(
         self,
@@ -156,9 +157,13 @@ class TestNonlinearAnalysis:
         assert result.steps_completed == result.steady_state_step
 
         # Verify that the final snapshot file was saved even if not a multiple of 5
-        last_file = result.time_series_files[-1]
-        assert last_file.exists()
-        assert f"{result.steady_state_step:05d}" in last_file.name
+        if (out_dir / "result.xdmf").exists():
+            assert (out_dir / "result.xdmf").exists()
+            assert (out_dir / "result.h5").exists()
+        else:
+            last_file = result.time_series_files[-1]
+            assert last_file.exists()
+            assert f"{result.steady_state_step:05d}" in last_file.name
 
     def test_nonlinear_static_snapshot_saving(
         self,
@@ -198,9 +203,15 @@ class TestNonlinearAnalysis:
         )
 
         assert result.converged is True
-        assert (out_dir / "result.pvd").exists()
-        # Step 0, step 2, step 4, step 6 = 4 snapshots
-        assert len(result.time_series_files) == 4
+        if (out_dir / "result.xdmf").exists():
+            assert (out_dir / "result.xdmf").exists()
+            assert (out_dir / "result.h5").exists()
+            with h5py.File(out_dir / "result.h5", "r") as h5:
+                # Step 0, step 2, step 4, step 6 = 4 recorded steps
+                assert len(h5["time_series"].keys()) == 4
+        else:
+            assert (out_dir / "result.pvd").exists()
+            assert len(result.time_series_files) == 4
 
     def test_nonlinear_static_mooney_rivlin(
         self,

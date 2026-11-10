@@ -153,7 +153,7 @@ def run_simulation(
     label: str,
 ) -> tuple[float, list[Path]]:
     output_dir.mkdir(parents=True, exist_ok=True)
-    writer = SimulationWriter(output_dir / "result.pvd", mesh=domain.mesh, format="pvd")
+    writer = SimulationWriter(output_dir / "result.xdmf", mesh=domain.mesh, format="xdmf")
 
     sim = InteractiveDynamicSimulation(
         domain=domain,
@@ -333,8 +333,8 @@ def main() -> None:
         f"[bold green]✓ Clinical Takeaway:[/bold green] Hyperelastic models underestimate intraoperative surgical target drift; "
         f"viscoelasticity is essential for accurate stereotactic navigation during long procedures."
     )
-    console.print(f"  • Hyperelastic ParaView Collection : [cyan]{dir_hyper / 'result.pvd'}[/cyan]")
-    console.print(f"  • Viscoelastic ParaView Collection : [cyan]{dir_visco / 'result.pvd'}[/cyan]\n")
+    console.print(f"  • Hyperelastic ParaView Archive : [cyan]{dir_hyper / 'result.xdmf'}[/cyan] (+ .h5)")
+    console.print(f"  • Viscoelastic ParaView Archive : [cyan]{dir_visco / 'result.xdmf'}[/cyan] (+ .h5)\n")
 
 
 if __name__ == "__main__":

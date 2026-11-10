@@ -354,13 +354,12 @@ def main() -> None:
 
     console.print(summary_table)
 
-    # Export ParaView time-series PVD collections
+    # Export ParaView time-series (XDMF+H5 for continua, clean VTP series for discrete optical markers)
     output_dir = Path("results/10_inverse/1004_dynamic_beam_shape_sensing")
     output_dir.mkdir(parents=True, exist_ok=True)
 
-    recon_pvd = SimulationWriter(output_dir / "reconstruction.pvd", mesh=mesh, format="pvd")
-    truth_pvd = SimulationWriter(output_dir / "ground_truth.pvd", mesh=mesh, format="pvd")
-    markers_pvd = SimulationWriter(output_dir / "markers.pvd", format="pvd")
+    recon_writer = SimulationWriter(output_dir / "reconstruction.xdmf", mesh=mesh, format="xdmf")
+    truth_writer = SimulationWriter(output_dir / "ground_truth.xdmf", mesh=mesh, format="xdmf")
 
     # Export every 2nd step (60 frames at 100 fps) for smooth, lightweight animation
     export_stride = 2
@@ -370,7 +369,7 @@ def main() -> None:
     dom_truth = SolidDomain(mesh.copy(), material, element)
 
     console.print(
-        f"\n  [dim]Writing {len(export_steps)} time steps to ParaView PVD collections...[/dim]"
+        f"\n  [dim]Writing {len(export_steps)} time steps to XDMF archives and VTP tracker series...[/dim]"
     )
 
     for i, step_idx in enumerate(export_steps):
@@ -378,13 +377,13 @@ def main() -> None:
 
         # 1. Reconstructed Continuum State
         dom_recon.update_state(u=u_recon_rom[step_idx])
-        recon_pvd.add_timestep(time=t_val, domain=dom_recon, step_index=i)
+        recon_writer.add_timestep(time=t_val, domain=dom_recon, step_index=i)
 
         # 2. Ground Truth Continuum State
         dom_truth.update_state(u=u_truth[step_idx])
-        truth_pvd.add_timestep(time=t_val, domain=dom_truth, step_index=i)
+        truth_writer.add_timestep(time=t_val, domain=dom_truth, step_index=i)
 
-        # 3. Moving Surface Tracking Markers Point Cloud
+        # 3. Moving Surface Tracking Markers Point Cloud (saved as clean VTP time-series)
         d_3d = op_full.observe_3d(u_truth[step_idx])
         markers_poly = pv.PolyData(np.asarray(sensor_points, dtype=np.float64))
         markers_poly.point_data["Displacement"] = d_3d
@@ -395,26 +394,24 @@ def main() -> None:
 
         marker_fname = f"markers_step_{i:03d}.vtp"
         markers_poly.save(str(output_dir / marker_fname))
-        markers_pvd.add_dataset(filename=marker_fname, timestep=t_val)
 
-    recon_pvd.close()
-    truth_pvd.close()
-    markers_pvd.close()
+    recon_writer.close()
+    truth_writer.close()
 
     console.print(
-        f"[bold green]✓ Reconstructed time series exported to:[/bold green] [cyan]{output_dir / 'reconstruction.pvd'}[/cyan]"
+        f"[bold green]✓ Reconstructed continuum exported to:[/bold green] [cyan]{output_dir / 'reconstruction.xdmf'}[/cyan] (+ .h5)"
     )
     console.print(
-        f"[bold green]✓ Ground truth time series exported to:[/bold green]   [cyan]{output_dir / 'ground_truth.pvd'}[/cyan]"
+        f"[bold green]✓ Ground truth continuum exported to:[/bold green]   [cyan]{output_dir / 'ground_truth.xdmf'}[/cyan] (+ .h5)"
     )
     console.print(
-        f"[bold green]✓ Dynamic tracking markers exported to:[/bold green]  [cyan]{output_dir / 'markers.pvd'}[/cyan]\n"
+        f"[bold green]✓ Dynamic tracking markers exported to:[/bold green]  [cyan]{output_dir / 'markers_step_..vtp'}[/cyan] (VTP series)\n"
     )
     console.print(
         "[dim]To visualize live dynamic tracking in ParaView:\n"
-        "  1. Open 'reconstruction.pvd' and 'markers.pvd' together.\n"
-        "  2. Apply 'Warp By Vector' (Vectors: Displacement, Scale Factor: 1.0) to both.\n"
-        "  3. Apply 'Glyph' (Sphere) to markers to render prominent 3D tracker spheres.\n"
+        "  1. Open 'reconstruction.xdmf' (XDMF3 Reader) and 'markers_step_..vtp' (File Series) together.\n"
+        "  2. Apply 'Warp By Vector' (Vectors: Displacement, Scale Factor: 1.0) to 'reconstruction.xdmf'.\n"
+        "  3. Apply 'Glyph' (Sphere) to 'markers_step_..vtp' to render 3D optical tracking spheres.\n"
         "  4. Press [Play] to view the continuous real-time dynamic shape sensing reconstruction![/dim]\n"
     )
 

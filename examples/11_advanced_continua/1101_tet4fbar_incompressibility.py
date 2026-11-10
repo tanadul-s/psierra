@@ -247,14 +247,14 @@ def main() -> None:
         f"[bold green]✓ Output successfully exported to:[/bold green] [cyan]{output_dir}[/cyan]"
     )
     console.print(
-        f"  • [cyan]static_tet4tl/result.pvd[/cyan]   : Standard Total Lagrangian final state (Sag: {sag_tl:.4f} mm)"
+        f"  • [cyan]static_tet4tl/result.xdmf[/cyan]   : Standard Total Lagrangian final state (Sag: {sag_tl:.4f} mm)"
     )
     console.print(
-        f"  • [cyan]static_tet4fbar/result.pvd[/cyan] : Locking-alleviated F-bar final state (Sag: {sag_fbar:.4f} mm)"
+        f"  • [cyan]static_tet4fbar/result.xdmf[/cyan] : Locking-alleviated F-bar final state (Sag: {sag_fbar:.4f} mm)"
     )
     console.print(
-        "[bold magenta]ParaView Animation Tip:[/bold magenta] Open [cyan]static_tet4fbar/result.pvd[/cyan] "
-        "and [cyan]static_tet4tl/result.pvd[/cyan] side-by-side in ParaView. Apply [bold]Warp By Vector[/bold] "
+        "[bold magenta]ParaView Animation Tip:[/bold magenta] Open [cyan]static_tet4fbar/result.xdmf[/cyan] "
+        "and [cyan]static_tet4tl/result.xdmf[/cyan] side-by-side in ParaView. Apply [bold]Warp By Vector[/bold] "
         "and click the [bold]Play (▶)[/bold] button to watch the continuous nonlinear bending trajectory!"
     )
 

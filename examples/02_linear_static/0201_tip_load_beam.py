@@ -101,10 +101,17 @@ def main() -> None:
         f"  • Distributed Tip  : [green]{len(tip_nodes)}[/green] nodes | Total F_z = [green]{total_force_z:.1f}[/green] N"
     )
 
-    # 5. Executing Simulation Solver
+    # 5. Executing Simulation Solver (Showcasing explicit VTU export while default is XDMF+HDF5)
     console.print("\n[bold yellow][5/6] Executing Simulation Solver[/bold yellow]")
+    output_dir = Path("results/02_linear_static/0201_tip_load_beam")
     analysis = LinearStaticAnalysis(domain)
-    result = analysis.solve(dirichlet=dirichlet, f_ext=f_ext)
+    result = analysis.solve(
+        dirichlet=dirichlet,
+        f_ext=f_ext,
+        save_directory=output_dir,
+        output_name="result",
+        format="vtu",
+    )
 
     # 6. Verifying Results & Post-Processing
     console.print(
@@ -145,12 +152,8 @@ def main() -> None:
 
     console.print(summary_table)
 
-    output_dir = Path("results/02_linear_static/0201_tip_load_beam")
-    output_dir.mkdir(parents=True, exist_ok=True)
-    output_path = output_dir / "result.vtu"
-    domain.save_state(output_path)
     console.print(
-        f"[bold green]✓ Output successfully exported to:[/bold green] [cyan]{output_path}[/cyan]\n"
+        f"[bold green]✓ Showcase VTU successfully exported to:[/bold green] [cyan]{result.saved_file}[/cyan]\n"
     )
 
 

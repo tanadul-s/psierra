@@ -337,8 +337,8 @@ def main() -> None:
     writer = None
     if save_snapshots:
         output_dir.mkdir(parents=True, exist_ok=True)
-        writer = SimulationWriter(output_dir / "result.pvd", mesh=domain.mesh, format="pvd")
-        console.print(f"  • Exporting ParaView snapshots to: [dim]{output_dir}[/dim]")
+        writer = SimulationWriter(output_dir / "result.xdmf", mesh=domain.mesh, format="xdmf")
+        console.print(f"  • Exporting ParaView XDMF archive to: [dim]{output_dir}[/dim]")
 
     if is_headless:
         # ---------------------------------------------------------------------
@@ -417,7 +417,7 @@ def main() -> None:
         if save_snapshots and writer is not None:
             writer.close()
             console.print(
-                f"  • Exported [green]{snapshot_count}[/green] snapshots to [cyan]{output_dir}[/cyan]"
+                f"  • Exported [green]{snapshot_count}[/green] frames to [cyan]{output_dir / 'result.xdmf'}[/cyan] (+ .h5)"
             )
 
     else:

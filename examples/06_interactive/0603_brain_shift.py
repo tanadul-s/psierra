@@ -359,8 +359,8 @@ def main() -> None:
     snapshot_writer = None
     if args.save_snapshots:
         output_dir.mkdir(parents=True, exist_ok=True)
-        snapshot_writer = SimulationWriter(output_dir / "result.pvd", mesh=mesh, format="pvd")
-        console.print(f"  • Snapshot Streaming  : [green]Enabled[/green] -> {output_dir / 'result.pvd'}")
+        snapshot_writer = SimulationWriter(output_dir / "result.xdmf", mesh=mesh, format="xdmf")
+        console.print(f"  • Snapshot Streaming  : [green]Enabled[/green] -> {output_dir / 'result.xdmf'}")
 
     # Helper function to compute shift metrics in real time
     def evaluate_shift_metrics() -> tuple[np.ndarray, float, float, int, np.ndarray]:

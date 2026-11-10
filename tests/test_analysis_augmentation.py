@@ -11,6 +11,7 @@ from pathlib import Path
 from typing import Any
 import xml.etree.ElementTree as ET
 
+import h5py
 import numpy as np
 import pytest
 import scipy.sparse as sp
@@ -331,9 +332,15 @@ def assert_accepted_output(domain: ContactSpringDomain, files: list[Path], direc
         np.testing.assert_allclose(actual, saved, atol=1e-12)
     for contact, saved in zip(domain.contacts, domain.snapshots[-1][3], strict=True):
         np.testing.assert_array_equal(contact.multipliers, saved)
-    datasets = ET.parse(directory / "result.pvd").findall("./Collection/DataSet")
-    assert [entry.attrib["file"] for entry in datasets] == [path.name for path in files]
-    assert len(datasets) == accepted_steps + 1
+    if (directory / "result.xdmf").exists() or (directory / "result.h5").exists():
+        assert (directory / "result.h5").exists()
+        with h5py.File(directory / "result.h5", "r") as h5:
+            ts_keys = [k for k in h5["time_series"].keys() if k.startswith("step_")]
+            assert len(ts_keys) == accepted_steps + 1
+    else:
+        datasets = ET.parse(directory / "result.pvd").findall("./Collection/DataSet")
+        assert [entry.attrib["file"] for entry in datasets] == [path.name for path in files]
+        assert len(datasets) == accepted_steps + 1
 
 
 def test_dynamic_outer_exhaustion_restores_initial_state_and_multipliers(tmp_path: Path) -> None:
@@ -406,7 +413,11 @@ def test_static_model_exception_after_accepted_step_restores_contact_transaction
     for actual, saved in zip((domain.u, domain.v, domain.a), domain.snapshots[-1][:3], strict=True):
         np.testing.assert_allclose(actual, saved, atol=1e-12)
     np.testing.assert_array_equal(contact.multipliers, domain.snapshots[-1][3][0])
-    assert len(ET.parse(tmp_path / "result.pvd").findall("./Collection/DataSet")) == 2
+    if (tmp_path / "result.xdmf").exists() or (tmp_path / "result.h5").exists():
+        with h5py.File(tmp_path / "result.h5", "r") as h5:
+            assert len([k for k in h5["time_series"].keys() if k.startswith("step_")]) == 2
+    else:
+        assert len(ET.parse(tmp_path / "result.pvd").findall("./Collection/DataSet")) == 2
 
 
 @pytest.mark.parametrize("analysis_type", [NonlinearStaticAnalysis, NonlinearDynamicAnalysis])
