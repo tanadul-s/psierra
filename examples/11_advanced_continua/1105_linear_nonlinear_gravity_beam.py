@@ -304,7 +304,7 @@ def main() -> None:
         n_steps=10,
         nr_iterations=25,
         nr_tol=1e-4,
-        save_interval=1,
+        save_history=False,
         save_directory=dir_nonlinear_nr,
         format=fmt,
         verbose=False,
