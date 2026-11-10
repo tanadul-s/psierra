@@ -18,7 +18,6 @@ from psierra.boundary import (
 from psierra.solver.sparse_linear_solver import SparseLinearSolver, DirectSolver
 from psierra.analysis.base import Analysis
 from psierra.analysis.augmentation import ContactAugmentation
-from psierra.exchange.pvd import PvdWriter
 from psierra.exchange.writer import SimulationWriter
 
 
@@ -89,6 +88,7 @@ class NonlinearStaticAnalysis(Analysis):
         smooth_to_nodes: bool = False,
         save_directory: Path | str | None = None,
         output_name: str = "result",
+        format: str = "pvd",
         save_interval: int = 1,
         factor: float = 0.0,
         verbose: bool = True,
@@ -198,9 +198,15 @@ class NonlinearStaticAnalysis(Analysis):
         if save_dir is not None:
             save_dir.mkdir(parents=True, exist_ok=True)
             if writer is None:
-                writer = PvdWriter(
-                    output_path=save_dir / f"{output_name}.pvd",
+                target_filename = (
+                    output_name
+                    if Path(output_name).suffix in (".pvd", ".xdmf", ".h5", ".vtu")
+                    else f"{output_name}.{format}"
+                )
+                writer = SimulationWriter(
+                    output_path=save_dir / target_filename,
                     mesh=getattr(self.domain, "mesh", None),
+                    format=format,  # type: ignore[arg-type]
                     store_checkpoints=False,
                 )
                 created_internal_writer = True

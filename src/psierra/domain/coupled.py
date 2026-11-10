@@ -8,7 +8,7 @@ from psierra.domain.base import Domain
 from psierra.domain.solid import SolidDomain
 from psierra.domain.shell import ShellDomain
 from psierra.mesh.volumetric import VolumetricMesh
-from psierra.exchange.pvd import PvdCollectionWriter
+from psierra.exchange.writer import SimulationWriter
 from psierra.utility.assembly import (
     create_coo_sparsity_indices,
     assemble_sparse_matrix,
@@ -517,10 +517,10 @@ class CoupledSolidShellDomain(Domain):
         self.save_solid_state(solid_file, factor=factor, **kwargs)
         self.save_shell_state(shell_file, factor=factor, **kwargs)
 
-        writer = PvdCollectionWriter(filepath)
-        writer.add_dataset(filename=solid_file.name, timestep=timestep, part=0, group="solid")
-        writer.add_dataset(filename=shell_file.name, timestep=timestep, part=1, group="shell")
-        writer.write()
+        with SimulationWriter(filepath, format="pvd") as writer:
+            writer.add_dataset(filename=solid_file.name, timestep=timestep, part=0, group="solid")
+            writer.add_dataset(filename=shell_file.name, timestep=timestep, part=1, group="shell")
+            writer.write()
 
     def save_state(self, filepath: Path, factor: float = 0.0, **kwargs) -> None:
         """

@@ -37,7 +37,7 @@ class SimulationWriter:
     def __init__(
         self,
         output_path: Path | str,
-        mesh: Any,
+        mesh: Any = None,
         format: Literal["xdmf", "pvd", "h5", "vtu", "hdf5"] = "xdmf",
         store_checkpoints: bool = True,
         resume: bool = False,
@@ -290,6 +290,27 @@ class SimulationWriter:
                     summary["checkpoint_step"] = int(h5f["checkpoints/latest"].attrs.get("step", -1))
                     summary["checkpoint_time"] = float(h5f["checkpoints/latest"].attrs.get("time", 0.0))
         return summary
+
+    def write(self) -> None:
+        """Flushes archive and manifest files."""
+        if hasattr(self._backend, "write"):
+            self._backend.write()
+
+    def add_dataset(
+        self,
+        filename: str,
+        timestep: float = 0.0,
+        group: str = "",
+        part: int = 0,
+    ) -> None:
+        """Delegates dataset registration to backend if supported."""
+        if hasattr(self._backend, "add_dataset"):
+            self._backend.add_dataset(
+                filename=filename,
+                timestep=timestep,
+                group=group,
+                part=part,
+            )
 
     def close(self) -> None:
         """Flushes buffers and closes file handles."""

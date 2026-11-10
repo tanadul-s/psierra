@@ -10,7 +10,6 @@ from psierra.domain.base import Domain
 from psierra.boundary.dirichlet import DirichletManager, DirichletConstraint
 from psierra.damping.rayleigh import RayleighDamping
 from psierra.analysis.base import Analysis
-from psierra.exchange.pvd import PvdWriter
 from psierra.exchange.writer import SimulationWriter
 
 
@@ -97,6 +96,7 @@ class LinearDynamicAnalysis(Analysis):
         smooth_to_nodes: bool = False,
         save_directory: Path | str | None = None,
         output_name: str = "result",
+        format: str = "pvd",
         save_interval: int = 1,
         steady_state_tol: float | None = None,
         kinetic_energy_tol: float | None = None,
@@ -181,9 +181,15 @@ class LinearDynamicAnalysis(Analysis):
         if save_dir is not None:
             save_dir.mkdir(parents=True, exist_ok=True)
             if writer is None:
-                writer = PvdWriter(
-                    output_path=save_dir / f"{output_name}.pvd",
+                target_filename = (
+                    output_name
+                    if Path(output_name).suffix in (".pvd", ".xdmf", ".h5", ".vtu")
+                    else f"{output_name}.{format}"
+                )
+                writer = SimulationWriter(
+                    output_path=save_dir / target_filename,
                     mesh=getattr(self.domain, "mesh", None),
+                    format=format,  # type: ignore[arg-type]
                     store_checkpoints=False,
                 )
                 created_internal_writer = True

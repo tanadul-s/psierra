@@ -16,7 +16,7 @@ import pyvista as pv
 import scipy.sparse as spsp
 
 from psierra.domain.base import Domain
-from psierra.exchange.pvd import PvdCollectionWriter
+from psierra.exchange.writer import SimulationWriter
 
 
 class MultiBodySystem(Domain):
@@ -553,21 +553,21 @@ class MultiBodySystem(Domain):
             filepath = filepath.with_suffix(".pvd")
         filepath.parent.mkdir(parents=True, exist_ok=True)
 
-        writer = PvdCollectionWriter(filepath)
-        stem = filepath.stem
+        with SimulationWriter(filepath, format="pvd") as writer:
+            stem = filepath.stem
 
-        for i, body in enumerate(self._bodies):
-            body_vtu = filepath.parent / f"{stem}_{self._names[i]}.vtu"
-            if hasattr(body, "save_state"):
-                body.save_state(body_vtu, factor=factor, **kwargs)
-            else:
-                grid = self.to_pyvista(factor=factor, **kwargs)
-                grid.save(str(body_vtu))
+            for i, body in enumerate(self._bodies):
+                body_vtu = filepath.parent / f"{stem}_{self._names[i]}.vtu"
+                if hasattr(body, "save_state"):
+                    body.save_state(body_vtu, factor=factor, **kwargs)
+                else:
+                    grid = self.to_pyvista(factor=factor, **kwargs)
+                    grid.save(str(body_vtu))
 
-            writer.add_dataset(
-                filename=body_vtu.name,
-                timestep=timestep,
-                part=i,
-                group=self._names[i],
-            )
-        writer.write()
+                writer.add_dataset(
+                    filename=body_vtu.name,
+                    timestep=timestep,
+                    part=i,
+                    group=self._names[i],
+                )
+            writer.write()

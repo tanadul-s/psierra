@@ -47,6 +47,7 @@ class LinearStaticAnalysis(Analysis):
         smooth_to_nodes: bool = False,
         save_directory: Path | str | None = None,
         output_name: str = "result",
+        format: str = "vtu",
         verbose: bool = True,
         writer: SimulationWriter | None = None,
     ) -> LinearStaticResult:
@@ -136,19 +137,40 @@ class LinearStaticAnalysis(Analysis):
         # 7. Update Domain State
         self.domain.update_state(u=u_full)
 
-        # 8. Record via unified writer if provided
+        # 8. Setup internal writer if requested or save state
+        saved_file: Path | None = None
+        created_internal_writer = False
+        if save_dir is not None:
+            save_dir.mkdir(parents=True, exist_ok=True)
+            if format in ("xdmf", "h5", "pvd"):
+                if writer is None:
+                    target_filename = (
+                        output_name
+                        if Path(output_name).suffix in (".pvd", ".xdmf", ".h5", ".vtu")
+                        else f"{output_name}.{format}"
+                    )
+                    writer = SimulationWriter(
+                        output_path=save_dir / target_filename,
+                        mesh=getattr(self.domain, "mesh", None),
+                        format=format,  # type: ignore[arg-type]
+                        store_checkpoints=False,
+                    )
+                    created_internal_writer = True
+            else:
+                saved_file = save_dir / f"{output_name}.vtu"
+                self.domain.save_state(
+                    saved_file,
+                    include_stresses=include_stresses,
+                    smooth_to_nodes=smooth_to_nodes,
+                )
+
+        # 9. Record via unified writer if provided or internally created
         if writer is not None:
             writer.add_timestep(time=0.0, domain=self.domain, step_index=0)
-
-        # 9. Save State if directory specified
-        saved_file: Path | None = None
-        if save_dir is not None:
-            saved_file = save_dir / f"{output_name}.vtu"
-            self.domain.save_state(
-                saved_file,
-                include_stresses=include_stresses,
-                smooth_to_nodes=smooth_to_nodes,
-            )
+            if created_internal_writer:
+                writer.close()
+                if hasattr(writer, "exported_files") and writer.exported_files:
+                    saved_file = writer.exported_files[0]
 
         if verbose:
             print(
