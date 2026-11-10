@@ -33,6 +33,7 @@ class NonlinearStaticResult:
     time_series_files: list[Path] = field(
         default_factory=list
     )  # Exported .vtu file paths
+    saved_file: Path | None = None  # Saved primary visualization file (e.g. result.xdmf)
     al_iterations_history: list[int] = field(default_factory=list)
 
 
@@ -90,6 +91,7 @@ class NonlinearStaticAnalysis(Analysis):
         output_name: str = "result",
         format: str = "xdmf",
         save_interval: int = 1,
+        save_history: bool = True,
         factor: float = 0.0,
         verbose: bool = True,
         writer: SimulationWriter | None = None,
@@ -122,11 +124,15 @@ class NonlinearStaticAnalysis(Analysis):
         smooth_to_nodes : bool, default=False
             If True, smooths element stresses to mesh nodes.
         save_directory : Path or str, optional
-            Directory to stream Paraview (.vtu) snapshots and master .pvd collection.
+            Directory to save visualization files to.
         output_name : str, default="result"
-            Master filename prefix for exported .pvd collection (result.pvd).
-        save_interval : int, default=1
-            Number of steps between saved step_*.vtu frame files.
+            Master filename prefix for exported result files (result.xdmf or result.pvd).
+        save_interval : int, optional
+            Number of steps between saved intermediate load frames when history is requested.
+        save_history : bool, default=False
+            If True, records the full multi-step load ramp history.
+            If False (default), records ONLY the final converged static equilibrium state
+            (matching LinearStaticAnalysis and DynamicRelaxationAnalysis in ParaView).
         verbose : bool, default=True
             Print step-by-step residual and convergence reports.
         al_max_iterations : int, default=50, keyword-only
@@ -147,6 +153,8 @@ class NonlinearStaticAnalysis(Analysis):
         self._validate_scalar("al_gap_tol", al_gap_tol)
         self._validate_scalar("al_tol", al_tol)
         self._validate_count("save_interval", save_interval)
+        record_history = bool(save_history)
+        stride = save_interval
         self._validate_scalar("nr_tol", nr_tol)
         if f_ext is None:
             f_ext = np.zeros(self.domain.n_dofs, dtype=np.float64)
@@ -195,30 +203,31 @@ class NonlinearStaticAnalysis(Analysis):
 
         save_dir = Path(save_directory) if save_directory is not None else None
         created_internal_writer = False
-        if save_dir is not None:
-            save_dir.mkdir(parents=True, exist_ok=True)
-            if writer is None:
-                target_filename = (
-                    output_name
-                    if Path(output_name).suffix in (".pvd", ".xdmf", ".h5", ".vtu")
-                    else f"{output_name}.{format}"
-                )
-                writer = SimulationWriter(
-                    output_path=save_dir / target_filename,
-                    mesh=getattr(self.domain, "mesh", None),
-                    format=format,  # type: ignore[arg-type]
-                    store_checkpoints=False,
-                )
-                created_internal_writer = True
+        if record_history:
+            if save_dir is not None:
+                save_dir.mkdir(parents=True, exist_ok=True)
+                if writer is None:
+                    target_filename = (
+                        output_name
+                        if Path(output_name).suffix in (".pvd", ".xdmf", ".h5", ".vtu")
+                        else f"{output_name}.{format}"
+                    )
+                    writer = SimulationWriter(
+                        output_path=save_dir / target_filename,
+                        mesh=getattr(self.domain, "mesh", None),
+                        format=format,  # type: ignore[arg-type]
+                        store_checkpoints=False,
+                    )
+                    created_internal_writer = True
+
+            # Save Step 0 (Initial state at lambda = 0.0) only when recording history
+            if writer is not None and initial_step == 0:
+                writer.add_timestep(time=initial_time, domain=self.domain, step_index=0)
 
         u_current = self.domain.u.copy()
         iteration_history: list[int] = []
         al_iterations_history: list[int] = []
         exported_files: list[Path] = []
-
-        # Save Step 0 (Initial state at lambda = 0.0)
-        if writer is not None and initial_step == 0:
-            writer.add_timestep(time=initial_time, domain=self.domain, step_index=0)
 
         if verbose:
             print(
@@ -483,10 +492,10 @@ class NonlinearStaticAnalysis(Analysis):
                     time_series_files=getattr(writer, "exported_files", []) if writer is not None else [],
                 )
 
-            # Save frame if directory specified and matching save_interval or final step
+            # Save frame if history recording requested and matching stride or final step
             step_idx = initial_step + step
             t_current = initial_time + float(load_factor)
-            if writer is not None and (step % save_interval == 0 or step == n_steps):
+            if record_history and writer is not None and (step % stride == 0 or step == n_steps):
                 writer.add_timestep(time=t_current, domain=self.domain, step_index=step_idx)
 
         # Simulation successfully completed all steps
@@ -504,12 +513,43 @@ class NonlinearStaticAnalysis(Analysis):
         reactions = f_int_final - f_ext - f_contact_final
 
         # Finalize writer output
-        if writer is not None:
-            if created_internal_writer:
-                writer.close()
-            elif hasattr(writer, "write"):
-                writer.write()
-            exported_files = getattr(writer, "exported_files", [])
+        if not record_history:
+            # Default static solve: save converged static equilibrium state directly (matching LinearStaticAnalysis)
+            if save_dir is not None and writer is None:
+                save_dir.mkdir(parents=True, exist_ok=True)
+                target_filename = (
+                    output_name
+                    if Path(output_name).suffix in (".pvd", ".xdmf", ".h5", ".vtu")
+                    else f"{output_name}.{format}"
+                )
+                writer = SimulationWriter(
+                    output_path=save_dir / target_filename,
+                    mesh=getattr(self.domain, "mesh", None),
+                    format=format,  # type: ignore[arg-type]
+                    store_checkpoints=False,
+                )
+                created_internal_writer = True
+
+            if writer is not None:
+                writer.add_timestep(time=0.0, domain=self.domain, step_index=0)
+                if created_internal_writer:
+                    writer.close()
+                elif hasattr(writer, "write"):
+                    writer.write()
+                exported_files = getattr(writer, "exported_files", [])
+            else:
+                exported_files = []
+        else:
+            if writer is not None:
+                if created_internal_writer:
+                    writer.close()
+                elif hasattr(writer, "write"):
+                    writer.write()
+                exported_files = getattr(writer, "exported_files", [])
+            else:
+                exported_files = []
+
+        saved_file = exported_files[0] if exported_files else None
 
         if verbose:
             print(
@@ -524,4 +564,5 @@ class NonlinearStaticAnalysis(Analysis):
             iteration_history=iteration_history,
             al_iterations_history=al_iterations_history,
             time_series_files=exported_files,
+            saved_file=saved_file,
         )
