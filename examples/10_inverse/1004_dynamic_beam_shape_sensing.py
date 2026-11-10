@@ -360,6 +360,7 @@ def main() -> None:
 
     recon_writer = SimulationWriter(output_dir / "reconstruction.xdmf", mesh=mesh, format="xdmf")
     truth_writer = SimulationWriter(output_dir / "ground_truth.xdmf", mesh=mesh, format="xdmf")
+    marker_writer = SimulationWriter(output_dir / "markers.pvd", format="pvd")
 
     # Export every 2nd step (60 frames at 100 fps) for smooth, lightweight animation
     export_stride = 2
@@ -369,7 +370,7 @@ def main() -> None:
     dom_truth = SolidDomain(mesh.copy(), material, element)
 
     console.print(
-        f"\n  [dim]Writing {len(export_steps)} time steps to XDMF archives and VTP tracker series...[/dim]"
+        f"\n  [dim]Writing {len(export_steps)} time steps to XDMF archives and markers.pvd (+ VTP series)...[/dim]"
     )
 
     for i, step_idx in enumerate(export_steps):
@@ -383,7 +384,7 @@ def main() -> None:
         dom_truth.update_state(u=u_truth[step_idx])
         truth_writer.add_timestep(time=t_val, domain=dom_truth, step_index=i)
 
-        # 3. Moving Surface Tracking Markers Point Cloud (saved as clean VTP time-series)
+        # 3. Moving Surface Tracking Markers Point Cloud (saved as clean VTP time-series with PVD collection)
         d_3d = op_full.observe_3d(u_truth[step_idx])
         markers_poly = pv.PolyData(np.asarray(sensor_points, dtype=np.float64))
         markers_poly.point_data["Displacement"] = d_3d
@@ -394,9 +395,11 @@ def main() -> None:
 
         marker_fname = f"markers_step_{i:03d}.vtp"
         markers_poly.save(str(output_dir / marker_fname))
+        marker_writer.add_dataset(filename=marker_fname, timestep=t_val)
 
     recon_writer.close()
     truth_writer.close()
+    marker_writer.close()
 
     console.print(
         f"[bold green]✓ Reconstructed continuum exported to:[/bold green] [cyan]{output_dir / 'reconstruction.xdmf'}[/cyan] (+ .h5)"
@@ -405,14 +408,14 @@ def main() -> None:
         f"[bold green]✓ Ground truth continuum exported to:[/bold green]   [cyan]{output_dir / 'ground_truth.xdmf'}[/cyan] (+ .h5)"
     )
     console.print(
-        f"[bold green]✓ Dynamic tracking markers exported to:[/bold green]  [cyan]{output_dir / 'markers_step_..vtp'}[/cyan] (VTP series)\n"
+        f"[bold green]✓ Dynamic tracking markers exported to:[/bold green]  [cyan]{output_dir / 'markers.pvd'}[/cyan] (+ .vtp series)\n"
     )
     console.print(
         "[dim]To visualize live dynamic tracking in ParaView:\n"
-        "  1. Open 'reconstruction.xdmf' (XDMF3 Reader) and 'markers_step_..vtp' (File Series) together.\n"
+        "  1. Open 'reconstruction.xdmf' (XDMF3 Reader) and 'markers.pvd' together.\n"
         "  2. Apply 'Warp By Vector' (Vectors: Displacement, Scale Factor: 1.0) to 'reconstruction.xdmf'.\n"
-        "  3. Apply 'Glyph' (Sphere) to 'markers_step_..vtp' to render 3D optical tracking spheres.\n"
-        "  4. Press [Play] to view the continuous real-time dynamic shape sensing reconstruction![/dim]\n"
+        "  3. Apply 'Glyph' (Sphere) to 'markers.pvd' to render 3D optical tracking spheres.\n"
+        "  4. Press [Play] to view the continuous real-time dynamic shape sensing reconstruction in synchronized lockstep![/dim]\n"
     )
 
 
