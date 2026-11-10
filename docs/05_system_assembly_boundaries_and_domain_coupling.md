@@ -179,7 +179,79 @@ Instead of forcing users to export and manage separate solid and shell `.vtu` fi
 
 ---
 
-## 5. Code Implementation Map
+## 5. Deformable and Self-Contact Mechanics with Spatial Regularization
+
+`pSierra` provides high-performance, conservative node-to-segment contact formulations for multi-body interactions (`DeformableContact`) and single-body folds/self-collisions (`SelfContact`).
+
+### 5.1 The Facet-Edge Chattering Problem in Discrete Contact
+In conventional piecewise-planar faceted boundary meshes, each master triangle facet $A$ possesses a constant outward unit normal $\boldsymbol{n}_A$. When a slave node slides across a shared boundary edge between adjacent facets $A$ and $B$, the contact normal vector experiences an instantaneous directional discontinuity:
+$$\Delta \boldsymbol{n} = \boldsymbol{n}_B - \boldsymbol{n}_A \neq \boldsymbol{0}$$
+For typical mesh curvatures, this jump can exceed $20^\circ$ to $45^\circ$, producing:
+1. **Severe Force Chattering**: The contact force $\boldsymbol{f}_c = p \boldsymbol{n}$ abruptly jumps in 3D direction, creating non-physical high-frequency shocks.
+2. **Loss of Quadratic Convergence**: Newton-Raphson descent directions oscillate across the facet boundary, causing line-search step cutbacks, stagnation, or catastrophic divergence.
+
+### 5.2 Pillar 2: $C^1$-Continuous Surface Normal Smoothing
+To eliminate directional jumps across facet boundaries, `pSierra` implements spatial regularization via **Vertex Pseudonormals** (Pillar 2 of Loop 2 contact mechanics).
+
+#### Vertex Pseudonormal Assembly
+At each master surface node $v$, incident facet normals $\boldsymbol{n}_f$ are assembled using configurable area or corner-angle weighting:
+$$\bar{\boldsymbol{n}}_v = \sum_{f \in \mathcal{F}(v)} w_{f, v} \, \boldsymbol{n}_f, \qquad \hat{\boldsymbol{n}}_v = \frac{\bar{\boldsymbol{n}}_v}{\|\bar{\boldsymbol{n}}_v\|}$$
+- **Angle Weighting (`smoothing_weight="angle"`, default)**: Weight $w_{f, v} = \theta_{f, v}$ is the interior angle subtended at node $v$ by the triangle facet. This prevents obtuse triangles from biasing the surface normal.
+- **Area Weighting (`smoothing_weight="area"`)**: Weight $w_{f, v} = \frac{1}{3} A_f$ is one-third of the facet surface area.
+
+#### Facet Normal Interpolation
+For any slave node projecting onto master facet $f$ with barycentric feature coordinates $\boldsymbol{\xi} = [\xi_0, \xi_1, \xi_2]^T$ ($\sum_{i=0}^2 \xi_i = 1$):
+$$\tilde{\boldsymbol{n}}(\boldsymbol{\xi}) = \sum_{i=0}^2 \xi_i \, \hat{\boldsymbol{n}}_{v_i}, \qquad \boldsymbol{n}(\boldsymbol{\xi}) = \frac{\tilde{\boldsymbol{n}}(\boldsymbol{\xi})}{\|\tilde{\boldsymbol{n}}(\boldsymbol{\xi})\|}$$
+
+Along any shared edge $e = (v_1, v_2)$ between adjacent facets $A$ and $B$, $\xi_0 = 0$ and $\boldsymbol{\xi} = [0, 1-t, t]^T$:
+$$\tilde{\boldsymbol{n}}_A(t) = (1-t) \hat{\boldsymbol{n}}_{v_1} + t \hat{\boldsymbol{n}}_{v_2} \equiv \tilde{\boldsymbol{n}}_B(t)$$
+Both facets evaluate to **identically equal contact normal vectors** across the shared edge, guaranteeing:
+$$\lim_{\epsilon \to 0} \|\boldsymbol{n}_B(+\epsilon) - \boldsymbol{n}_A(-\epsilon)\| = 0$$
+This eliminates edge chattering, yielding smooth $C^1$ effective geometry and restoring quadratic Newton descent.
+
+### 5.3 Mathematical Invariants & Exact Conservation Laws
+The smoothed contact formulation preserves all rigorous physical invariants:
+
+1. **Exact Newtonian Action-Reaction Balance**:
+   The contact directional gradient vector is $\boldsymbol{b} = \boldsymbol{w} \otimes \boldsymbol{n}(\boldsymbol{\xi})$ where $\boldsymbol{w} = [1, -\xi_0, -\xi_1, -\xi_2]^T$. Because $\sum_{i=0}^3 w_i = 1 - \sum_{j=0}^2 \xi_j = 0$:
+   $$\sum \boldsymbol{f}_c = \boldsymbol{f}_{\text{slave}} + \sum_{j=0}^2 \boldsymbol{f}_{\text{master}, j} = p \boldsymbol{n} - p \left(\sum_{j=0}^2 \xi_j\right) \boldsymbol{n} = \boldsymbol{0}$$
+   Linear momentum is conserved to machine precision ($< 10^{-12} \text{ N}$).
+
+2. **Exact Tangent Stiffness Symmetry**:
+   The conservative contact tangent operator is:
+   $$\boldsymbol{K}_c = k_p \boldsymbol{b} \boldsymbol{b}^T - p \boldsymbol{H}$$
+   where $\boldsymbol{H} = \frac{1}{2}\left(\frac{\partial \boldsymbol{b}}{\partial \boldsymbol{q}} + \left(\frac{\partial \boldsymbol{b}}{\partial \boldsymbol{q}}\right)^T\right)$ is the exact symmetrized curvature operator including barycentric and normal variation. Exact symmetry $\boldsymbol{K}_c = \boldsymbol{K}_c^T$ holds to machine precision ($< 10^{-12}$).
+
+3. **Rigid Body Translation Invariance**:
+   For any uniform spatial translation $\boldsymbol{u}_{\text{trans}} = \mathbf{1} \otimes \boldsymbol{d}$:
+   $$\boldsymbol{K}_c \, \boldsymbol{u}_{\text{trans}} = \boldsymbol{0}$$
+   Rigid translations generate zero spurious interface stresses.
+
+### 5.4 Enabling Smoothed Normals
+Both `DeformableContact` and `SelfContact` support smoothed normals through optional keyword arguments, defaulting to `smoothed_normals=False` for strict backward compatibility:
+
+```python
+# MultiBodySystem contact pair with C^1 normal smoothing
+system.add_contact_pair(
+    slave="Brain",
+    master="Skull",
+    k_penalty=5e3,
+    smoothed_normals=True,
+    smoothing_weight="angle",  # or "area"
+)
+
+# Self-contact with C^1 normal smoothing
+system.add_self_contact(
+    body="Brain",
+    k_penalty=2e3,
+    smoothed_normals=True,
+    smoothing_weight="angle",
+)
+```
+
+---
+
+## 6. Code Implementation Map
 
 | Operational Concept | Formulation | Source File | Class & Method |
 |---|---|---|---|
@@ -191,14 +263,19 @@ Instead of forcing users to export and manage separate solid and shell `.vtu` fi
 | Node Selection (Bounds/Planes) | Spatial Bounding Query | [`selector.py`](../src/psierra/boundary/selector.py) | `select_nodes_by_bounds()`, `select_nodes_by_plane()` |
 | Nodal Load Assembly | $\boldsymbol{f}_{ext} \in \mathbb{R}^{N_{\text{dofs}}}$ | [`loads.py`](../src/psierra/boundary/loads.py) | `NodalForce.compute_force_vector()` |
 | Consistent Gravity Load | $\boldsymbol{f}_{ext} = \boldsymbol{M} \bar{\boldsymbol{g}}$ | [`loads.py`](../src/psierra/boundary/loads.py) | `GravityLoad.compute_force_vector()` |
+| Deformable Contact Mechanics | Multi-Body Node-to-Segment | [`contact.py`](../src/psierra/boundary/contact.py) | `DeformableContact.evaluate_forces()`, `.evaluate_stiffness()` |
+| Self-Contact Mechanics | Single-Body Node-to-Segment Fold | [`contact.py`](../src/psierra/boundary/contact.py) | `SelfContact.evaluate_forces()`, `.evaluate_stiffness()` |
+| C^1 Normal Smoothing Kernel | Triangle Pseudonormal Barycentrics | [`triangle.py`](../src/psierra/collision/triangle.py) | `TriangleContactGeometry.evaluate(vertex_normals=...)` |
 
 ---
 
-## 6. References & Further Reading
+## 7. References & Further Reading
 
+- **P. Wriggers**, *Computational Contact Mechanics*, 2nd Edition, Springer, 2006.
+- **M.A. Puso & T.A. Laursen**, *A formulation for frictionless contact problems using a continuum based surface smoothing technique*, Computer Methods in Applied Mechanics and Engineering, 191(27-28):3097-3119, 2002.
+- **P. Wriggers, L. Krstulovic-Opara, J. Korelc**, *Smooth $C^1$-interpolations for contact problems*, CMAME, 190(31):4079-4091, 2001.
 - **K.J. Bathe**, *Finite Element Procedures*, Chapter 4: Formulation and Calculation of Isoparametric Finite Element Matrices.
-- **Y. Saad**, *Iterative Methods for Sparse Linear Systems*, SIAM, 2nd Edition, 2003 (Sparse Matrix Storage Formats).
-- **O.C. Zienkiewicz & R.L. Taylor**, *The Finite Element Method for Solid and Structural Mechanics*, Chapter 2.
+- **Y. Saad**, *Iterative Methods for Sparse Linear Systems*, SIAM, 2nd Edition, 2003.
 
 ---
 

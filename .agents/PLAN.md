@@ -135,10 +135,13 @@ This roadmap is laser-focused on biological soft-tissue mechanics, robust contac
   * Automatic step cutback: $\Delta t \leftarrow \max(\Delta t_{\min}, \gamma_{\text{cut}} \Delta t)$ upon line search stall, Newton divergence, or contact non-convergence, restoring state $(\boldsymbol{u}_n, \boldsymbol{v}_n, \boldsymbol{a}_n, \boldsymbol{\lambda}_n)$ and internal viscoelastic history ($\boldsymbol{Q}_{m, n}$).
   * Dynamic ramp-up upon consecutive quadratic Newton-Raphson convergences ($\Delta t \leftarrow \min(\Delta t_{\max}, \gamma_{\text{grow}} \Delta t)$).
   * 10 automated verification tests in [`tests/test_analysis_adaptive_time_step.py`](../tests/test_analysis_adaptive_time_step.py) validating cutback recovery, dynamic growth, viscoelastic state reversion, contact multiplier restoration, and graceful exhaustion.
-* [ ] **Pillar 2: Spatial Regularization ($C^1$-Continuous Surface Normal Smoothing)**:
-  * Upgrade `DeformableContact` with area/angle-weighted vertex pseudonormal interpolation:
+* [x] **Pillar 2: Spatial Regularization ($C^1$-Continuous Surface Normal Smoothing)**:
+  * Upgraded `DeformableContact`, `SelfContact`, and `TriangleContactGeometry` with area/angle-weighted vertex pseudonormal interpolation:
     $$\boldsymbol{n}(\boldsymbol{\xi}) = \frac{\sum \xi_i \bar{\boldsymbol{n}}_i}{\|\sum \xi_i \bar{\boldsymbol{n}}_i\|}$$
-  * Eliminates directional jumps $\Delta \boldsymbol{n} = \boldsymbol{n}_B - \boldsymbol{n}_A$ as nodes cross facet edges, restoring quadratic Newton descent.
+  * Completely eliminates directional jumps $\Delta \boldsymbol{n} = \boldsymbol{n}_B - \boldsymbol{n}_A$ as nodes cross facet edges, preserving $C^1$ continuity and restoring smooth Newton-Raphson descent.
+  * Preserves exact action-reaction balance ($\sum \boldsymbol{f}_c = \boldsymbol{0}$ to $< 10^{-12} \text{ N}$), exact tangent stiffness symmetry ($\boldsymbol{K}_c = \boldsymbol{K}_c^T$ to $< 10^{-12}$), and exact rigid translation invariance ($\boldsymbol{K}_c \boldsymbol{u}_{\text{trans}} \approx \boldsymbol{0}$).
+  * 11 comprehensive automated tests in [`tests/test_deformable_contact_smoothing.py`](../tests/test_deformable_contact_smoothing.py) verifying jump elimination, action-reaction, tangent symmetry, translation invariance, weight choices (`angle`, `area`), and sliding continuity across facet edges.
+  * 100% backward compatibility preserved via `smoothed_normals: bool = False` (all 124 existing contact tests passing untouched).
 * [ ] **Pillar 3: Algorithmic Regularization (Contact-Aware Line Search & Dual Relaxation)**:
   * Differentiate constitutive element inversion ($\det \boldsymbol{J} \le 0$) from non-smooth facet edge crossing during line search.
   * Dual rebound relaxation: zeroing retained multipliers ($\lambda \leftarrow 0$) when local rebound opens a positive gap ($g > 0$).

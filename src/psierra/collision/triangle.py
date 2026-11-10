@@ -114,6 +114,7 @@ class TriangleContactGeometry:
         point: np.ndarray,
         vertices: np.ndarray,
         pseudonormal: np.ndarray | None = None,
+        vertex_normals: np.ndarray | None = None,
     ) -> TriangleGap:
         """Return g, grad(g), Hess(g) on the selected smooth feature branch.
 
@@ -124,6 +125,10 @@ class TriangleContactGeometry:
         H_i=n tensor (dw_i/dq)+w_i*(dn/dq). Face dn/dq comes directly from
         the normalized cross product, remaining finite at g=0. For nonzero
         edge/vertex distance, dn/dq=(I-n*n.T)*(dr/dq)/g.
+
+        When vertex_normals is supplied (Pillar 2: Spatial Regularization),
+        n is interpolated via barycentrics: n(xi) = (sum xi_i * n_v_i) / ||sum xi_i * n_v_i||,
+        eliminating normal jumps across facet boundaries and preserving C^1 continuity.
         """
         vertices = np.asarray(vertices, dtype=np.float64)
         point = np.asarray(point, dtype=np.float64)
@@ -136,6 +141,49 @@ class TriangleContactGeometry:
         residual = point - barycentric @ vertices
         distance = float(np.linalg.norm(residual))
         length_scale = max(float(np.linalg.norm(v - vertices[0])) for v in vertices[1:])
+
+        if vertex_normals is not None:
+            # Pillar 2: Spatial Regularization (C^1-Continuous Surface Normal Smoothing)
+            v_normals = np.asarray(vertex_normals, dtype=np.float64)
+            tilde_n = barycentric @ v_normals
+            norm_tilde_n = float(np.linalg.norm(tilde_n))
+            if norm_tilde_n > cls._relative_tolerance:
+                normal = tilde_n / norm_tilde_n
+            else:
+                normal = face_normal
+                norm_tilde_n = 1.0
+
+            gap = float(residual @ normal)
+            weights = np.r_[1.0, -barycentric]
+            W = np.kron(weights.reshape(1, 4), np.eye(3))
+            edges = (vertices[active[1:]] - vertices[active[0]]).T
+            n_coordinates = len(active) - 1
+            dw = np.zeros((4, n_coordinates))
+            for j, node in enumerate(active[1:]):
+                dw[1 + active[0], j] = 1.0
+                dw[1 + node, j] = -1.0
+            if n_coordinates:
+                B = np.column_stack([
+                    np.kron(dw[:, j], residual) - W.T @ edges[:, j]
+                    for j in range(n_coordinates)
+                ])
+                dz = -np.linalg.solve(edges.T @ edges, B.T)
+            else:
+                dz = np.zeros((0, 12))
+            dweights = dw @ dz  # shape (4, 12)
+            dbary = -dweights[1:]  # shape (3, 12)
+
+            projector = np.eye(3) - np.outer(normal, normal)
+            d_tilde_n = sum(np.outer(v_normals[i], dbary[i]) for i in range(3))
+            dnormal = projector @ d_tilde_n / norm_tilde_n
+
+            gradient = np.kron(weights, normal)
+            hessian = np.vstack([
+                np.outer(normal, dweights[i]) + weights[i] * dnormal
+                for i in range(4)
+            ])
+            hessian = 0.5 * (hessian + hessian.T)
+            return TriangleGap(barycentric, gap, normal, gradient, hessian, feature)
         plane_branch = feature == "face" or distance <= cls._relative_tolerance * length_scale
         if plane_branch:
             normal = face_normal

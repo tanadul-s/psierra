@@ -569,6 +569,9 @@ class DeformableContact(ContactMultiplierState):
         domain: Domain | None = None,
         formulation: Literal["penalty", "augmented_lagrangian"] = "penalty",
         tolerance: float = 0.0,
+        *,
+        smoothed_normals: bool = False,
+        smoothing_weight: Literal["angle", "area"] = "angle",
     ) -> None:
         """Bind body geometry and interface parameters.
 
@@ -576,6 +579,14 @@ class DeformableContact(ContactMultiplierState):
         Coulomb friction coefficient are nonnegative. Body DOF offsets use
         three translational DOFs per node. Tolerance [length] is retained
         interface metadata; signed gaps and force activation use physical zero.
+
+        smoothed_normals : bool, default=False
+            When True (Pillar 2: Spatial Regularization), contact normals are
+            interpolated continuously across master facet surfaces using area/angle-weighted
+            vertex pseudonormals: n(xi) = (sum xi_i * n_v_i) / ||sum xi_i * n_v_i||.
+            Eliminates directional jumps Delta n = n_B - n_A as slave nodes cross facet edges.
+        smoothing_weight : {'angle', 'area'}, default='angle'
+            Weighting formulation for assembling vertex pseudonormals from incident facet normals.
         """
         if not np.isfinite(k_penalty) or k_penalty <= 0.0:
             raise ValueError("k_penalty must be finite and positive")
@@ -587,6 +598,8 @@ class DeformableContact(ContactMultiplierState):
             raise ValueError("tolerance must be finite and nonnegative")
         if formulation not in ("penalty", "augmented_lagrangian"):
             raise ValueError("formulation must be 'penalty' or 'augmented_lagrangian'")
+        if smoothing_weight not in ("angle", "area"):
+            raise ValueError("smoothing_weight must be 'angle' or 'area'")
         self.slave = slave
         self.master = master
         self.k_penalty = float(k_penalty)
@@ -597,6 +610,8 @@ class DeformableContact(ContactMultiplierState):
         self.domain = domain
         self.formulation = formulation
         self.tolerance = float(tolerance)
+        self.smoothed_normals = bool(smoothed_normals)
+        self.smoothing_weight = str(smoothing_weight)
 
         if slave_nodes is not None:
             self.slave_nodes = np.asarray(slave_nodes, dtype=np.int64)
@@ -658,13 +673,22 @@ class DeformableContact(ContactMultiplierState):
         self._vertex_pseudonormals = np.zeros_like(nodes)
         for face_index, face in enumerate(self._master_faces):
             vertices = nodes[face]
-            normal, _ = TriangleContactGeometry._face_normal(vertices)
+            normal, area = TriangleContactGeometry._face_normal(vertices)
             self._face_normals[face_index] = normal
             for i in range(3):
-                e1 = vertices[(i + 1) % 3] - vertices[i]
-                e2 = vertices[(i + 2) % 3] - vertices[i]
-                angle = np.arctan2(np.linalg.norm(np.cross(e1, e2)), e1 @ e2)
-                self._vertex_pseudonormals[face[i]] += angle * normal
+                if self.smoothing_weight == "area":
+                    weight = area / 3.0
+                else:
+                    e1 = vertices[(i + 1) % 3] - vertices[i]
+                    e2 = vertices[(i + 2) % 3] - vertices[i]
+                    weight = np.arctan2(np.linalg.norm(np.cross(e1, e2)), e1 @ e2)
+                self._vertex_pseudonormals[face[i]] += weight * normal
+        norms = np.linalg.norm(self._vertex_pseudonormals, axis=1, keepdims=True)
+        self._unit_vertex_pseudonormals = np.where(
+            norms > 1e-14,
+            self._vertex_pseudonormals / np.maximum(norms, 1e-14),
+            np.array([0.0, 0.0, 1.0]),
+        )
         self._locator.BuildLocator()
 
     def _queries(self) -> list[_DeformableContactQuery]:
@@ -693,7 +717,10 @@ class DeformableContact(ContactMultiplierState):
                 pseudonormal = self._vertex_pseudonormals[face[active[0]]]
             if np.linalg.norm(pseudonormal) <= TriangleContactGeometry._relative_tolerance:
                 raise ValueError("Undefined master feature pseudonormal: check surface orientation")
-            geometry = TriangleContactGeometry.evaluate(point, vertices, pseudonormal)
+            v_normals = self._unit_vertex_pseudonormals[face] if self.smoothed_normals else None
+            geometry = TriangleContactGeometry.evaluate(
+                point, vertices, pseudonormal, vertex_normals=v_normals
+            )
             queries.append(_DeformableContactQuery(index, int(node), master_nodes, geometry))
         return queries
 
@@ -904,6 +931,8 @@ class SelfContact(ContactMultiplierState):
         contact_thickness: float | None = None,
         normal_threshold: float = -0.2,
         exclusion_rings: int = 4,
+        smoothed_normals: bool = False,
+        smoothing_weight: Literal["angle", "area"] = "angle",
     ) -> None:
         """Bind surface candidates, material-independent contact law and search.
 
@@ -920,6 +949,14 @@ class SelfContact(ContactMultiplierState):
         are retained, not validated as a universal collision detector.
         tolerance [length] is retained interface metadata; pressure activation
         uses physical zero. No AL or penalty stiffness is adjusted internally.
+
+        smoothed_normals : bool, default=False
+            When True (Pillar 2: Spatial Regularization), contact normals are
+            interpolated continuously across contact facet surfaces using area/angle-weighted
+            vertex pseudonormals: n(xi) = (sum xi_i * n_v_i) / ||sum xi_i * n_v_i||.
+            Eliminates directional jumps Delta n = n_B - n_A as slave nodes cross facet edges.
+        smoothing_weight : {'angle', 'area'}, default='angle'
+            Weighting formulation for assembling vertex pseudonormals from incident facet normals.
         """
         for name, value in (
             ("k_penalty", k_penalty), ("search_radius", search_radius),
@@ -946,6 +983,8 @@ class SelfContact(ContactMultiplierState):
             raise ValueError("normal_threshold must be finite and in [-1, 1]")
         if formulation not in ("penalty", "augmented_lagrangian"):
             raise ValueError("formulation must be 'penalty' or 'augmented_lagrangian'")
+        if smoothing_weight not in ("angle", "area"):
+            raise ValueError("smoothing_weight must be 'angle' or 'area'")
 
         self.domain = domain
         self.k_penalty = float(k_penalty)
@@ -956,6 +995,8 @@ class SelfContact(ContactMultiplierState):
         self.tolerance = float(tolerance)
         self.normal_threshold = float(normal_threshold)
         self.exclusion_rings = int(exclusion_rings)
+        self.smoothed_normals = bool(smoothed_normals)
+        self.smoothing_weight = str(smoothing_weight)
         if not hasattr(domain, "mesh") or not hasattr(domain.mesh, "surface"):
             raise TypeError("Domain must possess a surface mesh representation for SelfContact")
         surface = domain.mesh.surface
@@ -1092,13 +1133,28 @@ class SelfContact(ContactMultiplierState):
             nodal, lengths[:, None], out=np.zeros_like(nodal),
             where=lengths[:, None] > 0.0,
         )
-        return nodal, face_normals, vertex_sign
+        if self.smoothing_weight == "area":
+            pseudonormals = np.zeros_like(nodal)
+            for corner in range(3):
+                np.add.at(pseudonormals, self._faces[:, corner], cross / 3.0)
+        else:
+            pseudonormals = vertex_sign
+        p_norms = np.linalg.norm(pseudonormals, axis=1, keepdims=True)
+        unit_vertex_pseudonormals = np.where(
+            p_norms > 1e-14,
+            pseudonormals / np.maximum(p_norms, 1e-14),
+            np.array([0.0, 0.0, 1.0]),
+        )
+        return nodal, face_normals, vertex_sign, unit_vertex_pseudonormals
 
     def _update_surface(self, current_nodes: np.ndarray | None = None) -> None:
         """Rebuild current geometry and normals; no state checksum/history cache."""
         nodes = self._resolve_nodes(current_nodes)
         (
-            self._nodal_normals, self._face_normals, self._vertex_pseudonormals,
+            self._nodal_normals,
+            self._face_normals,
+            self._vertex_pseudonormals,
+            self._unit_vertex_pseudonormals,
         ) = self._compute_surface_normals(nodes)
         self._polydata.points = nodes[self._surf_node_idx]
         self._locator.BuildLocator()
@@ -1184,7 +1240,10 @@ class SelfContact(ContactMultiplierState):
                 pseudonormal = self._vertex_pseudonormals[face[active[0]]]
             if np.linalg.norm(pseudonormal) <= TriangleContactGeometry._relative_tolerance:
                 raise ValueError("Undefined self-contact feature pseudonormal: check surface orientation")
-            geometry = TriangleContactGeometry.evaluate(point, vertices[best_face], pseudonormal)
+            v_normals = self._unit_vertex_pseudonormals[face] if self.smoothed_normals else None
+            geometry = TriangleContactGeometry.evaluate(
+                point, vertices[best_face], pseudonormal, vertex_normals=v_normals
+            )
             queries.append(_SelfContactQuery(
                 slave_index, int(slave_node), self._surf_node_idx[face], geometry
             ))
