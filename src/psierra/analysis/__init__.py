@@ -21,6 +21,10 @@ from psierra.analysis.interactive_dynamic import (
     InteractiveDynamicSimulation,
     SimulationStats,
 )
+from psierra.analysis.dynamic_relaxation import (
+    DynamicRelaxationAnalysis,
+    DynamicRelaxationResult,
+)
 
 __all__ = [
     # Base
@@ -40,4 +44,7 @@ __all__ = [
     # Interactive / Online Dynamic
     "InteractiveDynamicSimulation",
     "SimulationStats",
+    # Dynamic Relaxation
+    "DynamicRelaxationAnalysis",
+    "DynamicRelaxationResult",
 ]
