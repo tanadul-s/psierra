@@ -15,6 +15,8 @@ from psierra.boundary.dirichlet import (
 from psierra.boundary.load import (
     NodalForce,
     GravityLoad,
+    HydrostaticPressureLoad,
+    BuoyancyLoad,
 )
 from psierra.boundary.contact import (
     RigidContact,
@@ -33,6 +35,8 @@ __all__ = [
     "DirichletManager",
     "NodalForce",
     "GravityLoad",
+    "HydrostaticPressureLoad",
+    "BuoyancyLoad",
     "RigidContact",
     "DeformableContact",
     "SelfContact",
