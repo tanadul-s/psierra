@@ -3,7 +3,13 @@ import numpy as np
 import pytest
 from scipy.spatial.transform import Rotation
 
-from psierra.material import IsotropicElasticParameters, NeoHookean, Hookean
+from psierra.material import (
+    IsotropicElasticParameters,
+    NeoHookean,
+    Hookean,
+    Viscoelastic,
+    PronyTerm,
+)
 from psierra.element import Tet4TotalLagrangian, Tet4UpdatedLagrangian
 
 
@@ -173,4 +179,53 @@ class TestTet4UpdatedLagrangian:
             elem.compute_nonlinear_force_and_tangent_stiffness(
                 unit_tet_coords, u_invert
             )
+
+    def test_viscoelastic_equivalence_to_total_lagrangian(
+        self, unit_tet_coords: np.ndarray, neohookean_material: NeoHookean
+    ) -> None:
+        """
+        Verifies that Updated Lagrangian and Total Lagrangian produce identical
+        tangent stiffness matrices and internal force vectors when coupled with
+        a history-dependent Viscoelastic material over multiple time steps.
+        """
+        prony = [
+            PronyTerm(relative_modulus=0.3, relaxation_time=0.1),
+            PronyTerm(relative_modulus=0.3, relaxation_time=0.5),
+        ]
+        mat_tl = Viscoelastic(neohookean_material, prony)
+        mat_ul = Viscoelastic(neohookean_material, prony)
+        mat_tl.initialize_history(1)
+        mat_ul.initialize_history(1)
+        dt = 0.05
+        mat_tl.set_time_step(dt)
+        mat_ul.set_time_step(dt)
+
+        elem_tl = Tet4TotalLagrangian(mat_tl)
+        elem_ul = Tet4UpdatedLagrangian(mat_ul)
+
+        # Deform across 3 time steps
+        for step in range(1, 4):
+            factor = step * 0.05
+            u_nodes = factor * np.array(
+                [
+                    [0.05, -0.02, 0.01],
+                    [0.10, 0.04, -0.03],
+                    [-0.02, 0.08, 0.05],
+                    [0.03, -0.05, 0.12],
+                ],
+                dtype=np.float64,
+            )
+            k_tl, f_tl = elem_tl.compute_nonlinear_force_and_tangent_stiffness(
+                unit_tet_coords, u_nodes, elem_index=0
+            )
+            k_ul, f_ul = elem_ul.compute_nonlinear_force_and_tangent_stiffness(
+                unit_tet_coords, u_nodes, elem_index=0
+            )
+
+            np.testing.assert_allclose(f_ul, f_tl, rtol=1e-10, atol=1e-10)
+            np.testing.assert_allclose(k_ul, k_tl, rtol=1e-10, atol=1e-10)
+
+            mat_tl.commit_state()
+            mat_ul.commit_state()
+
 
