@@ -12,6 +12,7 @@ dependencies = [
     "cupy-cuda12x",
     "matplotlib",
     "pandas",
+    "h5py",
 
     # Mesh
     "meshio",
