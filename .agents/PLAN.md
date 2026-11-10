@@ -106,10 +106,11 @@ This roadmap is laser-focused on biological soft-tissue mechanics, robust contac
   * Binary simulation state checkpointing: `SimulationCheckpoint(step, time, dt, u, v, a, history_variables, metadata)`.
   * Exact simulation resume verified with $0.00\times 10^0$ error against continuous baselines.
   * Successfully demonstrated across all 4 continuum simulation classes (Linear Static, Linear Dynamic, Nonlinear Static, Nonlinear Dynamic) in `1104_unified_beam_storage_and_resume.py`.
-* [ ] **Dynamic Relaxation Equilibrium Solver (`DynamicRelaxationAnalysis`)**:
+* [x] **Dynamic Relaxation Equilibrium Solver (`DynamicRelaxationAnalysis`)**:
   * Matrix-free explicit static solver using fictitious Gerschgorin-scaled diagonal mass $\boldsymbol{M}_{\text{fict}}$.
-  * Barnes/Underwood kinetic damping ($\boldsymbol{v} \leftarrow \mathbf{0}$ when $dE_k/dt < 0$).
+  * Barnes/Underwood kinetic damping ($\boldsymbol{v} \leftarrow \mathbf{0}$ when $dE_k/dt < 0$) and viscous mass-proportional damping.
   * Provides unconditional stability against tangent stiffness singularities ($\det(\boldsymbol{K}_T) \le 0$) during severe non-smooth contact and tissue collapse.
+  * Unified single-class architecture seamlessly handling both linear elastic and nonlinear hyperelastic continua without matrix factorizations.
 * [ ] **CSF Hydrostatic Pressure & Buoyancy Load (`HydrostaticPressureLoad`)**:
   * *References*: Chen et al. (2017, 2019, 2022) IEEE SII & TMRB.
   * Spatially-varying boundary traction on submerged surface facets: $\boldsymbol{F}_{\text{hydro}} = -\rho_{\text{CSF}} g \max(0, h_{\text{fluid}} - z) A_k \boldsymbol{n}_k$.

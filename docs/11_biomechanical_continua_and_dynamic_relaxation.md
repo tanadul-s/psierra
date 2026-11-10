@@ -162,3 +162,65 @@ result = analysis.solve(dirichlet=dir_mgr, f_ext=f_ext, n_steps=5)
 # 5. Export state for 3D visualization in ParaView
 domain.save_state("results/1101_tet4fbar/result_tet4_fbar.vtu")
 ```
+
+---
+
+## 7. Dynamic Relaxation Explicit Static Equilibrium Solver (`DynamicRelaxationAnalysis`)
+
+### 7.1 Motivation: Robustness Beyond Newton-Raphson
+Standard static equilibrium solvers rely on the incremental Newton-Raphson procedure:
+$$\boldsymbol{K}_T(\boldsymbol{u}_k) \Delta \boldsymbol{u} = \boldsymbol{R}(\boldsymbol{u}_k) = \boldsymbol{F}_{\text{ext}} - \boldsymbol{F}_{\text{int}}(\boldsymbol{u}_k)$$
+While Newton-Raphson achieves quadratic asymptotic convergence near equilibrium, it is vulnerable to:
+1. **Tangent Singularities ($\det \boldsymbol{K}_T \le 0$)**: Local buckling, shear band localization, and tissue collapse make $\boldsymbol{K}_T$ singular or indefinite, causing sparse factorizations ($LU$ / Cholesky) to diverge.
+2. **Contact Chatter & Non-Smoothness**: Abrupt switching between contact active/inactive states creates non-differentiable residual jumps across element facets.
+3. **Memory Footprint**: Forming and factorizing $\boldsymbol{K}_T$ for fine meshes requires $O(N^{1.5} - N^2)$ storage and large fill-in memory.
+
+### 7.2 The Fictitious Dynamic System
+Dynamic Relaxation (DR) resolves static equilibrium without forming or factorizing $\boldsymbol{K}_T$. It embeds the static balance $\boldsymbol{F}_{\text{int}}(\boldsymbol{u}) - \boldsymbol{F}_{\text{ext}} = \mathbf{0}$ into an explicit, highly damped pseudo-dynamic system:
+$$\boldsymbol{M}_{\text{fict}} \ddot{\boldsymbol{u}} + \boldsymbol{C}_{\text{fict}} \dot{\boldsymbol{u}} + \boldsymbol{F}_{\text{int}}(\boldsymbol{u}) = \boldsymbol{F}_{\text{ext}}$$
+As kinetic energy is dissipated, $\dot{\boldsymbol{u}} \to \mathbf{0}$ and $\ddot{\boldsymbol{u}} \to \mathbf{0}$, leaving the exact static equilibrium:
+$$\boldsymbol{F}_{\text{int}}(\boldsymbol{u}) = \boldsymbol{F}_{\text{ext}}$$
+
+### 7.3 Gerschgorin-Scaled Diagonal Mass Matrix
+To ensure numerical stability of the central-difference integrator without matrix inversion, a fictitious diagonal mass $\boldsymbol{M}_{\text{fict}}$ is constructed using Gerschgorin's circle theorem:
+$$M_{ii} \ge \frac{\Delta t^2}{4} \left( \sum_{j} |K_{ij}| \right) \cdot \gamma_{\text{safety}}$$
+where $\gamma_{\text{safety}} \ge 1.1$. This guarantees that the Courant-Friedrichs-Lewy (CFL) stability criterion:
+$$\omega_{\max} \Delta t \le 2$$
+is automatically satisfied for every degree of freedom, regardless of mesh size or material stiffness.
+
+### 7.4 Barnes/Underwood Kinetic Energy Peak Damping
+Rather than attempting to guess an optimal viscous damping coefficient $c$, kinetic damping operates parameter-free:
+1. Integrate forward in pseudo-time with zero artificial viscous damping ($\boldsymbol{C} = \mathbf{0}$).
+2. Track the total kinetic energy:
+   $$E_k^{n+1/2} = \frac{1}{2} (\boldsymbol{v}^{n+1/2})^T \boldsymbol{M}_{\text{fict}} \boldsymbol{v}^{n+1/2}$$
+3. When kinetic energy peaks ($E_k^{n+1/2} < E_k^{n-1/2}$), the coordinates are passing through the static potential energy minimum.
+4. Underwood interpolation projects coordinates directly to the peak:
+   $$\boldsymbol{u} \leftarrow \boldsymbol{u} - 1.5 \Delta t \, \boldsymbol{v}^{n-1/2} + 0.5 \Delta t^2 \boldsymbol{a}^{n-1}$$
+5. The velocity is reset to zero ($\boldsymbol{v} \leftarrow \mathbf{0}$), completely purging the kinetic energy and restarting from rest.
+
+### 7.5 Usage Example
+
+```python
+from psierra.analysis import DynamicRelaxationAnalysis
+
+# Works identically on both linear and nonlinear domains
+solver = DynamicRelaxationAnalysis(
+    domain=domain,
+    damping_type="kinetic",  # Parameter-free Barnes/Underwood kinetic damping
+    safety_factor=1.1,
+    dt=1.0,
+)
+
+result = solver.solve(
+    dirichlet=dirichlet_manager,
+    f_ext=f_ext,
+    tol=1e-5,
+    max_steps=2000,
+    save_directory="results/dynamic_relaxation",
+    format="xdmf",
+)
+
+print(f"Converged: {result.converged} in {result.steps_completed} steps")
+print(f"Max Displacement: {result.displacement.max():.4f} mm")
+```
+
