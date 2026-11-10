@@ -58,8 +58,38 @@ class PvdWriter:
         vtu_path = self.output_dir / vtu_filename
 
         if domain is not None:
-            # Use domain save state
-            domain.save_state(vtu_path)
+            if hasattr(domain, "to_pyvista"):
+                ugrid = domain.to_pyvista(
+                    factor=0.0,
+                    include_stresses=False,
+                    smooth_to_nodes=False,
+                    include_cell_data=cell_data,
+                )
+            else:
+                ugrid = self.mesh.ugrid.copy() if hasattr(self.mesh, "ugrid") else pv.UnstructuredGrid()
+                ugrid.point_data["Displacement"] = domain.displacement
+                if np.any(domain.v != 0.0):
+                    ugrid.point_data["Velocity"] = np.asarray(domain.v, dtype=np.float64).reshape(-1, 3)
+                if np.any(domain.a != 0.0):
+                    ugrid.point_data["Acceleration"] = np.asarray(domain.a, dtype=np.float64).reshape(-1, 3)
+
+            if displacement is not None:
+                disp_np = np.asarray(displacement, dtype=np.float64).reshape(-1, 3)
+                ugrid.point_data["Displacement"] = disp_np
+            if velocity is not None:
+                v_np = np.asarray(velocity, dtype=np.float64).reshape(-1, 3)
+                ugrid.point_data["Velocity"] = v_np
+            if acceleration is not None:
+                a_np = np.asarray(acceleration, dtype=np.float64).reshape(-1, 3)
+                ugrid.point_data["Acceleration"] = a_np
+            if point_data:
+                for k, v in point_data.items():
+                    ugrid.point_data[k] = np.asarray(v)
+            if cell_data and not hasattr(domain, "to_pyvista"):
+                for k, v in cell_data.items():
+                    ugrid.cell_data[k] = np.asarray(v)
+
+            ugrid.save(str(vtu_path))
         else:
             # Construct pyvista mesh from mesh geometry and displacement
             ugrid = self.mesh.ugrid.copy() if hasattr(self.mesh, "ugrid") else pv.UnstructuredGrid()

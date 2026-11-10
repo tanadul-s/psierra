@@ -11,6 +11,7 @@ from psierra.boundary.dirichlet import DirichletManager, DirichletConstraint
 from psierra.damping.rayleigh import RayleighDamping
 from psierra.analysis.base import Analysis
 from psierra.exchange import PvdCollectionWriter
+from psierra.exchange.writer import SimulationWriter
 
 
 @dataclass
@@ -101,6 +102,9 @@ class LinearDynamicAnalysis(Analysis):
         kinetic_energy_tol: float | None = None,
         consecutive_hold_steps: int = 3,
         verbose: bool = True,
+        writer: SimulationWriter | None = None,
+        initial_step: int = 0,
+        initial_time: float = 0.0,
     ) -> LinearDynamicResult:
         """
         Executes the linear dynamic time-stepping integration.
@@ -226,8 +230,9 @@ class LinearDynamicAnalysis(Analysis):
         u_f = self.domain.u[free_dofs].copy()
         v_f = self.domain.v[free_dofs].copy()
 
-        # If domain carries active acceleration (e.g. checkpoint restart), preserve it:
-        if np.any(self.domain.a[free_dofs] != 0.0):
+        # If resuming from checkpoint (initial_step > 0) with active acceleration,
+        # preserve it; otherwise evaluate initial acceleration from dynamic equilibrium:
+        if initial_step > 0 and np.any(self.domain.a[free_dofs] != 0.0):
             a_f = self.domain.a[free_dofs].copy()
         else:
             # Initial acceleration: M_ff * a0_f = F_ext_f - C_ff * v_f - K_ff * u_f
@@ -257,6 +262,9 @@ class LinearDynamicAnalysis(Analysis):
         )
 
         # Save Initial State (Step 0)
+        if writer is not None and initial_step == 0:
+            writer.add_timestep(time=initial_time, domain=self.domain, step_index=0)
+
         if save_dir is not None and pvd_writer is not None:
             vtu_name = "step_00000.vtu"
             vtu_path = save_dir / vtu_name
@@ -280,7 +288,8 @@ class LinearDynamicAnalysis(Analysis):
 
         # 7. Time Integration Steps
         for step in range(1, n_steps + 1):
-            t_current = step * dt
+            t_current = initial_time + step * dt
+            step_idx = initial_step + step
 
             # Generalized-alpha RHS effective load vector:
             m_part = (1.0 - alpha_m) * (a0 * u_f + a2 * v_f + a3 * a_f) - alpha_m * a_f
@@ -309,6 +318,9 @@ class LinearDynamicAnalysis(Analysis):
 
             # Save frame if directory specified and matching save_interval
             saved_current_step = False
+            if writer is not None and (step % save_interval == 0 or step == n_steps):
+                writer.add_timestep(time=t_current, domain=self.domain, step_index=step_idx)
+
             if (
                 save_dir is not None
                 and pvd_writer is not None

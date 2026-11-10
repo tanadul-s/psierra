@@ -19,6 +19,7 @@ from psierra.solver.sparse_linear_solver import SparseLinearSolver, DirectSolver
 from psierra.analysis.base import Analysis
 from psierra.analysis.augmentation import ContactAugmentation
 from psierra.exchange import PvdCollectionWriter
+from psierra.exchange.writer import SimulationWriter
 
 
 @dataclass
@@ -91,6 +92,9 @@ class NonlinearStaticAnalysis(Analysis):
         save_interval: int = 1,
         factor: float = 0.0,
         verbose: bool = True,
+        writer: SimulationWriter | None = None,
+        initial_step: int = 0,
+        initial_time: float = 0.0,
         *,
         al_max_iterations: int = 50,
         al_gap_tol: float = 1e-6,
@@ -204,6 +208,9 @@ class NonlinearStaticAnalysis(Analysis):
         )
 
         # Save Step 0 (Initial state at lambda = 0.0)
+        if writer is not None and initial_step == 0:
+            writer.add_timestep(time=initial_time, domain=self.domain, step_index=0)
+
         if save_dir is not None and pvd_writer is not None:
             vtu_name = "step_00000.vtu"
             vtu_path = save_dir / vtu_name
@@ -479,6 +486,11 @@ class NonlinearStaticAnalysis(Analysis):
                 )
 
             # Save frame if directory specified and matching save_interval or final step
+            step_idx = initial_step + step
+            t_current = initial_time + float(load_factor)
+            if writer is not None and (step % save_interval == 0 or step == n_steps):
+                writer.add_timestep(time=t_current, domain=self.domain, step_index=step_idx)
+
             if (
                 save_dir is not None
                 and pvd_writer is not None

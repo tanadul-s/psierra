@@ -7,6 +7,7 @@ from psierra.domain.base import Domain
 from psierra.boundary.dirichlet import DirichletManager, DirichletConstraint
 from psierra.solver.sparse_linear_solver import SparseLinearSolver, DirectSolver
 from psierra.analysis.base import Analysis
+from psierra.exchange.writer import SimulationWriter
 from rich import print
 
 
@@ -47,6 +48,7 @@ class LinearStaticAnalysis(Analysis):
         save_directory: Path | str | None = None,
         output_name: str = "result",
         verbose: bool = True,
+        writer: SimulationWriter | None = None,
     ) -> LinearStaticResult:
         """
         Solves the static equilibrium equation.
@@ -134,7 +136,11 @@ class LinearStaticAnalysis(Analysis):
         # 7. Update Domain State
         self.domain.update_state(u=u_full)
 
-        # 8. Save State if directory specified
+        # 8. Record via unified writer if provided
+        if writer is not None:
+            writer.add_timestep(time=0.0, domain=self.domain, step_index=0)
+
+        # 9. Save State if directory specified
         saved_file: Path | None = None
         if save_dir is not None:
             saved_file = save_dir / f"{output_name}.vtu"

@@ -15,6 +15,7 @@ from psierra.solver.sparse_linear_solver import DirectSolver
 from psierra.analysis.base import Analysis
 from psierra.analysis.augmentation import ContactAugmentation
 from psierra.exchange import PvdCollectionWriter
+from psierra.exchange.writer import SimulationWriter
 
 
 @dataclass
@@ -176,7 +177,7 @@ class NonlinearDynamicAnalysis(Analysis):
         kinetic_energy_tol: float | None = None,
         consecutive_hold_steps: int = 3,
         verbose: bool = True,
-        writer: Any | None = None,
+        writer: SimulationWriter | None = None,
         initial_step: int = 0,
         initial_time: float = 0.0,
         *,
@@ -350,9 +351,9 @@ class NonlinearDynamicAnalysis(Analysis):
             ),
             np.zeros(self.domain.n_dofs, dtype=np.float64),
         )
-        # If domain already carries active dynamic acceleration (e.g. from checkpoint restart),
+        # If resuming from checkpoint (initial_step > 0) with active acceleration,
         # preserve it; otherwise evaluate initial acceleration from dynamic equilibrium:
-        if np.any(self.domain.a[free_dofs] != 0.0):
+        if initial_step > 0 and np.any(self.domain.a[free_dofs] != 0.0):
             a_f = self.domain.a[free_dofs].copy()
         else:
             r0 = f_ext_f + f_c0[free_dofs] - C_ff @ v_f - f_int0[free_dofs]
