@@ -130,10 +130,11 @@ This roadmap is laser-focused on biological soft-tissue mechanics, robust contac
 ### Phase 2: Advanced Contact Regularization & Non-Smooth Mechanics
 *Objective*: Resolve high-energy dynamic impact breakdowns, facet edge chattering, and line-search stalls on locking-free continua.
 * *References*: P. Wriggers (2006) *Computational Contact Mechanics*; T.A. Laursen (2002) *Computational Contact and Impact Mechanics*; FEBio Theory Manual.
-* [ ] **Pillar 1: Temporal Regularization (Adaptive Time Substepping & Automatic Cutback)**:
-  * Implement `AdaptiveTimeStepController` in `NonlinearDynamicAnalysis`.
-  * Automatic step cutback: $\Delta t \leftarrow \gamma_{\text{cut}} \Delta t$ upon line search stall, restoring state $(\boldsymbol{u}_n, \boldsymbol{v}_n, \boldsymbol{a}_n, \boldsymbol{\lambda}_n)$.
-  * Dynamic ramp-up upon consecutive quadratic Newton-Raphson convergences.
+* [x] **Pillar 1: Temporal Regularization (Adaptive Time Substepping & Automatic Cutback)**:
+  * Implemented `AdaptiveTimeStepController` in `NonlinearDynamicAnalysis` ([`psierra/analysis/adaptive_time_step.py`](../src/psierra/analysis/adaptive_time_step.py)).
+  * Automatic step cutback: $\Delta t \leftarrow \max(\Delta t_{\min}, \gamma_{\text{cut}} \Delta t)$ upon line search stall, Newton divergence, or contact non-convergence, restoring state $(\boldsymbol{u}_n, \boldsymbol{v}_n, \boldsymbol{a}_n, \boldsymbol{\lambda}_n)$ and internal viscoelastic history ($\boldsymbol{Q}_{m, n}$).
+  * Dynamic ramp-up upon consecutive quadratic Newton-Raphson convergences ($\Delta t \leftarrow \min(\Delta t_{\max}, \gamma_{\text{grow}} \Delta t)$).
+  * 10 automated verification tests in [`tests/test_analysis_adaptive_time_step.py`](../tests/test_analysis_adaptive_time_step.py) validating cutback recovery, dynamic growth, viscoelastic state reversion, contact multiplier restoration, and graceful exhaustion.
 * [ ] **Pillar 2: Spatial Regularization ($C^1$-Continuous Surface Normal Smoothing)**:
   * Upgrade `DeformableContact` with area/angle-weighted vertex pseudonormal interpolation:
     $$\boldsymbol{n}(\boldsymbol{\xi}) = \frac{\sum \xi_i \bar{\boldsymbol{n}}_i}{\|\sum \xi_i \bar{\boldsymbol{n}}_i\|}$$

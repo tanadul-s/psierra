@@ -243,6 +243,37 @@ $$\boldsymbol{u}_{f, n+1}^{(k+1)} = \boldsymbol{u}_{f, n+1}^{(k)} + \delta \bold
   - Setting `spectral_radius=0.8` (default) introduces optimal algorithmic dissipation specifically targeted at the highest spatial discretization frequencies of the tetrahedral mesh without attenuating gross low-frequency structural deformation.
   - In contact mechanics (Phase 3), slave node impacts and contact constraint transitions generate sharp high-frequency momentum shocks. Generalized-$\alpha$ damps out these non-physical impact oscillations, preventing Newton-Raphson diverged iterations while preserving strict 2nd-order accuracy $\mathcal{O}(\Delta t^2)$.
 
+### 4.3 Temporal Regularization: Adaptive Substepping & Automatic Cutback (Pillar 1)
+
+During violent dynamic impact, high-speed contact transitions, or extreme soft-tissue localized distortion, a fixed nominal time step $\Delta t$ can lead to Armijo line-search stalls or divergence of Newton-Raphson iterations. `NonlinearDynamicAnalysis` provides **Pillar 1 Temporal Regularization** via [`AdaptiveTimeStepController`](../src/psierra/analysis/adaptive_time_step.py):
+
+```mermaid
+flowchart TD
+    StartStep["Start Substep (t_n -> t_n + Δt)"] --> Predictor["Assemble K_eff, R_mid<br/>Solve K_eff δu = R_mid"]
+    Predictor --> LineSearch{"Newton Iterations &<br/>Armijo Line Search"}
+    LineSearch -- "Converged (Iter <= Target)" --> CheckAL{"AL Contact Check"}
+    LineSearch -- "Stall / Diverged" --> CutbackCheck{"Can Cutback?<br/>(dt * γ_cut >= dt_min)"}
+    CheckAL -- "AL Multipliers Passing" --> CommitStep["Commit State (u, v, a)<br/>Commit Viscoelastic History Q_m<br/>Record Success & Growth Streak"]
+    CheckAL -- "AL Tolerance Failed" --> CutbackCheck
+    CutbackCheck -- Yes --> Rollback["<b>Transactional Rollback</b><br/>Restore u_n, v_n, a_n<br/>Revert Viscoelastic History Q_m<br/>Restore Contact Multipliers λ_n"]
+    Rollback --> ReduceDt["<b>Cutback:</b> Δt ← max(dt_min, γ_cut * Δt)<br/>Recompute a_0 ... a_5<br/>Update Domain Time Step"]
+    ReduceDt --> StartStep
+    CutbackCheck -- No --> Abort["Fail Step Gracefully (converged=False)"]
+    CommitStep --> CheckGrowth{"Streak >= N_grow?"}
+    CheckGrowth -- Yes --> GrowDt["<b>Dynamic Growth:</b><br/>Δt ← min(dt_max, γ_grow * Δt)"]
+    CheckGrowth -- No --> NextStep["Advance to t_{n+1}"]
+    GrowDt --> NextStep
+```
+
+#### Mathematical Principles
+1. **Transactional Rollback**: When a substep is rejected, the complete dynamic kinematic state $(\boldsymbol{u}_n, \boldsymbol{v}_n, \boldsymbol{a}_n)$, active contact multipliers $\boldsymbol{\lambda}_n$, and internal Maxwell history variables $\boldsymbol{Q}_{m, n}$ are restored without corruption.
+2. **Step Cutback**:
+   $$\Delta t \leftarrow \max\left(\Delta t_{\min},\, \gamma_{\text{cut}} \Delta t\right), \quad 0 < \gamma_{\text{cut}} < 1$$
+   The Generalized-$\alpha$ constants $a_0, a_1, a_2, a_5$ and viscoelastic algorithmic scaling $\beta_m(\Delta t) = \frac{\tau_m}{\Delta t} (1 - e^{-\Delta t / \tau_m})$ are updated instantaneously.
+3. **Dynamic Ramp-Up**:
+   $$\Delta t \leftarrow \min\left(\Delta t_{\max},\, \gamma_{\text{grow}} \Delta t\right), \quad \gamma_{\text{grow}} > 1$$
+   automatically recovering computational efficiency once the non-smooth transient event has resolved.
+
 ---
 
 ## 5. ParaView Data Exchange Pipeline (`.pvd` & `.vtu`)

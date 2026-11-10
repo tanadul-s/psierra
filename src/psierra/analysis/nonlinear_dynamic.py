@@ -14,6 +14,7 @@ from psierra.solver.base import SparseLinearSolver
 from psierra.solver.sparse_linear_solver import DirectSolver
 from psierra.analysis.base import Analysis
 from psierra.analysis.augmentation import ContactAugmentation
+from psierra.analysis.adaptive_time_step import AdaptiveTimeStepController
 from psierra.exchange.writer import SimulationWriter
 
 
@@ -31,6 +32,8 @@ class NonlinearDynamicResult:
     steady_state_converged: bool = False  # True if early equilibrium stopping occurred
     steady_state_step: int | None = None  # Step index where steady state was reached
     al_iterations_history: list[int] = field(default_factory=list)
+    cutbacks_history: list[int] = field(default_factory=list)  # Number of cutbacks per step
+    time_step_history: list[float] = field(default_factory=list)  # Time step dt per step
 
 
 class NonlinearDynamicAnalysis(Analysis):
@@ -184,6 +187,9 @@ class NonlinearDynamicAnalysis(Analysis):
         al_max_iterations: int = 50,
         al_gap_tol: float = 1e-6,
         al_tol: float = 1e-6,
+        adaptive: bool = False,
+        time_step_controller: AdaptiveTimeStepController | None = None,
+        total_time: float | None = None,
     ) -> NonlinearDynamicResult:
         """
         Executes the nonlinear dynamic time-stepping integration.
@@ -195,9 +201,9 @@ class NonlinearDynamicAnalysis(Analysis):
         f_ext : np.ndarray of shape (n_dofs,)
             Total external load vector (gravity body forces, boundary loads).
         dt : float
-            Time increment in seconds.
+            Time increment in seconds (or initial time step when adaptive=True).
         n_steps : int
-            Nonnegative number of time steps. Zero exports only the initial state.
+            Number of time steps (determines nominal total duration n_steps * dt if total_time is None).
         contact : RigidContact, DeformableContact, or Sequence, optional
             Boundary contact condition(s) enforcing non-penetration against rigid obstacles or deformable bodies.
         nr_iterations : int, default=15
@@ -235,6 +241,13 @@ class NonlinearDynamicAnalysis(Analysis):
             Relative infinity-norm projected multiplier tolerance. Inner force
             accuracy is tightened for both dual and gap-force targets. Small
             time steps can require more outer solves as inertial stiffness grows.
+        adaptive : bool, default=False, keyword-only
+            Enable Pillar 1 temporal regularization: automatic time substepping and cutback
+            upon line search stalls, contact non-convergence, or divergence.
+        time_step_controller : AdaptiveTimeStepController, optional, keyword-only
+            Custom adaptive time step controller instance. If provided, adaptive is set to True.
+        total_time : float, optional, keyword-only
+            Total simulation time horizon in seconds. If None, defaults to n_steps * dt.
 
         Returns:
         --------
@@ -376,10 +389,67 @@ class NonlinearDynamicAnalysis(Analysis):
             self.domain.update_state(u=u_full, v=v_full, a=a_full)
 
         # 4. Prepare Time Loop Tracking
-        time_points = np.linspace(0, n_steps * dt, n_steps + 1)
+        if n_steps == 0:
+            if writer is not None and initial_step == 0:
+                writer.add_timestep(
+                    time=initial_time,
+                    domain=self.domain,
+                    velocity=self.domain.v,
+                    acceleration=self.domain.a,
+                    step_index=0,
+                )
+            if writer is not None:
+                if created_internal_writer:
+                    writer.close()
+                elif hasattr(writer, "write"):
+                    writer.write()
+                exported_files = getattr(writer, "exported_files", [])
+            else:
+                exported_files = []
+            return NonlinearDynamicResult(
+                time=np.array([initial_time]),
+                converged=True,
+                steps_completed=0,
+                iteration_history=[],
+                al_iterations_history=[],
+                time_series_files=exported_files,
+                cutbacks_history=[],
+                time_step_history=[],
+            )
+
+        if time_step_controller is not None:
+            controller = time_step_controller
+            is_adaptive = True
+        elif adaptive:
+            controller = AdaptiveTimeStepController(
+                dt_min=dt * 1e-4,
+                dt_max=dt,
+            )
+            is_adaptive = True
+        else:
+            controller = None
+            is_adaptive = False
+
+        if controller is not None:
+            controller.initialize(dt)
+
+        t_end = initial_time + (total_time if total_time is not None else n_steps * dt)
+
+        def compute_integration_constants(h: float) -> tuple[float, float, float, float, float, float]:
+            _a0 = 1.0 / (beta * h**2)
+            _a1 = gamma / (beta * h)
+            _a2 = 1.0 / (beta * h)
+            _a3 = 1.0 / (2.0 * beta) - 1.0
+            _a4 = gamma / beta - 1.0
+            _a5 = h * 0.5 * (gamma / beta - 2.0)
+            return _a0, _a1, _a2, _a3, _a4, _a5
+
+        time_points: list[float] = [initial_time]
         exported_files: list[Path] = []
         iteration_history: list[int] = []
         al_iterations_history: list[int] = []
+        cutbacks_history: list[int] = []
+        time_step_history: list[float] = []
 
         # Save Initial Step 0
         if writer is not None and initial_step == 0:
@@ -392,20 +462,46 @@ class NonlinearDynamicAnalysis(Analysis):
             )
 
         if verbose:
+            mode_desc = "Adaptive Substepping" if is_adaptive else "Fixed Increments"
             print(
-                "[bold cyan]Nonlinear Dynamic Analysis (Implicit Generalized-alpha)[/bold cyan]"
+                f"[bold cyan]Nonlinear Dynamic Analysis (Implicit Generalized-alpha — {mode_desc})[/bold cyan]"
             )
             print(
-                f"Total DOFs: {self.domain.n_dofs} | Free DOFs: {len(free_dofs)} | Total Steps: {n_steps} | dt = {dt:.4e} s | rho_inf = {self.spectral_radius:.2f} | Newton Tol = {nr_tol:.1e}\n"
+                f"Total DOFs: {self.domain.n_dofs} | Free DOFs: {len(free_dofs)} | "
+                f"Steps: {n_steps} (T_end = {t_end:.4e} s) | dt = {dt:.4e} s | "
+                f"rho_inf = {self.spectral_radius:.2f} | Newton Tol = {nr_tol:.1e}\n"
             )
 
         if hasattr(self.domain, "set_time_step"):
             self.domain.set_time_step(dt)
 
         # 5. Dynamic Time Stepping Loop
-        for step in range(1, n_steps + 1):
-            t_current = initial_time + step * dt
-            step_idx = initial_step + step
+        t_current = initial_time
+        step_idx = initial_step
+        step = 0
+        current_dt = dt
+        max_allowed_steps = (
+            controller.max_total_steps
+            if (is_adaptive and controller is not None)
+            else n_steps
+        )
+
+        while True:
+            if is_adaptive:
+                if t_current >= t_end - 1e-12 or step >= max_allowed_steps:
+                    break
+            else:
+                if step >= n_steps:
+                    break
+
+            step += 1
+            step_idx += 1
+
+            if is_adaptive and controller is not None:
+                current_dt = min(controller.current_dt, t_end - t_current)
+            else:
+                current_dt = dt
+
             accepted_u = self.domain.u.copy()
             accepted_v = self.domain.v.copy()
             accepted_a = self.domain.a.copy()
@@ -419,212 +515,255 @@ class NonlinearDynamicAnalysis(Analysis):
                 np.zeros(self.domain.n_dofs, dtype=np.float64),
             )
 
-            # Initial trial state for step n+1 starts at previous displacement u_n
-            u_f_i = u_f.copy()
+            # Substep trial loop (handles cutbacks if step fails)
             step_converged = False
             total_iterations = 0
 
-            for al_iteration in range(1, augmentation.max_iterations + 1):
-                # Newton-Raphson equilibrium iterations within the time step
-                for iteration in range(1, nr_iterations + 1):
-                    # Kinematic accelerations and velocities at t_{n+1} from Newmark relations
-                    a_f_i = a0 * (u_f_i - u_f) - a2 * v_f - a3 * a_f
-                    v_f_i = a1 * (u_f_i - u_f) - a4 * v_f - a5 * a_f
+            while True:
+                a0, a1, a2, a3, a4, a5 = compute_integration_constants(current_dt)
+                if hasattr(self.domain, "set_time_step"):
+                    self.domain.set_time_step(current_dt)
 
-                    # Generalized midpoint kinematics for dynamic balance
-                    u_mid_f = (1.0 - alpha_f) * u_f_i + alpha_f * u_f
-                    v_mid_f = (1.0 - alpha_f) * v_f_i + alpha_f * v_f
-                    a_mid_f = (1.0 - alpha_m) * a_f_i + alpha_m * a_f
+                u_f_i = u_f.copy()
+                step_converged = False
+                total_iterations = 0
+                trial_aborted = False
 
-                    # Full vectors for internal force evaluation at midpoint
-                    u_full[free_dofs] = u_mid_f
-                    v_full[free_dofs] = v_mid_f
-                    a_full[free_dofs] = a_mid_f
-                    self.domain.update_state(u=u_full, v=v_full, a=a_full)
+                for al_iteration in range(1, augmentation.max_iterations + 1):
+                    # Newton-Raphson equilibrium iterations within the time step
+                    for iteration in range(1, nr_iterations + 1):
+                        # Kinematic accelerations and velocities at t_{n+1} from Newmark relations
+                        a_f_i = a0 * (u_f_i - u_f) - a2 * v_f - a3 * a_f
+                        v_f_i = a1 * (u_f_i - u_f) - a4 * v_f - a5 * a_f
 
-                    try:
-                        # Assemble nonlinear internal forces F_int(u_mid)
-                        f_int = self.domain.assemble_internal_forces()
+                        # Generalized midpoint kinematics for dynamic balance
+                        u_mid_f = (1.0 - alpha_f) * u_f_i + alpha_f * u_f
+                        v_mid_f = (1.0 - alpha_f) * v_f_i + alpha_f * v_f
+                        a_mid_f = (1.0 - alpha_m) * a_f_i + alpha_m * a_f
 
-                        u_endpoint = u_full.copy()
-                        v_endpoint = v_full.copy()
-                        a_endpoint = a_full.copy()
-                        u_endpoint[free_dofs] = u_f_i
-                        v_endpoint[free_dofs] = v_f_i
-                        a_endpoint[free_dofs] = a_f_i
-                        f_contact, K_contact = self._evaluate_contacts(
-                            contact_list, old_al_force,
-                            (u_full, v_full, a_full),
-                            (u_endpoint, v_endpoint, a_endpoint), a1,
-                        )
+                        # Full vectors for internal force evaluation at midpoint
+                        u_full[free_dofs] = u_mid_f
+                        v_full[free_dofs] = v_mid_f
+                        a_full[free_dofs] = a_mid_f
+                        self.domain.update_state(u=u_full, v=v_full, a=a_full)
 
-                    except (ValueError, FloatingPointError):
-                        self.domain.update_state(u=accepted_u, v=accepted_v, a=accepted_a)
-                        augmentation.restore(multiplier_snapshot)
-                        if writer is not None:
-                            writer.close()
-                        raise
-
-                    # Dynamic out-of-balance residual: R = F_ext + F_contact - M*a_mid - C*v_mid - F_int
-                    inertia_f = M_ff @ a_mid_f
-                    damping_f = C_ff @ v_mid_f
-                    r_eff = (
-                        f_ext_f
-                        + f_contact[free_dofs]
-                        - inertia_f
-                        - damping_f
-                        - f_int[free_dofs]
-                    )
-
-                    res_norm = float(np.linalg.norm(r_eff))
-                    residual_scale = max(
-                        f_ref_norm, np.linalg.norm(f_contact[free_dofs])
-                    )
-                    rel_res = res_norm / residual_scale
-                    inner_tolerance = augmentation.inner_force_tolerance(
-                        nr_tol * residual_scale, residual_scale
-                    )
-
-                    if not np.isfinite(res_norm):
-                        break
-
-                    if res_norm < inner_tolerance:
-                        step_converged = True
-                        break
-
-                    # Assemble Tangent Stiffness K_tan(u_mid) and Effective Dynamic Tangent Matrix
-                    try:
-                        K_tan = self.domain.assemble_tangent_stiffness_matrix()
-                    except (ValueError, FloatingPointError):
-                        self.domain.update_state(u=accepted_u, v=accepted_v, a=accepted_a)
-                        augmentation.restore(multiplier_snapshot)
-                        if writer is not None:
-                            writer.close()
-                        raise
-                    K_tan_ff = (K_tan + K_contact)[free_dofs, :][:, free_dofs]
-                    K_eff = (
-                        (1.0 - alpha_f) * K_tan_ff
-                        + (1.0 - alpha_m) * a0 * M_ff
-                        + (1.0 - alpha_f) * a1 * C_ff
-                    ).tocsc()
-
-                    # Solve for displacement increment: K_eff * du = R_eff
-                    try:
-                        du_f = self.linear_solver.solve(K_eff, r_eff)
-                    except (RuntimeError, np.linalg.LinAlgError):
-                        break
-                    if not np.all(np.isfinite(du_f)):
-                        break
-
-                    # Armijo merit phi=||R_eff||^2/2, with Newton directional
-                    # derivative -||R_eff||^2. Reevaluate all midpoint terms,
-                    # including velocity-dependent contact; keep multipliers fixed.
-                    alpha = 1.0
-                    line_search_ok = False
-                    for _ in range(16):
-                        u_cand = u_f_i + alpha * du_f
-                        a_cand = a0 * (u_cand - u_f) - a2 * v_f - a3 * a_f
-                        v_cand = a1 * (u_cand - u_f) - a4 * v_f - a5 * a_f
-                        u_cand_mid = (1.0 - alpha_f) * u_cand + alpha_f * u_f
-                        u_full[free_dofs] = u_cand_mid
-                        v_full[free_dofs] = (1.0 - alpha_f) * v_cand + alpha_f * v_f
-                        a_full[free_dofs] = (1.0 - alpha_m) * a_cand + alpha_m * a_f
-                        if not all(
-                            np.all(np.isfinite(state))
-                            for state in (u_full, v_full, a_full)
-                        ):
-                            alpha *= 0.5
-                            continue
                         try:
-                            # A valid generalized midpoint need not imply a valid
-                            # physical endpoint. Guard both before accepting a trial.
+                            # Assemble nonlinear internal forces F_int(u_mid)
+                            f_int = self.domain.assemble_internal_forces()
+
                             u_endpoint = u_full.copy()
                             v_endpoint = v_full.copy()
                             a_endpoint = a_full.copy()
-                            u_endpoint[free_dofs] = u_cand
-                            v_endpoint[free_dofs] = v_cand
-                            a_endpoint[free_dofs] = a_cand
-                            self.domain.update_state(
-                                u=u_endpoint, v=v_endpoint, a=a_endpoint
-                            )
-                            f_int_endpoint = self.domain.assemble_internal_forces()
-                            if not np.all(np.isfinite(f_int_endpoint)):
-                                alpha *= 0.5
-                                continue
-                            self.domain.update_state(u=u_full, v=v_full, a=a_full)
-                            f_int_cand = self.domain.assemble_internal_forces()
-                            f_contact_cand, _ = self._evaluate_contacts(
+                            u_endpoint[free_dofs] = u_f_i
+                            v_endpoint[free_dofs] = v_f_i
+                            a_endpoint[free_dofs] = a_f_i
+                            f_contact, K_contact = self._evaluate_contacts(
                                 contact_list, old_al_force,
                                 (u_full, v_full, a_full),
                                 (u_endpoint, v_endpoint, a_endpoint), a1,
-                                include_stiffness=False,
                             )
-                            r_cand = (
-                                f_ext_f + f_contact_cand[free_dofs]
-                                - M_ff @ a_full[free_dofs]
-                                - C_ff @ v_full[free_dofs] - f_int_cand[free_dofs]
-                            )
-                            cand_norm = float(np.linalg.norm(r_cand))
-                        except (ValueError, FloatingPointError):
-                            # Constitutive evaluation rejects an inverted trial.
-                            cand_norm = np.inf
-                        if np.isfinite(cand_norm) and (
-                            cand_norm <= inner_tolerance
-                            or cand_norm**2 <= (1.0 - 2.0e-4 * alpha) * res_norm**2
-                        ):
-                            u_f_i = u_cand
-                            line_search_ok = True
-                            break
-                        else:
-                            alpha *= 0.5
 
-                    if not line_search_ok:
-                        if verbose:
-                            print(
-                                f"  [bold red]Step {step:4d}: No admissible residual-reducing trial found.[/bold red]"
-                            )
+                        except (ValueError, FloatingPointError):
+                            if is_adaptive and controller is not None and controller.can_cutback():
+                                trial_aborted = True
+                                break
+                            self.domain.update_state(u=accepted_u, v=accepted_v, a=accepted_a)
+                            augmentation.restore(multiplier_snapshot)
+                            if writer is not None:
+                                writer.close()
+                            raise
+
+                        # Dynamic out-of-balance residual: R = F_ext + F_contact - M*a_mid - C*v_mid - F_int
+                        inertia_f = M_ff @ a_mid_f
+                        damping_f = C_ff @ v_mid_f
+                        r_eff = (
+                            f_ext_f
+                            + f_contact[free_dofs]
+                            - inertia_f
+                            - damping_f
+                            - f_int[free_dofs]
+                        )
+
+                        res_norm = float(np.linalg.norm(r_eff))
+                        residual_scale = max(
+                            f_ref_norm, np.linalg.norm(f_contact[free_dofs])
+                        )
+                        rel_res = res_norm / residual_scale
+                        inner_tolerance = augmentation.inner_force_tolerance(
+                            nr_tol * residual_scale, residual_scale
+                        )
+
+                        if not np.isfinite(res_norm):
+                            trial_aborted = True
+                            break
+
+                        if res_norm < inner_tolerance:
+                            step_converged = True
+                            break
+
+                        # Assemble Tangent Stiffness K_tan(u_mid) and Effective Dynamic Tangent Matrix
+                        try:
+                            K_tan = self.domain.assemble_tangent_stiffness_matrix()
+                        except (ValueError, FloatingPointError):
+                            if is_adaptive and controller is not None and controller.can_cutback():
+                                trial_aborted = True
+                                break
+                            self.domain.update_state(u=accepted_u, v=accepted_v, a=accepted_a)
+                            augmentation.restore(multiplier_snapshot)
+                            if writer is not None:
+                                writer.close()
+                            raise
+
+                        K_tan_ff = (K_tan + K_contact)[free_dofs, :][:, free_dofs]
+                        K_eff = (
+                            (1.0 - alpha_f) * K_tan_ff
+                            + (1.0 - alpha_m) * a0 * M_ff
+                            + (1.0 - alpha_f) * a1 * C_ff
+                        ).tocsc()
+
+                        # Solve for displacement increment: K_eff * du = R_eff
+                        try:
+                            du_f = self.linear_solver.solve(K_eff, r_eff)
+                        except (RuntimeError, np.linalg.LinAlgError):
+                            trial_aborted = True
+                            break
+                        if not np.all(np.isfinite(du_f)):
+                            trial_aborted = True
+                            break
+
+                        # Armijo merit phi=||R_eff||^2/2, with Newton directional
+                        # derivative -||R_eff||^2. Reevaluate all midpoint terms,
+                        # including velocity-dependent contact; keep multipliers fixed.
+                        alpha = 1.0
+                        line_search_ok = False
+                        for _ in range(16):
+                            u_cand = u_f_i + alpha * du_f
+                            a_cand = a0 * (u_cand - u_f) - a2 * v_f - a3 * a_f
+                            v_cand = a1 * (u_cand - u_f) - a4 * v_f - a5 * a_f
+                            u_cand_mid = (1.0 - alpha_f) * u_cand + alpha_f * u_f
+                            u_full[free_dofs] = u_cand_mid
+                            v_full[free_dofs] = (1.0 - alpha_f) * v_cand + alpha_f * v_f
+                            a_full[free_dofs] = (1.0 - alpha_m) * a_cand + alpha_m * a_f
+                            if not all(
+                                np.all(np.isfinite(state))
+                                for state in (u_full, v_full, a_full)
+                            ):
+                                alpha *= 0.5
+                                continue
+                            try:
+                                u_endpoint = u_full.copy()
+                                v_endpoint = v_full.copy()
+                                a_endpoint = a_full.copy()
+                                u_endpoint[free_dofs] = u_cand
+                                v_endpoint[free_dofs] = v_cand
+                                a_endpoint[free_dofs] = a_cand
+                                self.domain.update_state(
+                                    u=u_endpoint, v=v_endpoint, a=a_endpoint
+                                )
+                                f_int_endpoint = self.domain.assemble_internal_forces()
+                                if not np.all(np.isfinite(f_int_endpoint)):
+                                    alpha *= 0.5
+                                    continue
+                                self.domain.update_state(u=u_full, v=v_full, a=a_full)
+                                f_int_cand = self.domain.assemble_internal_forces()
+                                f_contact_cand, _ = self._evaluate_contacts(
+                                    contact_list, old_al_force,
+                                    (u_full, v_full, a_full),
+                                    (u_endpoint, v_endpoint, a_endpoint), a1,
+                                    include_stiffness=False,
+                                )
+                                r_cand = (
+                                    f_ext_f + f_contact_cand[free_dofs]
+                                    - M_ff @ a_full[free_dofs]
+                                    - C_ff @ v_full[free_dofs] - f_int_cand[free_dofs]
+                                )
+                                cand_norm = float(np.linalg.norm(r_cand))
+                            except (ValueError, FloatingPointError):
+                                cand_norm = np.inf
+
+                            if np.isfinite(cand_norm) and (
+                                cand_norm <= inner_tolerance
+                                or cand_norm**2 <= (1.0 - 2.0e-4 * alpha) * res_norm**2
+                            ):
+                                u_f_i = u_cand
+                                line_search_ok = True
+                                break
+                            else:
+                                alpha *= 0.5
+
+                        if not line_search_ok:
+                            if verbose:
+                                print(
+                                    f"  [bold red]Step {step:4d}: No admissible residual-reducing trial found.[/bold red]"
+                                )
+                            trial_aborted = True
+                            break
+
+                    total_iterations += iteration - 1
+                    if trial_aborted or not step_converged:
                         break
 
-                total_iterations += iteration - 1
-                if not step_converged:
+                    # Assess endpoint constraints
+                    a_endpoint_f = a0 * (u_f_i - u_f) - a2 * v_f - a3 * a_f
+                    v_endpoint_f = a1 * (u_f_i - u_f) - a4 * v_f - a5 * a_f
+                    u_endpoint = u_full.copy()
+                    v_endpoint = v_full.copy()
+                    a_endpoint = a_full.copy()
+                    u_endpoint[free_dofs] = u_f_i
+                    v_endpoint[free_dofs] = v_endpoint_f
+                    a_endpoint[free_dofs] = a_endpoint_f
+                    self.domain.update_state(u=u_endpoint, v=v_endpoint, a=a_endpoint)
+                    try:
+                        status = augmentation.assess(self.domain.current_nodes)
+                    except (ValueError, FloatingPointError):
+                        if is_adaptive and controller is not None and controller.can_cutback():
+                            step_converged = False
+                            trial_aborted = True
+                            break
+                        self.domain.update_state(u=accepted_u, v=accepted_v, a=accepted_a)
+                        augmentation.restore(multiplier_snapshot)
+                        if writer is not None:
+                            writer.close()
+                        raise
+
+                    if verbose and augmentation.contacts:
+                        if (
+                            status.max_penetration > 0.0
+                            or status.relative_multiplier_residual > 0.0
+                            or al_iteration > 1
+                        ):
+                            print(
+                                f"  Step {step:5d} | Augmentation {al_iteration:2d}/{augmentation.max_iterations} | "
+                                f"Endpoint penetration = {status.max_penetration:.4e} | "
+                                f"Projected multiplier residual = {status.relative_multiplier_residual:.4e}"
+                            )
+                    if status.converged:
+                        break
+                    step_converged = False
+                    if al_iteration < augmentation.max_iterations:
+                        augmentation.commit(status)
+
+                if step_converged:
                     break
-                # Assess endpoint constraints; the old Newmark state and old
-                # endpoint force remain frozen across every augmentation.
-                a_endpoint_f = a0 * (u_f_i - u_f) - a2 * v_f - a3 * a_f
-                v_endpoint_f = a1 * (u_f_i - u_f) - a4 * v_f - a5 * a_f
-                u_endpoint = u_full.copy()
-                v_endpoint = v_full.copy()
-                a_endpoint = a_full.copy()
-                u_endpoint[free_dofs] = u_f_i
-                v_endpoint[free_dofs] = v_endpoint_f
-                a_endpoint[free_dofs] = a_endpoint_f
-                self.domain.update_state(u=u_endpoint, v=v_endpoint, a=a_endpoint)
-                try:
-                    status = augmentation.assess(self.domain.current_nodes)
-                except (ValueError, FloatingPointError):
+
+                # Step failed: check if cutback is allowed
+                if is_adaptive and controller is not None and controller.can_cutback():
                     self.domain.update_state(u=accepted_u, v=accepted_v, a=accepted_a)
+                    if hasattr(self.domain, "revert_state"):
+                        self.domain.revert_state()
                     augmentation.restore(multiplier_snapshot)
-                    if writer is not None:
-                        writer.close()
-                    raise
-                if verbose and augmentation.contacts:
-                    if (
-                        status.max_penetration > 0.0
-                        or status.relative_multiplier_residual > 0.0
-                        or al_iteration > 1
-                    ):
+
+                    old_dt = current_dt
+                    current_dt = controller.cutback()
+                    current_dt = min(current_dt, t_end - t_current)
+                    if verbose:
                         print(
-                            f"  Step {step:5d} | Augmentation {al_iteration:2d}/{augmentation.max_iterations} | "
-                            f"Endpoint penetration = {status.max_penetration:.4e} | "
-                            f"Projected multiplier residual = {status.relative_multiplier_residual:.4e}"
+                            f"  [yellow]⚠ Step {step} cutback {controller.cutback_count}/{controller.max_cutbacks}: "
+                            f"reducing dt from {old_dt:.4e} s to {current_dt:.4e} s[/yellow]"
                         )
-                if status.converged:
-                    iteration_history.append(total_iterations)
-                    al_iterations_history.append(al_iteration if augmentation.contacts else 0)
+                    continue
+                else:
                     break
-                step_converged = False
-                if al_iteration < augmentation.max_iterations:
-                    augmentation.commit(status)
 
             if not step_converged:
                 self.domain.update_state(u=accepted_u, v=accepted_v, a=accepted_a)
@@ -637,16 +776,20 @@ class NonlinearDynamicAnalysis(Analysis):
                     writer.write()
                 if verbose:
                     print(
-                        f"[bold red]✗ Step {step} (t={t_current:.4f}s) failed Newton/contact "
+                        f"[bold red]✗ Step {step} (t={t_current + current_dt:.4f}s) failed Newton/contact "
                         f"acceptance within {al_iteration} equilibrium solve(s).[/bold red]"
                     )
                 return NonlinearDynamicResult(
-                    time=time_points[:step],
+                    time=np.array(time_points),
                     converged=False,
-                    steps_completed=step - 1,
+                    steps_completed=len(time_points) - 1,
                     iteration_history=iteration_history,
                     al_iterations_history=al_iterations_history,
                     time_series_files=getattr(writer, "exported_files", []) if writer is not None else [],
+                    steady_state_converged=False,
+                    steady_state_step=None,
+                    cutbacks_history=cutbacks_history,
+                    time_step_history=time_step_history,
                 )
 
             # Accept converged step: advance to physical endpoint state at t_{n+1}
@@ -665,9 +808,26 @@ class NonlinearDynamicAnalysis(Analysis):
             if hasattr(self.domain, "commit_state"):
                 self.domain.commit_state()
 
+            t_current += current_dt
+            time_points.append(t_current)
+            iteration_history.append(total_iterations)
+            al_iterations_history.append(al_iteration if augmentation.contacts else 0)
+            cutbacks_history.append(controller.cutback_count if controller is not None else 0)
+            time_step_history.append(current_dt)
+
+            if controller is not None:
+                controller.record_success(iterations=total_iterations)
+                controller.reset_step()
+
             # Save frame
             saved_current_step = False
-            if writer is not None and (step % save_interval == 0 or step == n_steps):
+            should_save = False
+            if is_adaptive:
+                should_save = (step % save_interval == 0 or t_current >= t_end - 1e-12)
+            else:
+                should_save = (step % save_interval == 0 or step == n_steps)
+
+            if writer is not None and should_save:
                 writer.add_timestep(
                     time=t_current,
                     domain=self.domain,
@@ -677,11 +837,19 @@ class NonlinearDynamicAnalysis(Analysis):
                 )
                 saved_current_step = True
 
-            if verbose and (step % max(1, n_steps // 10) == 0 or step == n_steps):
+            if verbose:
                 max_d = np.linalg.norm(self.domain.displacement, axis=1).max()
-                print(
-                    f"  Step {step:5d}/{n_steps} (t = {t_current:.4f} s) | Iter = {iteration_history[-1]:2d} | Max Disp = {max_d:.3f} mm"
-                )
+                if is_adaptive:
+                    print(
+                        f"  Step {step:5d} (t = {t_current:.4f} s / {t_end:.4f} s) | "
+                        f"dt = {current_dt:.3e} s | Iter = {iteration_history[-1]:2d} | "
+                        f"Max Disp = {max_d:.3f} mm"
+                    )
+                elif step % max(1, n_steps // 10) == 0 or step == n_steps:
+                    print(
+                        f"  Step {step:5d}/{n_steps} (t = {t_current:.4f} s) | "
+                        f"Iter = {iteration_history[-1]:2d} | Max Disp = {max_d:.3f} mm"
+                    )
 
             # Steady-state equilibrium check (dynamic relaxation / steady state)
             if steady_state_tol is not None:
@@ -745,12 +913,12 @@ class NonlinearDynamicAnalysis(Analysis):
                 writer.write()
             exported_files = getattr(writer, "exported_files", [])
 
-        steps_done = steady_state_step if steady_state_converged else n_steps
-        time_out = time_points[: steps_done + 1]
+        steps_done = steady_state_step if steady_state_converged else (step if is_adaptive else n_steps)
+        time_out = np.array(time_points[: steps_done + 1]) if not is_adaptive else np.array(time_points)
 
         if verbose and not steady_state_converged:
             print(
-                f"[bold green]✓ Nonlinear Dynamic Analysis completed successfully ({n_steps}/{n_steps} steps).[/bold green]\n"
+                f"[bold green]✓ Nonlinear Dynamic Analysis completed successfully ({steps_done} steps).[/bold green]\n"
             )
 
         return NonlinearDynamicResult(
@@ -762,4 +930,6 @@ class NonlinearDynamicAnalysis(Analysis):
             time_series_files=exported_files,
             steady_state_converged=steady_state_converged,
             steady_state_step=steady_state_step,
+            cutbacks_history=cutbacks_history,
+            time_step_history=time_step_history,
         )

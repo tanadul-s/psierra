@@ -17,6 +17,7 @@ from psierra.analysis.nonlinear_dynamic import (
     NonlinearDynamicAnalysis,
     NonlinearDynamicResult,
 )
+from psierra.analysis.adaptive_time_step import AdaptiveTimeStepController
 from psierra.analysis.interactive_dynamic import (
     InteractiveDynamicSimulation,
     SimulationStats,
@@ -41,6 +42,7 @@ __all__ = [
     # Nonlinear Dynamic
     "NonlinearDynamicAnalysis",
     "NonlinearDynamicResult",
+    "AdaptiveTimeStepController",
     # Interactive / Online Dynamic
     "InteractiveDynamicSimulation",
     "SimulationStats",
