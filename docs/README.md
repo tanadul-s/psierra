@@ -126,7 +126,7 @@ flowchart TD
 - **Nonlinear Dynamic Analysis**: implicit Generalized-$\alpha$ integration coupled with inner Newton-Raphson equilibrium iterations and high-frequency noise dissipation.
 - **Interactive Dynamic Simulation**: real-time simulation ($>12,000\text{ Hz}$ physics, $60+\text{ FPS}$) with online Generalized-$\alpha$, perturbation handling, and in-place VTK grid buffer mutation.
 - **Master Map of All Analysis Cases (Section 8)**: complete synthesis mapping problem physics, governing equations, discrete algebra, solver strategy, code classes, and canonical examples across all analysis pipelines.
-- Implementation map: [`LinearStaticAnalysis`](../src/psierra/analysis/linear_static.py), [`LinearDynamicAnalysis`](../src/psierra/analysis/linear_dynamic.py), [`NonlinearStaticAnalysis`](../src/psierra/analysis/nonlinear_static.py), [`NonlinearDynamicAnalysis`](../src/psierra/analysis/nonlinear_dynamic.py), [`InteractiveDynamicSimulation`](../src/psierra/analysis/interactive_dynamic.py), [`PvdCollectionWriter`](../src/psierra/exchange/pvd.py).
+- Implementation map: [`LinearStaticAnalysis`](../src/psierra/analysis/linear_static.py), [`LinearDynamicAnalysis`](../src/psierra/analysis/linear_dynamic.py), [`NonlinearStaticAnalysis`](../src/psierra/analysis/nonlinear_static.py), [`NonlinearDynamicAnalysis`](../src/psierra/analysis/nonlinear_dynamic.py), [`InteractiveDynamicSimulation`](../src/psierra/analysis/interactive_dynamic.py), [`PvdWriter`](../src/psierra/exchange/pvd.py).
 
 ### 7. [Simulation Tutorials, Analytical Verification & Benchmarks](07_simulation_tutorials_and_verification.md)
 - Verification against Euler-Bernoulli & Timoshenko beam theory and Navier analytical thin-plate series.
