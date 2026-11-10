@@ -274,6 +274,61 @@ flowchart TD
    $$\Delta t \leftarrow \min\left(\Delta t_{\max},\, \gamma_{\text{grow}} \Delta t\right), \quad \gamma_{\text{grow}} > 1$$
    automatically recovering computational efficiency once the non-smooth transient event has resolved.
 
+### 4.4 Algorithmic Regularization: Contact-Aware Line Search & Dual Rebound Relaxation (Pillar 3)
+
+Non-smooth contact boundaries introduce sharp kinks and directional non-differentiability into Newton-Raphson residuals. During contact activation, separation, or facet edge transitions, standard Armijo backtracking line search algorithms often fail catastrophically: they misinterpret non-smooth contact force variations as divergence, contracting trial step sizes ($\alpha \to 0$) until step collapse occurs.
+
+Furthermore, standard Augmented Lagrangian formulations retain positive normal multipliers ($\lambda > 0$) from penetration states. When physical dynamics accelerate a node into rebound ($g > 0$), these stale multipliers exert non-physical tensile forces ($p = \max(0, \lambda - k_p g) > 0$), artificially adhering separating surfaces ("sticky contact") and destabilizing the dynamic trajectory.
+
+`pSierra` addresses these phenomena through **Pillar 3 Algorithmic Regularization**:
+
+```mermaid
+flowchart TD
+    Trial["Trial Step: u_trial = u_current + α δu"] --> CheckInversion{"Constitutive Inversion?<br/>(det(F) <= 0 or range overflow)"}
+    CheckInversion -- "Yes: Physical Breakdown" --> InversionBacktrack["<b>Element Inversion Guard</b><br/>Strictly Reject Trial<br/>Mandate Step Backtrack (α ← 0.5 α)"]
+    CheckInversion -- "No: Valid Continuum" --> EvalR["Evaluate Residual Norm: ||R(u_trial)||"]
+    EvalR --> CheckArmijo{"Armijo Descent or<br/>Monotonic Reduction?"}
+    CheckArmijo -- Yes --> AcceptStep["Accept Trial Step (u ← u_trial)"]
+    CheckArmijo -- No --> CheckFullContact{"Full Step (α = 1.0) &<br/>Contact Active &<br/>||R|| < 1.5 ||R_0||?"}
+    CheckFullContact -- Yes --> AcceptContact["Accept Full Newton Step<br/>(Establish New Contact Set)"]
+    CheckFullContact -- No --> BacktrackTrial{"Backtrack Limit<br/>Reached?"}
+    BacktrackTrial -- No --> ReduceAlpha["α ← 0.5 α"] --> Trial
+    BacktrackTrial -- Yes --> CheckFallback{"Best Candidate Valid &<br/>||R_best|| < 5.0 ||R_0||?"}
+    CheckFallback -- Yes --> FallbackAccept["Accept Safe Contact Fallback<br/>(Prevents False Line Search Stall)"]
+    CheckFallback -- No --> LSFail["Line Search Divergence"]
+```
+
+#### 1. Constitutive Element Inversion Guard vs. Contact Non-Smoothness
+The line search solver [`ContactAwareLineSearch`](../src/psierra/analysis/line_search.py) strictly differentiates between two failure classes:
+- **Constitutive Element Inversion ($\det \boldsymbol{F} \le 0$)**: Physical continuum breakdown where tetrahedral elements invert or stress invariants violate physical domains. These trials are rejected unconditionally and flagged (`element_inversion_encountered = True`), strictly forbidding fallback acceptance and forcing step halving.
+- **Contact Active-Set Transitions**: When all tetrahedral elements remain topologically sound ($\det \boldsymbol{F} > 0$), non-monotonic residual bumps are handled with:
+  1. *Bounded Full Newton Step*: At $\alpha = 1.0$ with active contact, trials with $\|\boldsymbol{R}\| < 1.5 \|\boldsymbol{R}_0\|$ are accepted, allowing Newton-Raphson to stabilize the active contact set.
+  2. *Safe Contact Fallback*: If Armijo descent is not reached across all backtracking trials, the solver advances along the best trial candidate provided $\|\boldsymbol{R}_{\text{best}}\| < 5.0 \|\boldsymbol{R}_0\|$, avoiding false solver stalls on facet edge crossings.
+
+#### 2. Dual Rebound Relaxation (Elimination of Artificial Sticky Adhesion)
+In dynamic contact-impact rebound, separating nodes must immediately decouple from the contact interface. Under Augmented Lagrangian updates, the normal contact pressure is:
+$$p_n = \max(0, \lambda_n - k_p g_n)$$
+
+When a node transitions from penetration ($g_n < 0$) to positive clearance ($g_{n+1} > 0$), a positive retained multiplier $\lambda_n > 0$ generates a non-zero adhesive tensile traction until $\lambda_n$ is cleared in the next augmentation cycle.
+
+To eliminate this artificial adhesion, **Dual Rebound Relaxation** is evaluated at the start of each dynamic time step and during augmentation updates:
+$$\lambda_i \leftarrow 0 \quad \forall i \text{ where } g_i > g_{\text{tol}}$$
+
+```python
+# Dual Rebound Relaxation in ContactMultiplierState and ContactAugmentation
+def relax_rebound(self, gap_tol: float = 0.0) -> int:
+    """Zero Lagrange multipliers on separating nodes to prevent artificial adhesive drag."""
+    if self.gaps is None or self.lambdas is None or len(self.gaps) == 0:
+        return 0
+    separating_mask = (self.gaps > gap_tol) & (self.lambdas > 0.0)
+    num_relaxed = int(np.count_nonzero(separating_mask))
+    if num_relaxed > 0:
+        self.lambdas[separating_mask] = 0.0
+    return num_relaxed
+```
+
+This ensures zero contact force on separating surfaces ($p_i = 0.0 \text{ N}$), completely eliminating spurious tensile drag during dynamic release.
+
 ---
 
 ## 5. ParaView Data Exchange Pipeline (`.pvd` & `.vtu`)

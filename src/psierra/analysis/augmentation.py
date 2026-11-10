@@ -40,6 +40,7 @@ class ContactAugmentation:
         max_iterations: int,
         gap_tol: float,
         tolerance: float,
+        rebound_relaxation: bool = False,
     ) -> None:
         Analysis._validate_count("al_max_iterations", max_iterations)
         Analysis._validate_scalar("al_gap_tol", gap_tol)
@@ -51,6 +52,7 @@ class ContactAugmentation:
         self.max_iterations = max_iterations if self.contacts else 1
         self.gap_tol = gap_tol
         self.tolerance = tolerance
+        self.rebound_relaxation = bool(rebound_relaxation)
 
     def snapshot(self, current_nodes: np.ndarray | None = None) -> list[np.ndarray]:
         """Copy accepted dual state; resolve any lazy candidate dimensions first."""
@@ -84,6 +86,8 @@ class ContactAugmentation:
                     "Contact gaps must align with multipliers and be finite or +infinity"
                 )
             pressure = np.maximum(0.0, multipliers - contact.k_penalty * gaps)
+            if self.rebound_relaxation:
+                pressure = np.where(gaps > self.gap_tol, 0.0, pressure)
             if not np.all(np.isfinite(pressure)):
                 raise ValueError("Projected AL multipliers must be finite")
             scale = max(
@@ -107,6 +111,12 @@ class ContactAugmentation:
         """Commit projected nonnegative dual values before another equilibrium solve."""
         for contact, pressure in zip(self.contacts, status.proposed, strict=True):
             contact.set_multipliers(pressure)
+
+    def relax_rebound(self) -> int:
+        """Zero retained multipliers on non-penetrating candidates across all AL contacts."""
+        if not self.rebound_relaxation:
+            return 0
+        return sum(c.relax_rebound(self.gap_tol) for c in self.contacts)
 
     def inner_force_tolerance(self, requested: float, force_scale: float) -> float:
         """Bound force error by requested, dual-force, and gap-force accuracy.

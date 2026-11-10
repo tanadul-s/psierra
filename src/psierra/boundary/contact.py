@@ -61,9 +61,12 @@ class ContactMultiplierState:
         self.multipliers[:] = values
         self.invalidate_state()
 
-    def update_multipliers(self) -> dict[str, float]:
+    def update_multipliers(
+        self, rebound_relaxation: bool = False, gap_tol: float = 0.0
+    ) -> dict[str, float]:
         """Project lambda<-max(0,lambda-kp*g); penalty formulation is a no-op.
 
+        If rebound_relaxation is True, zero multipliers for candidates with gap > gap_tol.
         This updates dual state only; it does not establish equilibrium.
         Batch analyses solve equilibrium again after every committed update.
         """
@@ -76,7 +79,10 @@ class ContactMultiplierState:
             }
         gaps = self.evaluate_gaps()
         previous = self.snapshot_multipliers()
-        self.set_multipliers(np.maximum(0.0, previous - self.k_penalty * gaps))
+        new_multipliers = np.maximum(0.0, previous - self.k_penalty * gaps)
+        if rebound_relaxation:
+            new_multipliers = np.where(gaps > gap_tol, 0.0, new_multipliers)
+        self.set_multipliers(new_multipliers)
         return {
             "max_penetration": float(np.max(np.maximum(-gaps, 0.0), initial=0.0)),
             "max_multiplier": float(np.max(self.multipliers, initial=0.0)),
@@ -85,6 +91,23 @@ class ContactMultiplierState:
             ),
             "num_active": int(np.count_nonzero(self.multipliers > 0.0)),
         }
+
+    def relax_rebound(self, gap_tol: float = 0.0) -> int:
+        """Zero retained multipliers on non-penetrating candidates (gap > gap_tol).
+
+        Prevents artificial sticky adhesion forces upon dynamic rebound or separation.
+        Returns the number of relaxed candidates.
+        """
+        if self.formulation != "augmented_lagrangian":
+            return 0
+        gaps = self.evaluate_gaps()
+        rebounded = (gaps > gap_tol) & (self.multipliers > 0.0)
+        n_relaxed = int(np.count_nonzero(rebounded))
+        if n_relaxed > 0:
+            relaxed = self.multipliers.copy()
+            relaxed[rebounded] = 0.0
+            self.set_multipliers(relaxed)
+        return n_relaxed
 
 
 class RigidContact(ContactMultiplierState):

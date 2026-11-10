@@ -18,6 +18,11 @@ from psierra.analysis.nonlinear_dynamic import (
     NonlinearDynamicResult,
 )
 from psierra.analysis.adaptive_time_step import AdaptiveTimeStepController
+from psierra.analysis.line_search import (
+    ContactAwareLineSearch,
+    LineSearchResult,
+    is_element_inversion_error,
+)
 from psierra.analysis.interactive_dynamic import (
     InteractiveDynamicSimulation,
     SimulationStats,
@@ -43,6 +48,10 @@ __all__ = [
     "NonlinearDynamicAnalysis",
     "NonlinearDynamicResult",
     "AdaptiveTimeStepController",
+    # Algorithmic Regularization
+    "ContactAwareLineSearch",
+    "LineSearchResult",
+    "is_element_inversion_error",
     # Interactive / Online Dynamic
     "InteractiveDynamicSimulation",
     "SimulationStats",

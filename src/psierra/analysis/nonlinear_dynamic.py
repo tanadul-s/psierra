@@ -15,6 +15,7 @@ from psierra.solver.sparse_linear_solver import DirectSolver
 from psierra.analysis.base import Analysis
 from psierra.analysis.augmentation import ContactAugmentation
 from psierra.analysis.adaptive_time_step import AdaptiveTimeStepController
+from psierra.analysis.line_search import ContactAwareLineSearch, LineSearchResult
 from psierra.exchange.writer import SimulationWriter
 
 
@@ -190,6 +191,8 @@ class NonlinearDynamicAnalysis(Analysis):
         adaptive: bool = False,
         time_step_controller: AdaptiveTimeStepController | None = None,
         total_time: float | None = None,
+        rebound_relaxation: bool = False,
+        line_search: ContactAwareLineSearch | None = None,
     ) -> NonlinearDynamicResult:
         """
         Executes the nonlinear dynamic time-stepping integration.
@@ -248,6 +251,13 @@ class NonlinearDynamicAnalysis(Analysis):
             Custom adaptive time step controller instance. If provided, adaptive is set to True.
         total_time : float, optional, keyword-only
             Total simulation time horizon in seconds. If None, defaults to n_steps * dt.
+        rebound_relaxation : bool, default=False, keyword-only
+            Enable Pillar 3 dual rebound relaxation: zero retained contact multipliers
+            when local dynamic rebound opens a positive gap (g > al_gap_tol), eliminating
+            artificial sticky adhesion.
+        line_search : ContactAwareLineSearch, optional, keyword-only
+            Custom contact-aware line search controller instance. If None, uses default
+            ContactAwareLineSearch().
 
         Returns:
         --------
@@ -321,7 +331,14 @@ class NonlinearDynamicAnalysis(Analysis):
             contact_list = list(contact)
 
         augmentation = ContactAugmentation(
-            contact_list, al_max_iterations, al_gap_tol, al_tol
+            contact_list,
+            al_max_iterations,
+            al_gap_tol,
+            al_tol,
+            rebound_relaxation=rebound_relaxation,
+        )
+        line_search_solver = (
+            line_search if line_search is not None else ContactAwareLineSearch()
         )
 
         # 1. Generalized-alpha Integration Constants
@@ -505,6 +522,8 @@ class NonlinearDynamicAnalysis(Analysis):
             accepted_u = self.domain.u.copy()
             accepted_v = self.domain.v.copy()
             accepted_a = self.domain.a.copy()
+            if augmentation.rebound_relaxation:
+                augmentation.relax_rebound()
             multiplier_snapshot = augmentation.snapshot(self.domain.current_nodes)
             old_al_force = sum(
                 (c.evaluate_forces(
@@ -631,13 +650,10 @@ class NonlinearDynamicAnalysis(Analysis):
                             trial_aborted = True
                             break
 
-                        # Armijo merit phi=||R_eff||^2/2, with Newton directional
-                        # derivative -||R_eff||^2. Reevaluate all midpoint terms,
+                        # Contact-aware line search: reevaluate all midpoint terms,
                         # including velocity-dependent contact; keep multipliers fixed.
-                        alpha = 1.0
-                        line_search_ok = False
-                        for _ in range(16):
-                            u_cand = u_f_i + alpha * du_f
+                        def eval_dynamic_trial(alpha_cand: float) -> float:
+                            u_cand = u_f_i + alpha_cand * du_f
                             a_cand = a0 * (u_cand - u_f) - a2 * v_f - a3 * a_f
                             v_cand = a1 * (u_cand - u_f) - a4 * v_f - a5 * a_f
                             u_cand_mid = (1.0 - alpha_f) * u_cand + alpha_f * u_f
@@ -648,53 +664,52 @@ class NonlinearDynamicAnalysis(Analysis):
                                 np.all(np.isfinite(state))
                                 for state in (u_full, v_full, a_full)
                             ):
-                                alpha *= 0.5
-                                continue
-                            try:
-                                u_endpoint = u_full.copy()
-                                v_endpoint = v_full.copy()
-                                a_endpoint = a_full.copy()
-                                u_endpoint[free_dofs] = u_cand
-                                v_endpoint[free_dofs] = v_cand
-                                a_endpoint[free_dofs] = a_cand
-                                self.domain.update_state(
-                                    u=u_endpoint, v=v_endpoint, a=a_endpoint
-                                )
-                                f_int_endpoint = self.domain.assemble_internal_forces()
-                                if not np.all(np.isfinite(f_int_endpoint)):
-                                    alpha *= 0.5
-                                    continue
-                                self.domain.update_state(u=u_full, v=v_full, a=a_full)
-                                f_int_cand = self.domain.assemble_internal_forces()
-                                f_contact_cand, _ = self._evaluate_contacts(
-                                    contact_list, old_al_force,
-                                    (u_full, v_full, a_full),
-                                    (u_endpoint, v_endpoint, a_endpoint), a1,
-                                    include_stiffness=False,
-                                )
-                                r_cand = (
-                                    f_ext_f + f_contact_cand[free_dofs]
-                                    - M_ff @ a_full[free_dofs]
-                                    - C_ff @ v_full[free_dofs] - f_int_cand[free_dofs]
-                                )
-                                cand_norm = float(np.linalg.norm(r_cand))
-                            except (ValueError, FloatingPointError):
-                                cand_norm = np.inf
+                                return np.inf
 
-                            if np.isfinite(cand_norm) and (
-                                cand_norm <= inner_tolerance
-                                or cand_norm**2 <= (1.0 - 2.0e-4 * alpha) * res_norm**2
-                            ):
-                                u_f_i = u_cand
-                                line_search_ok = True
-                                break
-                            else:
-                                alpha *= 0.5
+                            u_endpoint = u_full.copy()
+                            v_endpoint = v_full.copy()
+                            a_endpoint = a_full.copy()
+                            u_endpoint[free_dofs] = u_cand
+                            v_endpoint[free_dofs] = v_cand
+                            a_endpoint[free_dofs] = a_cand
+                            self.domain.update_state(
+                                u=u_endpoint, v=v_endpoint, a=a_endpoint
+                            )
+                            f_int_endpoint = self.domain.assemble_internal_forces()
+                            if not np.all(np.isfinite(f_int_endpoint)):
+                                return np.inf
 
-                        if not line_search_ok:
+                            self.domain.update_state(u=u_full, v=v_full, a=a_full)
+                            f_int_cand = self.domain.assemble_internal_forces()
+                            f_contact_cand, _ = self._evaluate_contacts(
+                                contact_list,
+                                old_al_force,
+                                (u_full, v_full, a_full),
+                                (u_endpoint, v_endpoint, a_endpoint),
+                                a1,
+                                include_stiffness=False,
+                            )
+                            r_cand = (
+                                f_ext_f
+                                + f_contact_cand[free_dofs]
+                                - M_ff @ a_full[free_dofs]
+                                - C_ff @ v_full[free_dofs]
+                                - f_int_cand[free_dofs]
+                            )
+                            return float(np.linalg.norm(r_cand))
+
+                        ls_result = line_search_solver.search(
+                            eval_dynamic_trial,
+                            res_norm,
+                            inner_tolerance,
+                            contact_active=bool(contact_list),
+                        )
+                        if ls_result.success:
+                            u_f_i = u_f_i + ls_result.alpha * du_f
+                        else:
                             if verbose:
                                 print(
-                                    f"  [bold red]Step {step:4d}: No admissible residual-reducing trial found.[/bold red]"
+                                    f"  [bold red]Step {step:4d}: Line search failed ({ls_result.rejection_reason}).[/bold red]"
                                 )
                             trial_aborted = True
                             break

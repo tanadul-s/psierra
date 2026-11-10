@@ -142,9 +142,12 @@ This roadmap is laser-focused on biological soft-tissue mechanics, robust contac
   * Preserves exact action-reaction balance ($\sum \boldsymbol{f}_c = \boldsymbol{0}$ to $< 10^{-12} \text{ N}$), exact tangent stiffness symmetry ($\boldsymbol{K}_c = \boldsymbol{K}_c^T$ to $< 10^{-12}$), and exact rigid translation invariance ($\boldsymbol{K}_c \boldsymbol{u}_{\text{trans}} \approx \boldsymbol{0}$).
   * 11 comprehensive automated tests in [`tests/test_deformable_contact_smoothing.py`](../tests/test_deformable_contact_smoothing.py) verifying jump elimination, action-reaction, tangent symmetry, translation invariance, weight choices (`angle`, `area`), and sliding continuity across facet edges.
   * 100% backward compatibility preserved via `smoothed_normals: bool = False` (all 124 existing contact tests passing untouched).
-* [ ] **Pillar 3: Algorithmic Regularization (Contact-Aware Line Search & Dual Relaxation)**:
-  * Differentiate constitutive element inversion ($\det \boldsymbol{J} \le 0$) from non-smooth facet edge crossing during line search.
-  * Dual rebound relaxation: zeroing retained multipliers ($\lambda \leftarrow 0$) when local rebound opens a positive gap ($g > 0$).
+* [x] **Pillar 3: Algorithmic Regularization (Contact-Aware Line Search & Dual Relaxation)**:
+  * Implemented [`ContactAwareLineSearch`](../src/psierra/analysis/line_search.py) differentiating physical continuum element inversion ($\det \boldsymbol{F} \le 0$, negative Jacobian, range limit violations) from non-smooth contact active-set switching and facet-edge crossings.
+  * Inversion guard strictly rejects trials and mandates step backtracking ($\alpha \leftarrow 0.5 \alpha$), while non-smooth contact active-set transitions allow bounded full Newton step ($\alpha = 1.0$, $\|\boldsymbol{R}\| < 1.5 \|\boldsymbol{R}_0\|$) and safe contact fallback ($\|\boldsymbol{R}_{\text{best}}\| < 5.0 \|\boldsymbol{R}_0\|$).
+  * Implemented Dual Rebound Relaxation in `ContactMultiplierState` and `ContactAugmentation` (`relax_rebound(gap_tol=0.0)`), dynamically zeroing multipliers ($\lambda \leftarrow 0$) when local rebound opens a positive gap ($g > g_{\text{tol}}$), eliminating artificial tensile "sticky contact" adhesion ($p = 0.0\text{ N}$).
+  * Seamlessly integrated into `NonlinearDynamicAnalysis` and `NonlinearStaticAnalysis` with full backward compatibility (`rebound_relaxation=False` by default).
+  * 13 automated tests in [`tests/test_analysis_line_search_and_relaxation.py`](../tests/test_analysis_line_search_and_relaxation.py) validating error classification, Armijo descent, inversion handling, fallback, rebound zeroing, and dynamic/static solver integration.
 * [ ] **Segment-to-Segment Mortar Contact**:
   * Mortar contact formulation for non-conforming mesh interfaces.
 * [ ] **Exact Coulomb Stick-Slip Friction**:

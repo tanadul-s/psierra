@@ -18,6 +18,7 @@ from psierra.boundary import (
 from psierra.solver.sparse_linear_solver import SparseLinearSolver, DirectSolver
 from psierra.analysis.base import Analysis
 from psierra.analysis.augmentation import ContactAugmentation
+from psierra.analysis.line_search import ContactAwareLineSearch, LineSearchResult
 from psierra.exchange.writer import SimulationWriter
 
 
@@ -101,6 +102,8 @@ class NonlinearStaticAnalysis(Analysis):
         al_max_iterations: int = 50,
         al_gap_tol: float = 1e-6,
         al_tol: float = 1e-6,
+        rebound_relaxation: bool = False,
+        line_search: ContactAwareLineSearch | None = None,
     ) -> NonlinearStaticResult:
         """
         Solves the nonlinear equilibrium equation incrementally.
@@ -173,7 +176,14 @@ class NonlinearStaticAnalysis(Analysis):
             contact_list = list(contact)
 
         augmentation = ContactAugmentation(
-            contact_list, al_max_iterations, al_gap_tol, al_tol
+            contact_list,
+            al_max_iterations,
+            al_gap_tol,
+            al_tol,
+            rebound_relaxation=rebound_relaxation,
+        )
+        line_search_solver = (
+            line_search if line_search is not None else ContactAwareLineSearch()
         )
 
         # Initialize DirichletManager
@@ -242,6 +252,8 @@ class NonlinearStaticAnalysis(Analysis):
             accepted_u = self.domain.u.copy()
             accepted_v = self.domain.v.copy()
             accepted_a = self.domain.a.copy()
+            if augmentation.rebound_relaxation:
+                augmentation.relax_rebound()
             multiplier_snapshot = augmentation.snapshot(self.domain.current_nodes)
 
             # Update Dirichlet constraints for the current step
@@ -350,82 +362,45 @@ class NonlinearStaticAnalysis(Analysis):
                     if not np.all(np.isfinite(du_free)):
                         break
 
-                    # 6. Line search with robust FEA backtracking.
-                    # Evaluates trial displacements with constitutive & contact checks.
-                    # Accepts full Newton step (alpha=1.0) when residual is bounded/decreasing,
-                    # and backtracks on element inversion, floating error, or diverging residual.
-                    alpha = 1.0
-                    line_search_success = False
-                    best_u_candidate = None
-                    best_candidate_norm = np.inf
-
-                    for _ in range(16):
-                        u_candidate = u_current.copy()
-                        u_candidate[free_dofs] += alpha * du_free
-                        if not np.all(np.isfinite(u_candidate)):
-                            alpha *= 0.5
-                            continue
-                        self.domain.update_state(u=u_candidate)
-
-                        try:
-                            f_int_candidate = self.domain.assemble_internal_forces()
-                            f_contact_candidate = sum(
-                                (
-                                    c.evaluate_forces(
-                                        current_nodes=self.domain.current_nodes,
-                                        n_dofs=self.domain.n_dofs,
-                                    )
-                                    for c in contact_list
-                                ),
-                                np.zeros(self.domain.n_dofs, dtype=np.float64),
-                            )
-                            r_candidate = (
-                                f_step_free + f_contact_candidate[free_dofs]
-                                - f_int_candidate[free_dofs]
-                            )
-                            candidate_norm = float(np.linalg.norm(r_candidate))
-                        except (ValueError, FloatingPointError):
-                            # Constitutive evaluation rejects an inverted trial.
-                            candidate_norm = np.inf
-
-                        if np.isfinite(candidate_norm):
-                            if candidate_norm < best_candidate_norm:
-                                best_candidate_norm = candidate_norm
-                                best_u_candidate = u_candidate
-
-                            # Acceptance conditions:
-                            # 1. Meets tolerance directly
-                            # 2. Reduces residual strictly (candidate_norm <= residual_norm)
-                            # 3. Armijo condition
-                            # 4. Full Newton step with bounded candidate residual (< 1.5 * residual_norm)
-                            if (
-                                candidate_norm <= inner_tolerance
-                                or candidate_norm <= residual_norm
-                                or candidate_norm**2
-                                <= (1.0 - 2.0e-4 * alpha) * residual_norm**2
-                                or (alpha == 1.0 and candidate_norm < 1.5 * residual_norm)
-                            ):
-                                u_current = u_candidate
-                                line_search_success = True
-                                break
-
-                        alpha *= 0.5
-
-                    if not line_search_success:
-                        if (
-                            best_u_candidate is not None
-                            and np.isfinite(best_candidate_norm)
-                            and best_candidate_norm < 5.0 * residual_norm
-                        ):
-                            u_current = best_u_candidate
-                            line_search_success = True
-                        else:
-                            if verbose:
-                                print(
-                                    f"  [bold red]Step {step:2d}/{n_steps}: No admissible residual-reducing trial found.[/bold red]"
+                    # 6. Contact-aware line search with robust FEA backtracking.
+                    def eval_static_trial(alpha_cand: float) -> float:
+                        u_cand = u_current.copy()
+                        u_cand[free_dofs] += alpha_cand * du_free
+                        if not np.all(np.isfinite(u_cand)):
+                            return np.inf
+                        self.domain.update_state(u=u_cand)
+                        f_int_candidate = self.domain.assemble_internal_forces()
+                        f_contact_candidate = sum(
+                            (
+                                c.evaluate_forces(
+                                    current_nodes=self.domain.current_nodes,
+                                    n_dofs=self.domain.n_dofs,
                                 )
-                            converged_step = False
-                            break
+                                for c in contact_list
+                            ),
+                            np.zeros(self.domain.n_dofs, dtype=np.float64),
+                        )
+                        r_candidate = (
+                            f_step_free + f_contact_candidate[free_dofs]
+                            - f_int_candidate[free_dofs]
+                        )
+                        return float(np.linalg.norm(r_candidate))
+
+                    ls_result = line_search_solver.search(
+                        eval_static_trial,
+                        residual_norm,
+                        inner_tolerance,
+                        contact_active=bool(contact_list),
+                    )
+                    if ls_result.success:
+                        u_current[free_dofs] += ls_result.alpha * du_free
+                    else:
+                        if verbose:
+                            print(
+                                f"  [bold red]Step {step:2d}/{n_steps}: Line search failed ({ls_result.rejection_reason}).[/bold red]"
+                            )
+                        converged_step = False
+                        break
 
                 total_iterations += iteration
                 if not converged_step:
