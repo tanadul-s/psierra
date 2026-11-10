@@ -119,14 +119,13 @@ def run_linear_static(output_dir: Path, fmt: str) -> float:
     f_ext = gravity.compute_force_vector(M)
 
     solver = LinearStaticAnalysis(domain)
-    res = solver.solve(dirichlet=dirichlet, f_ext=f_ext, verbose=False)
-
-    max_disp = float(np.linalg.norm(domain.displacement, axis=1).max())
     out_target = output_dir / "linear_static" / "result"
 
     with SimulationWriter(out_target, mesh=mesh, format=fmt) as writer:
-        writer.add_timestep(time=0.0, domain=domain)
+        res = solver.solve(dirichlet=dirichlet, f_ext=f_ext, verbose=False, writer=writer)
         writer.write_checkpoint(step=0, time=0.0, dt=0.0, domain=domain)
+
+    max_disp = float(np.linalg.norm(domain.displacement, axis=1).max())
 
     console.print(f"  • Max Resultant Displacement: [bold green]{max_disp:.3f} mm[/bold green]")
     console.print(f"  • Export Target ({fmt.upper()}): [cyan]{out_target}[/cyan]")
@@ -163,22 +162,14 @@ def run_linear_dynamic(output_dir: Path, fmt: str) -> float:
     out_target = output_dir / "linear_dynamic" / "result"
 
     with SimulationWriter(out_target, mesh=mesh, format=fmt) as writer:
-        # Step 0
-        writer.add_timestep(time=0.0, domain=domain)
-
-        # Integration loop
-        free_dofs = dirichlet.free_dofs
-        K = domain.assemble_stiffness_matrix()
-        C = damping.assemble_damping_matrix(M, K)
-        M_ff = M[free_dofs, :][:, free_dofs]
-        C_ff = C[free_dofs, :][:, free_dofs]
-        K_ff = K[free_dofs, :][:, free_dofs]
-        f_ext_f = f_ext[free_dofs]
-
-        res = solver.solve(dirichlet=dirichlet, f_ext=f_ext, dt=dt, n_steps=n_steps, verbose=False)
-
-        # Record final step and checkpoint
-        writer.add_timestep(time=n_steps * dt, domain=domain)
+        res = solver.solve(
+            dirichlet=dirichlet,
+            f_ext=f_ext,
+            dt=dt,
+            n_steps=n_steps,
+            verbose=False,
+            writer=writer,
+        )
         writer.write_checkpoint(step=n_steps, time=n_steps * dt, dt=dt, domain=domain)
 
     max_disp = float(np.linalg.norm(domain.displacement, axis=1).max())
@@ -217,7 +208,6 @@ def run_nonlinear_static(output_dir: Path, fmt: str) -> float:
     out_target = output_dir / "nonlinear_static" / "result"
 
     with SimulationWriter(out_target, mesh=mesh, format=fmt) as writer:
-        writer.add_timestep(time=0.0, domain=domain)
         res = solver.solve(
             dirichlet=dirichlet,
             f_ext=f_ext,
@@ -225,8 +215,8 @@ def run_nonlinear_static(output_dir: Path, fmt: str) -> float:
             nr_iterations=25,
             nr_tol=1e-4,
             verbose=False,
+            writer=writer,
         )
-        writer.add_timestep(time=1.0, domain=domain)
         writer.write_checkpoint(step=n_steps, time=1.0, dt=1.0 / n_steps, domain=domain)
 
     max_disp = float(np.linalg.norm(domain.displacement, axis=1).max())
@@ -266,7 +256,6 @@ def run_nonlinear_dynamic(output_dir: Path, fmt: str) -> float:
     out_target = output_dir / "nonlinear_dynamic" / "result"
 
     with SimulationWriter(out_target, mesh=mesh, format=fmt) as writer:
-        writer.add_timestep(time=0.0, domain=domain)
         res = solver.solve(
             dirichlet=dirichlet,
             f_ext=f_ext,
@@ -275,8 +264,8 @@ def run_nonlinear_dynamic(output_dir: Path, fmt: str) -> float:
             nr_iterations=15,
             nr_tol=1e-4,
             verbose=False,
+            writer=writer,
         )
-        writer.add_timestep(time=n_steps * dt, domain=domain)
         writer.write_checkpoint(step=n_steps, time=n_steps * dt, dt=dt, domain=domain)
 
     max_disp = float(np.linalg.norm(domain.displacement, axis=1).max())

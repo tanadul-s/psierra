@@ -229,3 +229,42 @@ def test_simulation_writer_resume_and_append(
     for s in range(6):
         assert f"Step_{s:06d}" in xdmf_text
 
+
+def test_pvd_and_xdmf_dynamic_fields_parity(
+    tmp_path: Path, five_tet_cube_mesh: VolumetricMesh, elastic_domain: SolidDomain
+) -> None:
+    """Verifies that both PVD/VTU and XDMF record Velocity and Acceleration point data."""
+    import pyvista as pv
+
+    u = np.ones(five_tet_cube_mesh.n_dofs) * 0.01
+    v = np.ones(five_tet_cube_mesh.n_dofs) * 0.5
+    a = np.ones(five_tet_cube_mesh.n_dofs) * 2.0
+    elastic_domain.update_state(u=u, v=v, a=a)
+
+    # 1. PVD
+    pvd_dir = tmp_path / "parity_pvd"
+    with SimulationWriter(pvd_dir, mesh=five_tet_cube_mesh, format="pvd") as writer:
+        writer.add_timestep(time=0.01, domain=elastic_domain)
+
+    vtu_file = pvd_dir / "step_00000.vtu"
+    assert vtu_file.exists()
+    grid = pv.read(str(vtu_file))
+    assert "Displacement" in grid.point_data
+    assert "Velocity" in grid.point_data
+    assert "Acceleration" in grid.point_data
+    np.testing.assert_allclose(grid.point_data["Velocity"][0], [0.5, 0.5, 0.5])
+    np.testing.assert_allclose(grid.point_data["Acceleration"][0], [2.0, 2.0, 2.0])
+
+    # 2. XDMF
+    xdmf_prefix = tmp_path / "parity_xdmf"
+    with SimulationWriter(xdmf_prefix, mesh=five_tet_cube_mesh, format="xdmf") as writer:
+        writer.add_timestep(time=0.01, domain=elastic_domain)
+
+    with h5py.File(xdmf_prefix.with_suffix(".h5"), "r") as h5:
+        assert "time_series/step_000000/displacement" in h5
+        assert "time_series/step_000000/velocity" in h5
+        assert "time_series/step_000000/acceleration" in h5
+        np.testing.assert_allclose(h5["time_series/step_000000/velocity"][0], [0.5, 0.5, 0.5])
+        np.testing.assert_allclose(h5["time_series/step_000000/acceleration"][0], [2.0, 2.0, 2.0])
+
+
