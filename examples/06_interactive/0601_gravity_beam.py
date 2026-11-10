@@ -40,7 +40,7 @@ from psierra.boundary.selector import select_nodes_by_plane
 from psierra.boundary import DirichletConstraint, GravityLoad
 from psierra.damping import RayleighDamping
 from psierra.analysis import InteractiveDynamicSimulation, SimulationStats
-from psierra.exchange import PvdCollectionWriter
+from psierra.exchange import SimulationWriter
 
 install(show_locals=False)
 console = Console()
@@ -294,10 +294,10 @@ def main() -> None:
     # Snapshot management
     save_snapshots = args.save_snapshots
     output_dir = Path(args.output_dir)
-    pvd_writer = None
+    writer = None
     if save_snapshots:
         output_dir.mkdir(parents=True, exist_ok=True)
-        pvd_writer = PvdCollectionWriter(output_dir / "result.pvd")
+        writer = SimulationWriter(output_dir / "result.pvd", mesh=domain.mesh, format="pvd")
         console.print(f"  • Exporting ParaView snapshots to: [dim]{output_dir}[/dim]")
 
     if is_headless:
@@ -366,22 +366,19 @@ def main() -> None:
             if save_snapshots and (
                 step_idx % snapshot_interval == 0 or step_idx == n_steps - 1
             ):
-                sim.update_pyvista_grid(export_grid)
-                vtu_filename = f"step_{snapshot_count:05d}.vtu"
-                vtu_path = output_dir / vtu_filename
-                export_grid.save(str(vtu_path))
-                if pvd_writer is not None:
-                    pvd_writer.add_timestep(
-                        timestep=sim.current_time, filename=vtu_filename
+                if writer is not None:
+                    writer.add_timestep(
+                        time=sim.current_time,
+                        domain=domain,
+                        step_index=snapshot_count,
                     )
-                    pvd_writer.write()
                 snapshot_count += 1
 
         total_wall_loop = time.perf_counter() - t_sim_start
-        if save_snapshots and pvd_writer is not None:
-            pvd_writer.write()
+        if save_snapshots and writer is not None:
+            writer.close()
             console.print(
-                f"  • Exported [green]{snapshot_count}[/green] snapshots to [cyan]{pvd_writer.pvd_path}[/cyan]"
+                f"  • Exported [green]{snapshot_count}[/green] snapshots to [cyan]{output_dir}[/cyan]"
             )
 
     else:

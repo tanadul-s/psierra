@@ -35,7 +35,7 @@ from psierra.domain import SolidDomain
 from psierra.boundary import DirichletConstraint, DirichletManager, GravityLoad
 from psierra.damping import RayleighDamping
 from psierra.analysis import NonlinearDynamicAnalysis, InteractiveDynamicSimulation
-from psierra.exchange import PvdCollectionWriter
+from psierra.exchange import SimulationWriter
 
 install(show_locals=False)
 console = Console()
@@ -249,7 +249,7 @@ def main() -> None:
 
     t_start = time.perf_counter()
     exported_files: list[Path] = []
-    pvd_writer = PvdCollectionWriter(output_dir / "result.pvd")
+    writer = SimulationWriter(output_dir / "result.pvd", mesh=domain.mesh, format="pvd")
 
     if args.solver == "full":
         # Full Newton-Raphson tangent reassembly per iteration
@@ -265,13 +265,14 @@ def main() -> None:
             nr_tol=1e-3,
             include_stresses=False,
             smooth_to_nodes=False,
-            save_directory=output_dir,
+            writer=writer,
             save_interval=save_interval,
             verbose=True,
         )
         converged = result.converged
         steps_done = result.steps_completed
-        exported_files = result.time_series_files
+        writer.close()
+        exported_files = writer.exported_files
     else:
         # High-performance Modified Newton with pre-factorized dynamic stiffness
         sim = InteractiveDynamicSimulation(
@@ -288,11 +289,7 @@ def main() -> None:
         )
 
         # Save initial state at t = 0
-        vtu_0 = output_dir / "step_00000.vtu"
-        domain.save_state(vtu_0)
-        pvd_writer.add_timestep(0.0, "step_00000.vtu")
-        pvd_writer.write()
-        exported_files.append(vtu_0)
+        writer.add_timestep(time=0.0, domain=domain, step_index=0)
 
         for step in range(1, n_steps + 1):
             sim.step()
@@ -307,12 +304,10 @@ def main() -> None:
                 )
 
             if step % save_interval == 0 or step == n_steps:
-                vtu_step = output_dir / f"step_{step:05d}.vtu"
-                domain.save_state(vtu_step)
-                pvd_writer.add_timestep(t_curr, vtu_step.name)
-                pvd_writer.write()
-                exported_files.append(vtu_step)
+                writer.add_timestep(time=t_curr, domain=domain, step_index=step)
 
+        writer.close()
+        exported_files = writer.exported_files
         converged = True
         steps_done = n_steps
 

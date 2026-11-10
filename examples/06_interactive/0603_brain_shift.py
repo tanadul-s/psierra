@@ -47,7 +47,7 @@ from psierra.domain import SolidDomain
 from psierra.boundary import DirichletConstraint, DirichletManager, GravityLoad
 from psierra.damping import RayleighDamping
 from psierra.analysis import InteractiveDynamicSimulation, SimulationStats
-from psierra.exchange import PvdCollectionWriter
+from psierra.exchange import SimulationWriter
 
 install(show_locals=False)
 console = Console()
@@ -359,7 +359,7 @@ def main() -> None:
     snapshot_writer = None
     if args.save_snapshots:
         output_dir.mkdir(parents=True, exist_ok=True)
-        snapshot_writer = PvdCollectionWriter(output_dir / "result.pvd")
+        snapshot_writer = SimulationWriter(output_dir / "result.pvd", mesh=mesh, format="pvd")
         console.print(f"  • Snapshot Streaming  : [green]Enabled[/green] -> {output_dir / 'result.pvd'}")
 
     # Helper function to compute shift metrics in real time

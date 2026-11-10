@@ -38,7 +38,7 @@ from psierra.boundary import DirichletConstraint, DirichletManager, GravityLoad
 from psierra.damping import RayleighDamping
 from psierra.analysis import InteractiveDynamicSimulation
 from psierra.reduction.basis import PODBasis
-from psierra.exchange.pvd import PvdCollectionWriter
+from psierra.exchange import SimulationWriter
 from psierra.inverse import (
     SensorObservationOperator,
     FullOrderShapeSensingSolver,
@@ -358,9 +358,9 @@ def main() -> None:
     output_dir = Path("results/10_inverse/1004_dynamic_beam_shape_sensing")
     output_dir.mkdir(parents=True, exist_ok=True)
 
-    recon_pvd = PvdCollectionWriter(output_dir / "reconstruction.pvd")
-    truth_pvd = PvdCollectionWriter(output_dir / "ground_truth.pvd")
-    markers_pvd = PvdCollectionWriter(output_dir / "markers.pvd")
+    recon_pvd = SimulationWriter(output_dir / "reconstruction.pvd", mesh=mesh, format="pvd")
+    truth_pvd = SimulationWriter(output_dir / "ground_truth.pvd", mesh=mesh, format="pvd")
+    markers_pvd = SimulationWriter(output_dir / "markers.pvd", format="pvd")
 
     # Export every 2nd step (60 frames at 100 fps) for smooth, lightweight animation
     export_stride = 2
@@ -377,16 +377,12 @@ def main() -> None:
         t_val = step_idx * dt
 
         # 1. Reconstructed Continuum State
-        recon_fname = f"recon_step_{i:03d}.vtu"
         dom_recon.update_state(u=u_recon_rom[step_idx])
-        dom_recon.save_state(filepath=output_dir / recon_fname, include_stresses=False)
-        recon_pvd.add_timestep(timestep=t_val, filename=recon_fname)
+        recon_pvd.add_timestep(time=t_val, domain=dom_recon, step_index=i)
 
         # 2. Ground Truth Continuum State
-        truth_fname = f"truth_step_{i:03d}.vtu"
         dom_truth.update_state(u=u_truth[step_idx])
-        dom_truth.save_state(filepath=output_dir / truth_fname, include_stresses=False)
-        truth_pvd.add_timestep(timestep=t_val, filename=truth_fname)
+        truth_pvd.add_timestep(time=t_val, domain=dom_truth, step_index=i)
 
         # 3. Moving Surface Tracking Markers Point Cloud
         d_3d = op_full.observe_3d(u_truth[step_idx])
@@ -399,20 +395,20 @@ def main() -> None:
 
         marker_fname = f"markers_step_{i:03d}.vtp"
         markers_poly.save(str(output_dir / marker_fname))
-        markers_pvd.add_timestep(timestep=t_val, filename=marker_fname)
+        markers_pvd.add_dataset(filename=marker_fname, timestep=t_val)
 
-    recon_pvd.write()
-    truth_pvd.write()
-    markers_pvd.write()
+    recon_pvd.close()
+    truth_pvd.close()
+    markers_pvd.close()
 
     console.print(
-        f"[bold green]✓ Reconstructed time series exported to:[/bold green] [cyan]{recon_pvd.pvd_path}[/cyan]"
+        f"[bold green]✓ Reconstructed time series exported to:[/bold green] [cyan]{output_dir / 'reconstruction.pvd'}[/cyan]"
     )
     console.print(
-        f"[bold green]✓ Ground truth time series exported to:[/bold green]   [cyan]{truth_pvd.pvd_path}[/cyan]"
+        f"[bold green]✓ Ground truth time series exported to:[/bold green]   [cyan]{output_dir / 'ground_truth.pvd'}[/cyan]"
     )
     console.print(
-        f"[bold green]✓ Dynamic tracking markers exported to:[/bold green]  [cyan]{markers_pvd.pvd_path}[/cyan]\n"
+        f"[bold green]✓ Dynamic tracking markers exported to:[/bold green]  [cyan]{output_dir / 'markers.pvd'}[/cyan]\n"
     )
     console.print(
         "[dim]To visualize live dynamic tracking in ParaView:\n"

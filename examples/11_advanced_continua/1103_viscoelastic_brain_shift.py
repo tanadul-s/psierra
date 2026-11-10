@@ -41,7 +41,7 @@ from psierra.domain import SolidDomain
 from psierra.boundary import DirichletConstraint, DirichletManager, GravityLoad
 from psierra.damping import RayleighDamping
 from psierra.analysis import InteractiveDynamicSimulation
-from psierra.exchange import PvdCollectionWriter
+from psierra.exchange import SimulationWriter
 
 install(show_locals=False)
 console = Console()
@@ -153,8 +153,7 @@ def run_simulation(
     label: str,
 ) -> tuple[float, list[Path]]:
     output_dir.mkdir(parents=True, exist_ok=True)
-    pvd_writer = PvdCollectionWriter(output_dir / "result.pvd")
-    exported_files: list[Path] = []
+    writer = SimulationWriter(output_dir / "result.pvd", mesh=domain.mesh, format="pvd")
 
     sim = InteractiveDynamicSimulation(
         domain=domain,
@@ -170,11 +169,7 @@ def run_simulation(
     )
 
     # Initial frame
-    vtu_0 = output_dir / "step_00000.vtu"
-    domain.save_state(vtu_0)
-    pvd_writer.add_timestep(0.0, vtu_0.name)
-    pvd_writer.write()
-    exported_files.append(vtu_0)
+    writer.add_timestep(time=0.0, domain=domain, step_index=0)
 
     t_start = time.perf_counter()
     for step in range(1, n_steps + 1):
@@ -190,14 +185,11 @@ def run_simulation(
             )
 
         if step % save_interval == 0 or step == n_steps:
-            vtu_step = output_dir / f"step_{step:05d}.vtu"
-            domain.save_state(vtu_step)
-            pvd_writer.add_timestep(t_curr, vtu_step.name)
-            pvd_writer.write()
-            exported_files.append(vtu_step)
+            writer.add_timestep(time=t_curr, domain=domain, step_index=step)
 
+    writer.close()
     solve_wall_time = time.perf_counter() - t_start
-    return solve_wall_time, exported_files
+    return solve_wall_time, writer.exported_files
 
 
 def main() -> None:
