@@ -268,3 +268,45 @@ def test_pvd_and_xdmf_dynamic_fields_parity(
         np.testing.assert_allclose(h5["time_series/step_000000/acceleration"][0], [2.0, 2.0, 2.0])
 
 
+def test_step_0_zero_velocity_saved_when_dynamic(
+    tmp_path: Path, five_tet_cube_mesh: VolumetricMesh, elastic_domain: SolidDomain
+) -> None:
+    """Verifies that at step 0 with zero velocity (rest) and active acceleration, Velocity is saved in both backends."""
+    import pyvista as pv
+
+    u0 = np.zeros(five_tet_cube_mesh.n_dofs)
+    v0 = np.zeros(five_tet_cube_mesh.n_dofs)  # Zero velocity at rest!
+    a0 = np.ones(five_tet_cube_mesh.n_dofs) * -9810.0  # Dynamic initial acceleration
+    elastic_domain.update_state(u=u0, v=v0, a=a0)
+
+    # 1. PVD backend
+    pvd_dir = tmp_path / "zero_v_pvd"
+    with SimulationWriter(pvd_dir, mesh=five_tet_cube_mesh, format="pvd") as writer:
+        writer.add_timestep(time=0.0, domain=elastic_domain)
+
+    vtu_0 = pvd_dir / "step_00000.vtu"
+    assert vtu_0.exists()
+    grid = pv.read(str(vtu_0))
+    assert "Displacement" in grid.point_data
+    assert "Velocity" in grid.point_data
+    assert "Acceleration" in grid.point_data
+    np.testing.assert_allclose(grid.point_data["Velocity"], np.zeros((five_tet_cube_mesh.n_nodes, 3)))
+    np.testing.assert_allclose(grid.point_data["Acceleration"][0], [-9810.0, -9810.0, -9810.0])
+
+    # 2. XDMF backend
+    xdmf_prefix = tmp_path / "zero_v_xdmf"
+    with SimulationWriter(xdmf_prefix, mesh=five_tet_cube_mesh, format="xdmf") as writer:
+        writer.add_timestep(time=0.0, domain=elastic_domain)
+
+    with h5py.File(xdmf_prefix.with_suffix(".h5"), "r") as h5:
+        assert "time_series/step_000000/displacement" in h5
+        assert "time_series/step_000000/velocity" in h5
+        assert "time_series/step_000000/acceleration" in h5
+        np.testing.assert_allclose(h5["time_series/step_000000/velocity"][:], np.zeros((five_tet_cube_mesh.n_nodes, 3)))
+
+    xdmf_text = (tmp_path / "zero_v_xdmf.xdmf").read_text()
+    assert 'Attribute Name="Velocity"' in xdmf_text
+    assert 'Attribute Name="Acceleration"' in xdmf_text
+
+
+

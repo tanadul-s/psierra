@@ -61,9 +61,9 @@ def parse_arguments() -> argparse.Namespace:
     parser.add_argument(
         "--format",
         type=str,
-        choices=["xdmf", "pvd"],
-        default="xdmf",
-        help="Export format: 'xdmf' (clean 2-file HDF5) or 'pvd' (legacy multi-file VTU) (default: xdmf)",
+        choices=["all", "xdmf", "pvd"],
+        default="all",
+        help="Export format: 'all' (both PVD and XDMF), 'xdmf', or 'pvd' (default: all)",
     )
     parser.add_argument(
         "--output-dir",
@@ -119,7 +119,7 @@ def run_linear_static(output_dir: Path, fmt: str) -> float:
     f_ext = gravity.compute_force_vector(M)
 
     solver = LinearStaticAnalysis(domain)
-    out_target = output_dir / "linear_static" / "result"
+    out_target = output_dir / "linear_static" / fmt / "result"
 
     with SimulationWriter(out_target, mesh=mesh, format=fmt) as writer:
         res = solver.solve(dirichlet=dirichlet, f_ext=f_ext, verbose=False, writer=writer)
@@ -159,7 +159,7 @@ def run_linear_dynamic(output_dir: Path, fmt: str) -> float:
     solver = LinearDynamicAnalysis(domain, damping=damping, spectral_radius=0.8)
     dt = 0.005
     n_steps = 10
-    out_target = output_dir / "linear_dynamic" / "result"
+    out_target = output_dir / "linear_dynamic" / fmt / "result"
 
     with SimulationWriter(out_target, mesh=mesh, format=fmt) as writer:
         res = solver.solve(
@@ -205,7 +205,7 @@ def run_nonlinear_static(output_dir: Path, fmt: str) -> float:
 
     solver = NonlinearStaticAnalysis(domain)
     n_steps = 10
-    out_target = output_dir / "nonlinear_static" / "result"
+    out_target = output_dir / "nonlinear_static" / fmt / "result"
 
     with SimulationWriter(out_target, mesh=mesh, format=fmt) as writer:
         res = solver.solve(
@@ -253,7 +253,7 @@ def run_nonlinear_dynamic(output_dir: Path, fmt: str) -> float:
     solver = NonlinearDynamicAnalysis(domain, damping=damping, spectral_radius=0.8)
     dt = 0.005
     n_steps = 10
-    out_target = output_dir / "nonlinear_dynamic" / "result"
+    out_target = output_dir / "nonlinear_dynamic" / fmt / "result"
 
     with SimulationWriter(out_target, mesh=mesh, format=fmt) as writer:
         res = solver.solve(
@@ -329,7 +329,7 @@ def run_checkpoint_and_resume_test(output_dir: Path, fmt: str) -> None:
     f_ext_split = gravity.compute_force_vector(M_split)
     solver_phase1 = NonlinearDynamicAnalysis(domain_split, damping=damping, spectral_radius=0.8)
 
-    out_archive = output_dir / f"resume_test_{fmt}" / "run_resumable"
+    out_archive = output_dir / "resume_test" / fmt / "run_resumable"
     if out_archive.parent.exists():
         import shutil
         shutil.rmtree(out_archive.parent, ignore_errors=True)
@@ -493,20 +493,28 @@ def main() -> None:
 
     t0 = time.perf_counter()
 
-    if args.type in ("linear_static", "all"):
-        run_linear_static(out_dir, fmt)
+    formats = ["pvd", "xdmf"] if fmt == "all" else [fmt]
 
-    if args.type in ("linear_dynamic", "all"):
-        run_linear_dynamic(out_dir, fmt)
+    for current_fmt in formats:
+        if len(formats) > 1:
+            console.print(f"\n[bold magenta]══════════════════════════════════════════════════════════════[/bold magenta]")
+            console.print(f"[bold magenta]▶ Executing Format Pipeline: {current_fmt.upper()}[/bold magenta]")
+            console.print(f"[bold magenta]══════════════════════════════════════════════════════════════[/bold magenta]")
 
-    if args.type in ("nonlinear_static", "all"):
-        run_nonlinear_static(out_dir, fmt)
+        if args.type in ("linear_static", "all"):
+            run_linear_static(out_dir, current_fmt)
 
-    if args.type in ("nonlinear_dynamic", "all"):
-        run_nonlinear_dynamic(out_dir, fmt)
+        if args.type in ("linear_dynamic", "all"):
+            run_linear_dynamic(out_dir, current_fmt)
 
-    if args.type in ("resume", "all"):
-        run_checkpoint_and_resume_test(out_dir, fmt)
+        if args.type in ("nonlinear_static", "all"):
+            run_nonlinear_static(out_dir, current_fmt)
+
+        if args.type in ("nonlinear_dynamic", "all"):
+            run_nonlinear_dynamic(out_dir, current_fmt)
+
+        if args.type in ("resume", "all"):
+            run_checkpoint_and_resume_test(out_dir, current_fmt)
 
     elapsed = time.perf_counter() - t0
     console.print(f"[bold green]✓ Simulation 1104 completed in {elapsed:.2f} s.[/bold green]\n")
