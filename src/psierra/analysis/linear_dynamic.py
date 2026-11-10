@@ -226,10 +226,14 @@ class LinearDynamicAnalysis(Analysis):
         u_f = self.domain.u[free_dofs].copy()
         v_f = self.domain.v[free_dofs].copy()
 
-        # Initial acceleration: M_ff * a0_f = F_ext_f - C_ff * v_f - K_ff * u_f
-        r0 = f_ext_f - C_ff @ v_f - K_ff @ u_f
-        M_ff_csc = M_ff.tocsc()
-        a_f = spspla.spsolve(M_ff_csc, r0)
+        # If domain carries active acceleration (e.g. checkpoint restart), preserve it:
+        if np.any(self.domain.a[free_dofs] != 0.0):
+            a_f = self.domain.a[free_dofs].copy()
+        else:
+            # Initial acceleration: M_ff * a0_f = F_ext_f - C_ff * v_f - K_ff * u_f
+            r0 = f_ext_f - C_ff @ v_f - K_ff @ u_f
+            M_ff_csc = M_ff.tocsc()
+            a_f = spspla.spsolve(M_ff_csc, r0)
 
         # Full vectors for output
         u_full = np.zeros(self.domain.n_dofs, dtype=np.float64)

@@ -154,6 +154,17 @@ class SolidDomain(Domain):
         if hasattr(self.material, "revert_state"):
             self.material.revert_state()
 
+    def get_history_variables(self) -> dict[str, np.ndarray]:
+        """Returns material history variables for simulation checkpointing."""
+        if hasattr(self.material, "get_history_variables"):
+            return self.material.get_history_variables()
+        return {}
+
+    def set_history_variables(self, vars: dict[str, np.ndarray]) -> None:
+        """Restores material history variables from checkpoint."""
+        if hasattr(self.material, "set_history_variables"):
+            self.material.set_history_variables(vars)
+
     # =========================================================================
     # Global Matrix & Vector Assembly
     # =========================================================================

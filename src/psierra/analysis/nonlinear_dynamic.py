@@ -176,6 +176,9 @@ class NonlinearDynamicAnalysis(Analysis):
         kinetic_energy_tol: float | None = None,
         consecutive_hold_steps: int = 3,
         verbose: bool = True,
+        writer: Any | None = None,
+        initial_step: int = 0,
+        initial_time: float = 0.0,
         *,
         al_max_iterations: int = 50,
         al_gap_tol: float = 1e-6,
@@ -310,9 +313,10 @@ class NonlinearDynamicAnalysis(Analysis):
         # Preserve free initial displacement/velocity; supports have v_p=a_p=0.
         u_full = self.domain.u.copy()
         v_full = self.domain.v.copy()
-        a_full = np.zeros(self.domain.n_dofs, dtype=np.float64)
+        a_full = self.domain.a.copy()
         u_full[p_dofs] = u_p
         v_full[p_dofs] = 0.0
+        a_full[p_dofs] = 0.0
         self.domain.update_state(u=u_full, v=v_full, a=a_full)
 
         # 2. Assemble Constant Mass Matrix M and Initial Damping Matrix C
@@ -346,11 +350,15 @@ class NonlinearDynamicAnalysis(Analysis):
             ),
             np.zeros(self.domain.n_dofs, dtype=np.float64),
         )
-        r0 = f_ext_f + f_c0[free_dofs] - C_ff @ v_f - f_int0[free_dofs]
-        a_f = self.linear_solver.solve(M_ff.tocsc(), r0)
-
-        a_full[free_dofs] = a_f
-        self.domain.update_state(u=u_full, v=v_full, a=a_full)
+        # If domain already carries active dynamic acceleration (e.g. from checkpoint restart),
+        # preserve it; otherwise evaluate initial acceleration from dynamic equilibrium:
+        if np.any(self.domain.a[free_dofs] != 0.0):
+            a_f = self.domain.a[free_dofs].copy()
+        else:
+            r0 = f_ext_f + f_c0[free_dofs] - C_ff @ v_f - f_int0[free_dofs]
+            a_f = self.linear_solver.solve(M_ff.tocsc(), r0)
+            a_full[free_dofs] = a_f
+            self.domain.update_state(u=u_full, v=v_full, a=a_full)
 
         # 4. Prepare Time Loop Tracking
         time_points = np.linspace(0, n_steps * dt, n_steps + 1)
@@ -364,6 +372,9 @@ class NonlinearDynamicAnalysis(Analysis):
         )
 
         # Save Initial Step 0
+        if writer is not None and initial_step == 0:
+            writer.add_timestep(time=initial_time, domain=self.domain, step_index=0)
+
         if save_dir is not None and pvd_writer is not None:
             vtu_name = "step_00000.vtu"
             vtu_path = save_dir / vtu_name
@@ -390,7 +401,8 @@ class NonlinearDynamicAnalysis(Analysis):
 
         # 5. Dynamic Time Stepping Loop
         for step in range(1, n_steps + 1):
-            t_current = step * dt
+            t_current = initial_time + step * dt
+            step_idx = initial_step + step
             accepted_u = self.domain.u.copy()
             accepted_v = self.domain.v.copy()
             accepted_a = self.domain.a.copy()
@@ -650,6 +662,9 @@ class NonlinearDynamicAnalysis(Analysis):
 
             # Save frame
             saved_current_step = False
+            if writer is not None and (step % save_interval == 0 or step == n_steps):
+                writer.add_timestep(time=t_current, domain=self.domain, step_index=step_idx)
+
             if (
                 save_dir is not None
                 and pvd_writer is not None

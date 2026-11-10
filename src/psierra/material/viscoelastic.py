@@ -283,6 +283,23 @@ class Viscoelastic(Material):
         self._Q_trial.fill(0.0)
         self._S0_trial.fill(0.0)
 
+    def get_history_variables(self) -> dict[str, np.ndarray]:
+        """Returns deep copies of internal state history tensors for checkpointing."""
+        return {
+            "Q": self._Q.copy(),
+            "S0_prev": self._S0_prev.copy(),
+        }
+
+    def set_history_variables(self, vars: dict[str, np.ndarray]) -> None:
+        """Restores internal state history tensors from checkpoint."""
+        if "Q" in vars:
+            self._Q = np.asarray(vars["Q"], dtype=np.float64).copy()
+            self._Q_trial = self._Q.copy()
+            self._n_elements = self._Q.shape[1]
+        if "S0_prev" in vars:
+            self._S0_prev = np.asarray(vars["S0_prev"], dtype=np.float64).copy()
+            self._S0_trial = self._S0_prev.copy()
+
     # =========================================================================
     # Constitutive Stress & Tangent Evaluation
     # =========================================================================
