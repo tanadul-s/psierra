@@ -95,9 +95,12 @@ This roadmap is laser-focused on biological soft-tissue mechanics, robust contac
   * Implement `Tet4Fbar` with Flory volumetric/isochoric split: $\bar{\boldsymbol{F}} = (\bar{J}/J)^{1/3} \boldsymbol{F}$.
   * Nodal-averaged volumetric dilatation eliminating locking in nearly incompressible soft tissue ($\nu \to 0.5$).
   * Formulated within the Total Lagrangian framework; consistent material and geometric tangent stiffness matrices $\boldsymbol{K}_T$.
-* [ ] **Viscoelastic Constitutive Laws**:
-  * Generalized Maxwell / Prony series relaxation spectrum: $G(t) = G_\infty + \sum_{m=1}^{N_p} G_m e^{-t / \tau_m}$.
-  * Internal strain history variable tracking per quadrature point for stress relaxation and creep.
+* [x] **Viscoelastic Constitutive Laws (`psierra.material.viscoelastic`)**:
+  * Generalized Maxwell / Prony series relaxation spectrum: $G(t) = G_\infty + \sum_{m=1}^{N_p} G_m e^{-t / \tau_m}$, $\eta(\Delta t) = g_\infty + \sum g_m \beta_m(\Delta t)$.
+  * Exact recursive exponential time integration (Simo 1987, Holzapfel 2000) with history tracking ($\boldsymbol{Q}_{m, n+1}$, $\boldsymbol{S}^0_n$).
+  * Algorithmic tangent scaling: $\mathbb{C}_{n+1} = \eta(\Delta t) \mathbb{C}^0_{n+1}$.
+  * Full integration with domain lifecycle (`SolidDomain.set_time_step`, `commit_state`, `revert_state`) and element classes (`Tet4Base`, `Tet4TotalLagrangian`, `Tet4Fbar`).
+  * Unit tested across 13 comprehensive test scenarios (100% pass) and validated on dynamic beam and patient-specific neurosurgical brain shift benchmarks.
 * [ ] **Unified HDF5 Simulation Storage & Checkpointing (`h5py`)**:
   * Single-file hierarchical storage container (`.h5`): mesh, constitutive parameters, resizable snapshot datasets, and reduced bases.
   * Simulation state checkpointing: `SimulationCheckpoint(t_n, u_n, v_n, a_n, lambda_n, dt_n)`.
