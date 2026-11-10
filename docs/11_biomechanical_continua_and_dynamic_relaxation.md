@@ -281,4 +281,36 @@ f_net = f_gravity + f_buoyancy
 - **[`1106_hydrostatic_buoyancy_beam.py`](../examples/11_advanced_continua/1106_hydrostatic_buoyancy_beam.py)**: Cantilever beam under gravity and water buoyancy across all 4 analyses (Linear Static, Linear Dynamic, TL Static, TL Dynamic), demonstrating a 50% buoyant sag reduction.
 - **[`1107_hydrostatic_buoyancy_brain.py`](../examples/11_advanced_continua/1107_hydrostatic_buoyancy_brain.py)**: Patient-specific MRI brain shift under gravity and CSF buoyancy across all 4 analyses, demonstrating $96.2\%$ buoyant gravitational relief and subcortical tumor drift telemetry.
 
+---
+
+## 9. Neurosurgical Burr Hole Brain Shift: Cortical Bulging vs. Gravitational Sagging
+
+### 9.1 Clinical Biomechanics
+During cranial burr hole surgery (e.g. chronic subdural hematoma drainage, stereotactic biopsy, ventriculostomy, or deep brain stimulation lead placement), two opposing deformation phenomena occur depending on intracranial pressure and patient posture:
+
+1. **Cortical Bulging (Herniation / Prolapse)**:
+   - *Etiology*: Intracranial hypertension, cerebral edema, hypercapnia, or subcortical tumor mass effect.
+   - *Mechanics*: The rigid skull and tough dura mater normally prevent outward expansion. Drilling a $12 - 16\text{ mm}$ burr hole releases the displacement constraint ($u_n = 0$) over that circular patch. Internal turgor and ventricular pressure push the parenchyma outward, causing tissue to mushroom through the aperture into the skull defect.
+   - *Clinical Risk*: Cortical strangulation, vascular compromise, and parenchymal infarction against the sharp bony edge of the burr hole.
+
+2. **Cortical Sagging (Cerebral Collapse / Pneumocephalus)**:
+   - *Etiology*: Patient in supine / semi-sitting posture with a superior nondependent burr hole (e.g., Kocher's point).
+   - *Mechanics*: Dural incision allows CSF to drain out rapidly while air enters the subdural space. Draining CSF destroys Archimedean buoyancy ($96.2\%$ gravitational relief lost). Under the unbuoyed downward pull of gravity ($14.5\text{ N}$), the cerebral hemisphere sags down into the occipital skull base, dropping $5 - 12\text{ mm}$ away from the burr hole opening.
+   - *Clinical Risk*: Stereotactic targeting error (2–4 mm shift in deep brain nuclei), cortical bridging vein tension, and acute subdural hemorrhage.
+
+### 9.2 Implementation & Verification (`1108_burr_hole_brain_shift.py`)
+Simulation 1108 provides an end-to-end clinical digital twin:
+- **Kocher's Point Burr Hole**: Right frontal convexity ($X=26.5, Y=40.0, Z=43.0\text{ mm}$, radius $R=8.0\text{ mm}$, diameter $16.0\text{ mm}$).
+- **Exported 3D Aperture Geometry**:
+  - `burr_hole_bone_collar.vtp`: 3D annular cranial bone table collar showing the exact skull perforation thickness ($5.0\text{ mm}$).
+  - `burr_hole_perimeter_ring.vtp`: Circular contour wireframe marking the aperture rim.
+  - `cranial_meninges.vtp`: Dural surface mesh with boolean scalar field `burr_hole_aperture`.
+- **Solver Strategies**:
+  - **Linear Static Analysis**: Fast, direct sparse solve ($\sim 5\text{ s}$ runtime).
+  - **Dynamic Relaxation Analysis**: Matrix-free explicit kinetic relaxation ($< 0.5\%$ error relative to direct static).
+- **Results Summary**:
+  - Bulging Case: $+4.422\text{ mm}$ outward protrusion mushrooming through the burr hole ring.
+  - Sagging Case: $-4.589\text{ mm}$ inward collapse opening a pneumocephalus air gap under the burr hole.
+
+
 

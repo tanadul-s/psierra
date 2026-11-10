@@ -119,6 +119,11 @@ This roadmap is laser-focused on biological soft-tissue mechanics, robust contac
   * Configurable patient head orientation ($\hat{\boldsymbol{u}}_{\text{up}} = -\boldsymbol{g}/\|\boldsymbol{g}\|$) and dynamic CSF drainage fluid level $h_{\text{fluid}}$.
   * Models Archimedean neutral buoyancy (96.2% gravitational relief on brain parenchyma) and craniotomy CSF leak sag progression.
   * Complete 4-analysis suites implemented and verified across both cantilever beam (`1106_hydrostatic_buoyancy_beam.py`) and patient MRI brain anatomy (`1107_hydrostatic_buoyancy_brain.py`).
+* [x] **Neurosurgical Burr Hole Brain Shift (`1108_burr_hole_brain_shift.py`)**:
+  * Implemented cortical bulging (ICP / subcortical tumor edema herniation) vs. gravitational sagging (cerebral collapse / subdural sink from CSF loss) through a surgical burr hole (Kocher's Point, $R = 8.0\text{ mm}$, $\varnothing = 16\text{ mm}$).
+  * Rigid calvarium & intact dural boundary envelope with circular aperture boundary release.
+  * Solved with both Linear Static Analysis and Matrix-Free Dynamic Relaxation with kinetic damping ($< 0.5\%$ agreement).
+  * Automatically exports 3D cranial bone table collar (`burr_hole_bone_collar.vtp`), circular perimeter ring (`burr_hole_perimeter_ring.vtp`), and cortical meninges (`cranial_meninges.vtp`) for direct ParaView spatial overlay.
 
 ---
 
