@@ -137,6 +137,13 @@ def parse_arguments() -> argparse.Namespace:
         help="Generalized-alpha spectral radius rho_inf in [0, 1] (default: 0.8)",
     )
     parser.add_argument(
+        "--format",
+        type=str,
+        choices=["xdmf", "pvd"],
+        default="xdmf",
+        help="Visualization export format: 'xdmf' (XDMF+HDF5) or 'pvd' (PVD+VTU) (default: xdmf)",
+    )
+    parser.add_argument(
         "--output-dir",
         type=str,
         default="results/08_contact/0806_mortar_dynamic_rigid_floor",
@@ -308,6 +315,7 @@ def main() -> None:
         factor=0.0,
         save_directory=output_dir,
         output_name="result",
+        format=args.format,
         save_interval=1,
         verbose=True,
     )
@@ -361,12 +369,13 @@ def main() -> None:
     )
     console.print(table)
 
+    export_file = output_dir / f"result.{args.format}"
     console.print(
         Panel.fit(
-            f"[bold green]✓ Mortar Dynamic Mesh Contact Saved to {output_dir / 'result.xdmf'}[/bold green]\n"
+            f"[bold green]✓ Mortar Dynamic Mesh Contact Saved to {export_file}[/bold green]\n"
             f"[dim]Assembly Layer: MultiBodySystem containing both {system.names}[/dim]\n"
             f"[dim]Segment-to-segment mortar integration accurately prevented penetration and conserved momentum.[/dim]\n"
-            f"[dim]Open result.xdmf in ParaView and apply 'Warp By Vector' (Displacement) to view dynamic motion.[/dim]",
+            f"[dim]Open {export_file.name} in ParaView and apply 'Warp By Vector' (Displacement) to view dynamic motion.[/dim]",
             border_style="green",
         )
     )

@@ -82,6 +82,7 @@ class MultiBodySystem(Domain):
 
         self._n_bodies = len(self._bodies)
         self._contacts: list[Any] = list(contacts) if contacts is not None else []
+        self._combined_mesh: Any | None = None
 
         # Precompute DOF offsets and slices
         self._dof_offsets = np.zeros(self._n_bodies + 1, dtype=np.int64)
@@ -133,6 +134,32 @@ class MultiBodySystem(Domain):
     def contacts(self) -> list[Any]:
         """List of active contact constraints defined on the multi-body system."""
         return self._contacts
+
+    @property
+    def mesh(self) -> Any:
+        """
+        Unified reference volumetric mesh combining all constituent bodies in the system.
+        Enables seamless XDMF/HDF5 and PVD/VTU state persistence across solvers.
+        """
+        if self._combined_mesh is None:
+            from psierra.mesh.volumetric import VolumetricMesh
+            pv_grid = self.to_pyvista(factor=0.0)
+            self._combined_mesh = VolumetricMesh(pv_grid)
+        return self._combined_mesh
+
+    @property
+    def n_nodes(self) -> int:
+        """Total number of nodes across all constituent bodies."""
+        return sum(body.mesh.n_nodes for body in self._bodies if hasattr(body, "mesh"))
+
+    @property
+    def nodes(self) -> np.ndarray:
+        """Reference undeformed coordinates of all nodes across all bodies (stacked)."""
+        return np.vstack([b.mesh.nodes for b in self._bodies if hasattr(b, "mesh")])
+
+    def invalidate_mesh(self) -> None:
+        """Invalidate the cached combined volumetric mesh."""
+        self._combined_mesh = None
 
     def __getitem__(self, key: str | int) -> Domain:
         """Retrieves a constituent body domain by name or integer index."""
