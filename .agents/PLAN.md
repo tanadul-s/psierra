@@ -181,11 +181,14 @@ This roadmap is laser-focused on biological soft-tissue mechanics, robust contac
   * Greedy DEIM / Q-DEIM row selection determining interpolation indices $\boldsymbol{P} \in \mathbb{R}^{n \times m_f}$.
   * Support for internal history variables (viscoelasticity).
   * Online reduced nonlinear force approximation: $\boldsymbol{f}_r \approx \boldsymbol{\Phi}^T \boldsymbol{\Psi}_f (\boldsymbol{P}^T \boldsymbol{\Psi}_f)^{-1} \boldsymbol{f}_{\text{int}}(\boldsymbol{u})[\boldsymbol{P}]$.
-* [ ] **Contact-Aware ECSW & Enriched POD Basis (Method 2 Hyper-Reduced Contact)**:
+* [x] **Contact-Aware ECSW & Enriched POD Basis (Method 2 Hyper-Reduced Contact)**:
   * Joint cubature training in ECSW incorporating virtual work from contact boundary interfaces:
     $$\boldsymbol{A}_{\text{joint}} = \begin{bmatrix} \boldsymbol{A}_{\text{vol}} \\ \alpha_c \boldsymbol{A}_{\text{contact}} \end{bmatrix}, \quad \boldsymbol{c}_{c, i}^{(k)} = \boldsymbol{\Phi}_{s, i}^T \boldsymbol{f}_{c, i}^{(k)}$$
-  * Automatic clustering of reduced integration domain (RID) elements around high-gradient contact zones.
-  * Localized modal basis enrichment: Krylov contact vectors and dual-mode basis $\boldsymbol{\Phi} = [\boldsymbol{\Phi}_{\text{bulk}}, \boldsymbol{\Phi}_{\text{contact}}]$.
+  * Automatic clustering of reduced integration domain (RID) elements around high-gradient contact zones (`ContactAwareECSWOptimizer` with scoring boost $\beta_c \ge 1.0$).
+  * Localized modal basis enrichment: Krylov compliance modes ($K_0^{-1} f_c$) and dual-mode basis $\boldsymbol{\Phi} = [\boldsymbol{\Phi}_{\text{bulk}}, \boldsymbol{\Phi}_{\text{contact}}]$ with exact block-orthonormality ($\|\boldsymbol{\Phi}^T \boldsymbol{\Phi} - \boldsymbol{I}_r\|_F < 10^{-14}$).
+  * Delivered core modules: [`EnrichedPODBasis`](../src/psierra/reduction/basis.py), [`ContactAwareReducedIntegrationDomain`](../src/psierra/hyperreduction/contact_ecsw.py), [`ContactAwareECSWTrainingMatrix`](../src/psierra/hyperreduction/contact_ecsw.py), [`ContactAwareECSWOptimizer`](../src/psierra/hyperreduction/contact_ecsw.py), [`ContactAwareHyperReducedModel`](../src/psierra/hyperreduction/contact_ecsw.py).
+  * 7 automated mathematical verification tests in [`tests/test_hyperreduction_contact_aware_ecsw.py`](../tests/test_hyperreduction_contact_aware_ecsw.py) validating orthonormality, exact contact virtual work conservation, RID contact clustering, tangent stiffness symmetry, and real-time dynamic solves.
+  * Delivered new executable simulation: [`examples/13_hyperreduction/1302_contact_aware_ecsw.py`](../examples/13_hyperreduction/1302_contact_aware_ecsw.py).
 * [ ] **Pure CPU Low-Latency Execution**:
   * Retain CPU-optimized dense Cholesky/BLAS for online ROM execution to avoid PCIe bus transfer latency ($< 15\ \mu\text{s}$ response, $> 1,000\text{ Hz}$).
 
@@ -211,7 +214,7 @@ This roadmap is laser-focused on biological soft-tissue mechanics, robust contac
     6. `examples/12_advanced_contact/1201_3pillar_regularized_impact.py`: High-energy dynamic impact with adaptive cutback & $C^1$ pseudonormals.
     7. `examples/12_advanced_contact/1202_mortar_contact_friction.py`: Segment-to-segment mortar contact with Coulomb stick-slip.
     8. `examples/13_hyperreduction/1301_deim_hyperelastic_force.py`: Discrete Empirical Interpolation (DEIM) vs. ECSW.
-    9. `examples/13_hyperreduction/1302_contact_aware_ecsw.py`: Deformable contact hyper-reduced with joint bulk + contact cubature.
+    9. [x] `examples/13_hyperreduction/1302_contact_aware_ecsw.py`: Deformable contact hyper-reduced with joint bulk + contact cubature.
     10. `examples/14_clinical_digital_twins/1401_neurosurgical_digital_twin_complete.py`: **The Grand Flagship Simulation** combining patient-specific brain with tumor, Tet4Fbar + viscoelasticity, falx cerebri membrane, CSF drainage, real-time ROM shape sensing, and HDF5 storage.
 
 ---
