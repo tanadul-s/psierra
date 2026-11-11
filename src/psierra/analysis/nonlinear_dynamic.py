@@ -706,6 +706,7 @@ class NonlinearDynamicAnalysis(Analysis):
                             res_norm,
                             inner_tolerance,
                             contact_active=bool(contact_list),
+                            reference_norm=residual_scale,
                         )
                         if ls_result.success:
                             u_f_i = u_f_i + ls_result.alpha * du_f

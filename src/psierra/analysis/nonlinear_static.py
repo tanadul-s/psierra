@@ -391,6 +391,7 @@ class NonlinearStaticAnalysis(Analysis):
                         residual_norm,
                         inner_tolerance,
                         contact_active=bool(contact_list),
+                        reference_norm=f_ref_step,
                     )
                     if ls_result.success:
                         u_current[free_dofs] += ls_result.alpha * du_free

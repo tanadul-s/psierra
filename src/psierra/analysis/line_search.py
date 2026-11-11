@@ -124,6 +124,7 @@ class ContactAwareLineSearch:
         inner_tolerance: float,
         *,
         contact_active: bool = False,
+        reference_norm: float | None = None,
     ) -> LineSearchResult:
         """Execute contact-aware backtracking line search.
 
@@ -138,11 +139,20 @@ class ContactAwareLineSearch:
             Absolute residual tolerance for direct convergence acceptance.
         contact_active : bool, default=False
             Whether contact constraints are currently present or active in the model.
+        reference_norm : float | None, default=None
+            Characteristic system force scale (e.g. external load or contact scale).
+            When provided, used to establish a physical baseline scale for bounded
+            contact activation and fallback thresholds.
         """
         alpha = 1.0
         best_norm = np.inf
         best_alpha = 1.0
         inversion_encountered = False
+        norm_scale = (
+            max(current_norm, reference_norm)
+            if reference_norm is not None
+            else current_norm
+        )
 
         for iter_idx in range(1, self.max_iterations + 1):
             is_inverted = False
@@ -204,7 +214,7 @@ class ContactAwareLineSearch:
                 contact_active
                 and iter_idx == 1
                 and alpha == 1.0
-                and cand_norm < self.full_step_tolerance * current_norm
+                and cand_norm < self.full_step_tolerance * norm_scale
                 and not is_inverted
             ):
                 return LineSearchResult(
@@ -221,7 +231,7 @@ class ContactAwareLineSearch:
         # Post-loop: Check Contact-Aware Fallback
         if (
             np.isfinite(best_norm)
-            and best_norm < self.contact_fallback_tolerance * current_norm
+            and best_norm < self.contact_fallback_tolerance * norm_scale
             and (contact_active or not inversion_encountered)
         ):
             return LineSearchResult(
@@ -237,7 +247,7 @@ class ContactAwareLineSearch:
         reason = (
             "Element inversion detected across all evaluated step lengths"
             if (not np.isfinite(best_norm) and inversion_encountered)
-            else f"Residual {best_norm:.4e} exceeded fallback tolerance {self.contact_fallback_tolerance * current_norm:.4e}"
+            else f"Residual {best_norm:.4e} exceeded fallback tolerance {self.contact_fallback_tolerance * norm_scale:.4e}"
         )
         return LineSearchResult(
             success=False,
