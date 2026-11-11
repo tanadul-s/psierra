@@ -186,7 +186,9 @@ def main() -> None:
     out_path.mkdir(parents=True, exist_ok=True)
 
     # 1. Load Meshes
-    console.print("\n[bold yellow][1/5] Loading Volumetric Mesh Geometries...[/bold yellow]")
+    console.print(
+        "\n[bold yellow][1/5] Loading Volumetric Mesh Geometries...[/bold yellow]"
+    )
     pad_file = _resolve_mesh_path(args.pad_mesh)
     pole_file = _resolve_mesh_path(args.pole_mesh)
     if not pad_file.exists():
@@ -210,7 +212,9 @@ def main() -> None:
     )
 
     # 2. Material & Deformable Continuum Domains
-    console.print("\n[bold yellow][2/5] Initializing Deformable Continuum Domains...[/bold yellow]")
+    console.print(
+        "\n[bold yellow][2/5] Initializing Deformable Continuum Domains...[/bold yellow]"
+    )
     # Pole: Stiff structural alloy (E = 50 GPa = 50,000 MPa, nu = 0.25, rho = 2.7e-6 kg/mm^3)
     params_pole = IsotropicElasticParameters()
     params_pole.set_from_youngs_poisson(
@@ -234,7 +238,9 @@ def main() -> None:
     pad_domain = SolidDomain(pad_mesh, mat_pad, elem_pad)
 
     # 3. Assemble MultiBodySystem & Register Two-Way Contact
-    console.print("\n[bold yellow][3/5] Assembling MultiBodySystem and Registering Contact Pair...[/bold yellow]")
+    console.print(
+        "\n[bold yellow][3/5] Assembling MultiBodySystem and Registering Contact Pair...[/bold yellow]"
+    )
     system = MultiBodySystem(
         {
             "Pole": pole_domain,
@@ -247,7 +253,9 @@ def main() -> None:
         pad_sl = system.get_body_dof_slice("Pad")
         u_init[pad_sl] = np.tile([args.initial_offset_x, 0.0, 0.0], pad_mesh.n_nodes)
         system.update_state(u=u_init)
-        console.print(f"  Applied Initial Displacement to Pad: X = {args.initial_offset_x:.2f} mm")
+        console.print(
+            f"  Applied Initial Displacement to Pad: X = {args.initial_offset_x:.2f} mm"
+        )
 
     # Candidate contact nodes on Pad: inner hole (r < 65 mm)
     surf_nodes = pad_mesh.surface.node_indices
@@ -278,22 +286,30 @@ def main() -> None:
     pole_offset = int(system._dof_offsets[0])
     dirichlet = DirichletManager(system.n_dofs)
     dirichlet.add_constraint(
-        DirichletConstraint(pole_inner_nodes, components=(0, 1, 2), dof_offset=pole_offset)
+        DirichletConstraint(
+            pole_inner_nodes, components=(0, 1, 2), dof_offset=pole_offset
+        )
     )
     console.print(
         f"  Pole Dirichlet Boundary Condition: {len(pole_inner_nodes)} nodes fixed at inner cylindrical mounting shaft"
     )
 
     # 4. External Loads & Generalized-alpha Dynamic Integration
-    console.print("\n[bold yellow][4/5] Assembling System Dynamics & Generalized-alpha Solver...[/bold yellow]")
+    console.print(
+        "\n[bold yellow][4/5] Assembling System Dynamics & Generalized-alpha Solver...[/bold yellow]"
+    )
     gravity = GravityLoad(acceleration=(args.gx, args.gy, 0.0))
     M = system.assemble_mass_matrix()
     f_ext = gravity.compute_force_vector(M)
 
     mass_pole = float(np.sum(M[: pole_domain.n_dofs, : pole_domain.n_dofs]) / 3.0)
     mass_pad = float(np.sum(M[pole_domain.n_dofs :, pole_domain.n_dofs :]) / 3.0)
-    console.print(f"  System Masses: Pole = {mass_pole:.3f} kg, Pad = {mass_pad:.3f} kg")
-    console.print(f"  Total System DOFs: {system.n_dofs} (Pole: {pole_domain.n_dofs}, Pad: {pad_domain.n_dofs})")
+    console.print(
+        f"  System Masses: Pole = {mass_pole:.3f} kg, Pad = {mass_pad:.3f} kg"
+    )
+    console.print(
+        f"  Total System DOFs: {system.n_dofs} (Pole: {pole_domain.n_dofs}, Pad: {pad_domain.n_dofs})"
+    )
 
     damping = RayleighDamping(alpha=1.0, beta=0.001)
     solver = NonlinearDynamicAnalysis(
@@ -303,7 +319,9 @@ def main() -> None:
     )
 
     # 5. Execute Simulation
-    console.print("\n[bold yellow][5/5] Launching Two-Way Dynamic Contact Simulation...[/bold yellow]")
+    console.print(
+        "\n[bold yellow][5/5] Launching Two-Way Dynamic Contact Simulation...[/bold yellow]"
+    )
     start_time = time.perf_counter()
     sol = solver.solve(
         dirichlet=dirichlet,
@@ -345,16 +363,26 @@ def main() -> None:
 
     summary_table.add_row(
         "Solver Status",
-        "[bold green]CONVERGED (All Steps Resolved)[/bold green]"
-        if sol.converged
-        else "[bold red]FAILED[/bold red]",
+        (
+            "[bold green]CONVERGED (All Steps Resolved)[/bold green]"
+            if sol.converged
+            else "[bold red]FAILED[/bold red]"
+        ),
     )
     summary_table.add_row("Wall Clock Time", f"{elapsed:.2f} s")
     summary_table.add_row("Steps Completed", f"{sol.steps_completed} / {args.steps}")
-    summary_table.add_row("Total Time Simulated", f"{sol.steps_completed * args.dt * 1000:.1f} ms")
-    n_active = len(np.atleast_1d(contact_info.get("active_nodes", []))) if "active_nodes" in contact_info else 0
+    summary_table.add_row(
+        "Total Time Simulated", f"{sol.steps_completed * args.dt * 1000:.1f} ms"
+    )
+    n_active = (
+        len(np.atleast_1d(contact_info.get("active_nodes", [])))
+        if "active_nodes" in contact_info
+        else 0
+    )
     summary_table.add_row("Active Contact Nodes", f"{n_active} nodes")
-    summary_table.add_row("Max Penetration Depth", f"{contact_info.get('max_penetration', 0.0):.4f} mm")
+    summary_table.add_row(
+        "Max Penetration Depth", f"{contact_info.get('max_penetration', 0.0):.4f} mm"
+    )
     summary_table.add_row("Total Contact Force ||F_c||", f"{f_c_norm:.2f} N")
     summary_table.add_row("Pad Max Lateral Disp (X)", f"{max_ux_pad:.3f} mm")
     summary_table.add_row("Pad Max Axial Disp (Y)", f"{max_uy_pad:.3f} mm")
@@ -362,8 +390,12 @@ def main() -> None:
     summary_table.add_row("Pole Max Axial Disp (Y)", f"{max_uy_pole:.3f} mm")
     summary_table.add_row("Stick Candidates", f"{contact_info.get('num_stick', 0)}")
     summary_table.add_row("Slip Candidates", f"{contact_info.get('num_slip', 0)}")
-    summary_table.add_row("Max Friction Force", f"{contact_info.get('max_friction_force', 0.0):.2f} N")
-    summary_table.add_row("Max Slip Distance", f"{contact_info.get('max_slip_distance', 0.0):.4f} mm")
+    summary_table.add_row(
+        "Max Friction Force", f"{contact_info.get('max_friction_force', 0.0):.2f} N"
+    )
+    summary_table.add_row(
+        "Max Slip Distance", f"{contact_info.get('max_slip_distance', 0.0):.4f} mm"
+    )
     summary_table.add_row("Exported Frames", f"{len(sol.time_series_files)} frame(s)")
 
     console.print()
