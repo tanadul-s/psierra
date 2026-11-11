@@ -115,9 +115,17 @@ class HyperReducedRigidContact:
         # Pre-slice 3D modal sub-basis: (N_surf, 3, r)
         self.Phi_surf_3d = self.surface_basis.basis.reshape(self.n_surface_nodes, 3, self.r)
 
-        # Candidate subset indexing
+        # Candidate subset indexing (supports both global mesh node indices and surface-local indices)
         if candidate_node_indices is not None:
-            self.candidate_indices = np.asarray(candidate_node_indices, dtype=np.int64).ravel()
+            cand_arr = np.asarray(candidate_node_indices, dtype=np.int64).ravel()
+            surf_nodes = self.model.domain.mesh.surface.node_indices
+            if np.any(cand_arr >= self.n_surface_nodes) or np.any(cand_arr < 0):
+                # Map global mesh node IDs to surface sub-mesh indices
+                global_to_surf = {int(gid): s_idx for s_idx, gid in enumerate(surf_nodes)}
+                mapped = [global_to_surf[gid] for gid in cand_arr if gid in global_to_surf]
+                self.candidate_indices = np.array(mapped, dtype=np.int64)
+            else:
+                self.candidate_indices = cand_arr
         else:
             self.candidate_indices = np.arange(self.n_surface_nodes, dtype=np.int64)
 

@@ -13,7 +13,9 @@ from __future__ import annotations
 from collections.abc import Sequence
 from dataclasses import dataclass
 import numpy as np
+import scipy.linalg as spla
 import scipy.sparse as spsp
+import scipy.sparse.linalg as spspla
 
 
 @dataclass(frozen=True)
@@ -284,3 +286,195 @@ class PODBasis:
 
         sliced_matrix = self.basis[surface_dofs, :].copy()
         return SurfacePODBasis(surface_dofs=surface_dofs, basis=sliced_matrix)
+
+
+@dataclass(frozen=True)
+class EnrichedPODBasis(PODBasis):
+    """
+    Contact-Enriched Modal Basis: Phi = [Phi_bulk, Phi_contact] in R^(n_dofs x (r_bulk + r_contact)).
+
+    Combines:
+    1. Global low-frequency POD displacement modes Phi_bulk (bending, vibration, bulk compliance).
+    2. Localized contact enrichment modes Phi_contact (Krylov contact vectors, contact force response,
+       or contact displacement residual modes), orthogonalized against Phi_bulk:
+           Phi_contact_ortho = (I - Phi_bulk @ Phi_bulk^T) @ Phi_contact_raw
+       followed by QR/SVD orthonormalization.
+
+    Guarantees:
+        Phi_enriched^T @ Phi_enriched = I_r to machine precision (< 1e-12).
+    """
+
+    n_bulk_modes: int = 0
+    n_contact_modes: int = 0
+
+    def __post_init__(self) -> None:
+        super().__post_init__()
+        if self.n_bulk_modes < 0 or self.n_contact_modes < 0:
+            raise ValueError("n_bulk_modes and n_contact_modes must be non-negative.")
+        if self.n_bulk_modes + self.n_contact_modes != self.n_modes:
+            raise ValueError(
+                f"Sum of bulk ({self.n_bulk_modes}) and contact ({self.n_contact_modes}) modes "
+                f"must equal total modes ({self.n_modes})."
+            )
+
+    @property
+    def bulk_basis(self) -> np.ndarray:
+        """Modal sub-matrix corresponding to bulk deformation modes in R^(n_dofs x r_bulk)."""
+        return self.basis[:, : self.n_bulk_modes]
+
+    @property
+    def contact_basis(self) -> np.ndarray:
+        """Modal sub-matrix corresponding to contact enrichment modes in R^(n_dofs x r_contact)."""
+        return self.basis[:, self.n_bulk_modes :]
+
+    @classmethod
+    def from_snapshots_and_contact(
+        cls,
+        bulk_snapshots: np.ndarray,
+        contact_snapshots: np.ndarray | None = None,
+        contact_forces: np.ndarray | None = None,
+        K_0: spsp.spmatrix | np.ndarray | None = None,
+        energy_threshold_bulk: float = 0.999,
+        max_bulk_modes: int | None = None,
+        energy_threshold_contact: float = 0.99,
+        max_contact_modes: int | None = None,
+    ) -> EnrichedPODBasis:
+        """
+        Constructs an orthonormal contact-enriched modal basis from bulk snapshots
+        and localized contact responses.
+
+        Parameters:
+        -----------
+        bulk_snapshots : np.ndarray of shape (n_dofs, m_bulk)
+            Displacement snapshots capturing free / global deformation.
+        contact_snapshots : np.ndarray of shape (n_dofs, m_contact), optional
+            Displacement snapshots capturing states with active contact.
+        contact_forces : np.ndarray of shape (n_dofs, m_forces), optional
+            Nodal contact force snapshots from contact interfaces.
+        K_0 : spmatrix or ndarray of shape (n_dofs, n_dofs), optional
+            Linear or tangent stiffness matrix used to generate Krylov contact
+            compliance modes (K_0^{-1} f_c).
+        energy_threshold_bulk : float, default=0.999
+            Cumulative energy threshold for bulk POD modes.
+        max_bulk_modes : int, optional
+            Maximum allowed bulk modes.
+        energy_threshold_contact : float, default=0.99
+            Cumulative energy threshold for contact enrichment modes.
+        max_contact_modes : int, optional
+            Maximum allowed contact enrichment modes.
+
+        Returns:
+        --------
+        basis : EnrichedPODBasis
+        """
+        S_bulk = np.asarray(bulk_snapshots, dtype=np.float64)
+        if S_bulk.ndim == 1:
+            S_bulk = S_bulk.reshape(-1, 1)
+        n_dofs = S_bulk.shape[0]
+
+        # 1. Bulk POD Basis Extraction
+        U_b, s_b, _ = spla.svd(S_bulk, full_matrices=False)
+        energies_b = s_b**2
+        total_energy_b = float(np.sum(energies_b))
+
+        if total_energy_b < 1e-16:
+            r_bulk = 1
+            cum_energy_b = 1.0
+        else:
+            cum_energies_b = np.cumsum(energies_b) / total_energy_b
+            r_bulk = int(np.searchsorted(cum_energies_b, energy_threshold_bulk) + 1)
+            r_bulk = min(r_bulk, len(s_b))
+            if max_bulk_modes is not None:
+                r_bulk = min(r_bulk, max_bulk_modes)
+            r_bulk = max(1, r_bulk)
+            cum_energy_b = float(cum_energies_b[r_bulk - 1])
+
+        Phi_bulk = U_b[:, :r_bulk].copy()
+
+        # 2. Extract Candidate Contact Enrichment Vectors
+        contact_vectors: list[np.ndarray] = []
+
+        # 2A. Contact force Krylov / static compliance modes: psi = K_0^{-1} f_c
+        if contact_forces is not None and K_0 is not None:
+            F_c = np.asarray(contact_forces, dtype=np.float64)
+            if F_c.ndim == 1:
+                F_c = F_c.reshape(-1, 1)
+            for col in range(F_c.shape[1]):
+                f_vec = F_c[:, col]
+                if np.linalg.norm(f_vec) > 1e-10:
+                    try:
+                        if spsp.issparse(K_0):
+                            psi = spspla.spsolve(K_0.tocsc(), f_vec)
+                        else:
+                            psi = np.linalg.solve(K_0, f_vec)
+                        if np.all(np.isfinite(psi)) and np.linalg.norm(psi) > 1e-12:
+                            contact_vectors.append(psi / np.linalg.norm(psi))
+                    except Exception:
+                        pass
+
+        # 2B. Contact displacement residual modes: r = u_c - Phi_bulk @ (Phi_bulk^T u_c)
+        if contact_snapshots is not None:
+            S_contact = np.asarray(contact_snapshots, dtype=np.float64)
+            if S_contact.ndim == 1:
+                S_contact = S_contact.reshape(-1, 1)
+            R_contact = S_contact - Phi_bulk @ (Phi_bulk.T @ S_contact)
+            r_norms = np.linalg.norm(R_contact, axis=0)
+            for col in range(S_contact.shape[1]):
+                if r_norms[col] > 1e-8:
+                    contact_vectors.append(R_contact[:, col] / r_norms[col])
+
+        # 3. Orthogonalize Contact Modes Against Bulk Subspace
+        r_contact = 0
+        Q_contact = np.empty((n_dofs, 0), dtype=np.float64)
+
+        if contact_vectors:
+            Psi_raw = np.column_stack(contact_vectors)
+            # Project out bulk subspace: (I - Phi_bulk @ Phi_bulk^T) @ Psi_raw
+            Psi_ortho = Psi_raw - Phi_bulk @ (Phi_bulk.T @ Psi_raw)
+            col_norms = np.linalg.norm(Psi_ortho, axis=0)
+            valid_mask = col_norms > 1e-8
+
+            if np.any(valid_mask):
+                Psi_valid = Psi_ortho[:, valid_mask]
+                U_c, s_c, _ = spla.svd(Psi_valid, full_matrices=False)
+                energies_c = s_c**2
+                total_energy_c = float(np.sum(energies_c))
+
+                if total_energy_c > 1e-16:
+                    cum_energies_c = np.cumsum(energies_c) / total_energy_c
+                    r_c = int(np.searchsorted(cum_energies_c, energy_threshold_contact) + 1)
+                    r_c = min(r_c, len(s_c))
+                    if max_contact_modes is not None:
+                        r_c = min(r_c, max_contact_modes)
+                    r_c = max(1, r_c)
+
+                    # Two-pass Gram-Schmidt / QR for machine-precision orthogonality
+                    Phi_cand = U_c[:, :r_c].copy()
+                    Phi_cand = Phi_cand - Phi_bulk @ (Phi_bulk.T @ Phi_cand)
+                    Q_c, R_qr = np.linalg.qr(Phi_cand, mode="reduced")
+                    # Filter rank-deficient columns
+                    r_diag = np.abs(np.diag(R_qr))
+                    cutoff = 1e-8 * (np.max(r_diag) if r_diag.size > 0 else 1.0)
+                    keep = np.where(r_diag > cutoff)[0]
+                    Q_contact = Q_c[:, keep]
+                    # Second pass
+                    Q_contact = Q_contact - Phi_bulk @ (Phi_bulk.T @ Q_contact)
+                    Q_contact, _ = np.linalg.qr(Q_contact, mode="reduced")
+                    r_contact = Q_contact.shape[1]
+
+        # 4. Concatenate and Package Orthonormal Enriched Basis
+        if r_contact > 0:
+            Phi_enriched = np.column_stack([Phi_bulk, Q_contact])
+            s_enriched = np.concatenate([s_b[:r_bulk], np.ones(r_contact)])
+        else:
+            Phi_enriched = Phi_bulk
+            s_enriched = s_b[:r_bulk]
+
+        return cls(
+            basis=Phi_enriched,
+            singular_values=s_enriched,
+            cumulative_energy=cum_energy_b,
+            total_energy=total_energy_b,
+            n_bulk_modes=r_bulk,
+            n_contact_modes=r_contact,
+        )

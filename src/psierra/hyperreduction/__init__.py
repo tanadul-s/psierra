@@ -20,6 +20,12 @@ from psierra.hyperreduction.ecsw import (
     ECSWTrainingMatrix,
     ECSWOptimizer,
 )
+from psierra.hyperreduction.contact_ecsw import (
+    ContactAwareReducedIntegrationDomain,
+    ContactAwareECSWTrainingMatrix,
+    ContactAwareECSWOptimizer,
+    ContactAwareHyperReducedModel,
+)
 from psierra.hyperreduction.model import HyperReducedNonlinearModel
 from psierra.hyperreduction.solver import (
     HyperReducedNonlinearStaticSolver,
@@ -31,6 +37,10 @@ __all__ = [
     "ReducedIntegrationDomain",
     "ECSWTrainingMatrix",
     "ECSWOptimizer",
+    "ContactAwareReducedIntegrationDomain",
+    "ContactAwareECSWTrainingMatrix",
+    "ContactAwareECSWOptimizer",
+    "ContactAwareHyperReducedModel",
     "HyperReducedNonlinearModel",
     "HyperReducedNonlinearStaticSolver",
     "HyperReducedNonlinearDynamicSolver",

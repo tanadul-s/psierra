@@ -8,7 +8,7 @@ Provides:
 - ReducedLinearDynamicSolver: Sub-millisecond Generalized-alpha online dynamic solver.
 """
 
-from psierra.reduction.basis import PODBasis, SurfacePODBasis
+from psierra.reduction.basis import PODBasis, SurfacePODBasis, EnrichedPODBasis
 from psierra.reduction.snapshots import SnapshotManager
 from psierra.reduction.model import ReducedLinearModel
 from psierra.reduction.solver import (
@@ -20,6 +20,7 @@ from psierra.reduction.solver import (
 __all__ = [
     "PODBasis",
     "SurfacePODBasis",
+    "EnrichedPODBasis",
     "SnapshotManager",
     "ReducedLinearModel",
     "ReducedLinearDynamicSolver",
