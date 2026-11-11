@@ -185,9 +185,7 @@ class TestDeformableContactMechanics:
 class TestAugmentedLagrangianFormulation:
     """Tests multiplier updates and zero penetration enforcement."""
 
-    def test_multiplier_convergence(
-        self, five_tet_cube_mesh: VolumetricMesh
-    ) -> None:
+    def test_multiplier_convergence(self, five_tet_cube_mesh: VolumetricMesh) -> None:
         params = IsotropicElasticParameters()
         params.set_from_youngs_poisson(1000.0, 0.3, 1.0)
         mat = Hookean(params)
@@ -257,7 +255,10 @@ class TestTwoBodyStaticSolve:
 
         system = MultiBodySystem({"Upper": upper, "Lower": lower})
         contact = system.add_contact_pair(
-            slave="Upper", master="Lower", k_penalty=2e4, formulation="augmented_lagrangian"
+            slave="Upper",
+            master="Lower",
+            k_penalty=2e4,
+            formulation="augmented_lagrangian",
         )
 
         # Boundary conditions:
@@ -272,8 +273,12 @@ class TestTwoBodyStaticSolve:
 
         # - Lateral guide for upper cube to prevent rigid slip in X and Z
         top_nodes = np.where(np.isclose(upper.mesh.nodes[:, 1], 1.0))[0]
-        guide_x = DirichletConstraint(top_nodes, components=(0,), value=0.0, dof_offset=0)
-        guide_z = DirichletConstraint(top_nodes, components=(2,), value=0.0, dof_offset=0)
+        guide_x = DirichletConstraint(
+            top_nodes, components=(0,), value=0.0, dof_offset=0
+        )
+        guide_z = DirichletConstraint(
+            top_nodes, components=(2,), value=0.0, dof_offset=0
+        )
         prescribe_top = DirichletConstraint(
             top_nodes, components=(1,), value=-0.1, dof_offset=0
         )
@@ -289,7 +294,7 @@ class TestTwoBodyStaticSolve:
             dirichlet=dirichlet,
             n_steps=2,
             nr_tol=1e-3,
-            verbose=False,
+            verbose=True,
         )
 
         assert result.converged
@@ -298,19 +303,25 @@ class TestTwoBodyStaticSolve:
         # Both cubes must experience downward deformation
         assert upper.displacement[:, 1].min() < -0.05
         assert lower.displacement[:, 1].min() < 0.0
-        assert lower.displacement[:, 1].min() < 0.0    # lower cube compressed
+        assert lower.displacement[:, 1].min() < 0.0  # lower cube compressed
 
         # Acceptance must satisfy equilibrium and the AL fixed-point constraint
         # together, using the stored multipliers without an unchecked update.
         contact_force = contact.evaluate_forces(n_dofs=system.n_dofs)
         internal_force = system.assemble_internal_forces()
         free = dirichlet.free_dofs
-        scale = max(np.linalg.norm(contact_force[free]), np.linalg.norm(internal_force[free]), 1.0)
+        scale = max(
+            np.linalg.norm(contact_force[free]),
+            np.linalg.norm(internal_force[free]),
+            1.0,
+        )
         assert np.linalg.norm((contact_force - internal_force)[free]) / scale < 1e-3
         gaps = contact.evaluate_gaps()
         assert np.max(np.maximum(-gaps, 0.0)) <= 1e-6
         proposed = np.maximum(0.0, contact.multipliers - contact.k_penalty * gaps)
-        multiplier_scale = max(np.max(np.abs(proposed)), np.max(np.abs(contact.multipliers)))
+        multiplier_scale = max(
+            np.max(np.abs(proposed)), np.max(np.abs(contact.multipliers))
+        )
         assert multiplier_scale > 0.0
         assert np.max(np.abs(proposed - contact.multipliers)) / multiplier_scale <= 1e-6
         assert len(result.al_iterations_history) == 2
