@@ -21,6 +21,12 @@ from psierra.collision.shapes import CollisionShape
 from psierra.collision.raytrace import RayMeshObstacle
 from psierra.collision.detector import CollisionDetector, ContactQueryResult
 from psierra.collision.triangle import TriangleContactGeometry, TriangleGap
+from psierra.boundary.friction import (
+    StickSlipState,
+    CoulombFrictionState,
+    CoulombFrictionSnapshot,
+    CoulombFrictionModel,
+)
 
 
 class ContactMultiplierState:
@@ -35,6 +41,10 @@ class ContactMultiplierState:
     multipliers: np.ndarray
     k_penalty: float
     formulation: str
+    friction: float = 0.0
+    k_tangential: float = 1e4
+    symmetric_tangent: bool = False
+    friction_state: CoulombFrictionState | None = None
 
     def evaluate_gaps(self, current_nodes: np.ndarray | None = None) -> np.ndarray:
         """Return candidate-aligned signed normal constraint gaps [length]."""
@@ -43,6 +53,15 @@ class ContactMultiplierState:
     def snapshot_multipliers(self) -> np.ndarray:
         """Copy the current accepted normal multipliers [force]."""
         return self.multipliers.copy()
+
+    def snapshot_friction_state(self) -> CoulombFrictionSnapshot | None:
+        """Copy the current candidate stick-slip friction state."""
+        return self.friction_state.snapshot() if self.friction_state is not None else None
+
+    def restore_friction_state(self, snap: CoulombFrictionSnapshot | None) -> None:
+        """Restore candidate stick-slip friction state from a snapshot."""
+        if self.friction_state is not None and snap is not None:
+            self.friction_state.restore(snap)
 
     def invalidate_state(self) -> None:
         """Invalidate derived queries after a multiplier/state transaction."""
@@ -107,7 +126,26 @@ class ContactMultiplierState:
             relaxed = self.multipliers.copy()
             relaxed[rebounded] = 0.0
             self.set_multipliers(relaxed)
+        if self.friction_state is not None and len(gaps) == self.friction_state.n_candidates:
+            sep = gaps > gap_tol
+            if np.any(sep):
+                self.friction_state.anchors[sep] = np.nan
+                self.friction_state.trial_anchors[sep] = np.nan
+                self.friction_state.trial_slip_increments[sep] = 0.0
+                self.friction_state.states[sep] = StickSlipState.INACTIVE
+                self.friction_state.forces[sep] = 0.0
+                self.friction_state.multipliers[sep] = 0.0
         return n_relaxed
+
+    def commit_state(self) -> None:
+        """Commits converged contact friction state at the end of a load/time step."""
+        if (
+            hasattr(self, "friction")
+            and self.friction > 0.0
+            and hasattr(self, "friction_state")
+            and self.friction_state is not None
+        ):
+            self.friction_state.commit_step()
 
 
 class RigidContact(ContactMultiplierState):
@@ -144,12 +182,14 @@ class RigidContact(ContactMultiplierState):
         body: int | str | Domain | None = None,
         slave_nodes: Sequence[int] | np.ndarray | None = None,
         k_penalty: float = 1e4,
+        k_tangential: float | None = None,
         c_damping: float = 0.0,
         friction: float = 0.0,
         dof_offset: int = 0,
         dofs_per_node: int = 3,
         formulation: Literal["penalty", "augmented_lagrangian"] = "penalty",
         tolerance: float = 0.0,
+        symmetric_tangent: bool = False,
     ) -> None:
         """
         Parameters:
@@ -168,6 +208,8 @@ class RigidContact(ContactMultiplierState):
             Candidate contact node indices on the slave body (defaults to surface nodes).
         k_penalty : float, default=1e4
             Normal penalty contact stiffness (N/mm).
+        k_tangential : float, optional
+            Tangential penalty / stick stiffness (defaults to k_penalty).
         c_damping : float, default=0.0
             Contact velocity damping coefficient (N*s/mm).
         friction : float, default=0.0
@@ -180,6 +222,8 @@ class RigidContact(ContactMultiplierState):
             Contact constraint enforcement scheme.
         tolerance : float, default=0.0
             Penetration activation threshold (gap <= tolerance).
+        symmetric_tangent : bool, default=False
+            Whether to enforce symmetric friction tangent by omitting unsymmetric K_TN.
         """
         # Resolve master / obstacle
         if master is None and obstacle is not None:
@@ -246,12 +290,14 @@ class RigidContact(ContactMultiplierState):
         if not np.isfinite(k_penalty) or k_penalty <= 0.0:
             raise ValueError("k_penalty must be finite and positive")
         self.k_penalty = float(k_penalty)
+        self.k_tangential = float(k_tangential if k_tangential is not None else k_penalty)
         self.c_damping = float(c_damping)
         self.friction = float(friction)
         self.dof_offset = int(dof_offset)
         self.dofs_per_node = int(dofs_per_node)
         self.formulation = formulation
         self.tolerance = float(tolerance)
+        self.symmetric_tangent = bool(symmetric_tangent)
 
         # Determine candidate slave nodes
         if slave_nodes is not None:
@@ -293,6 +339,8 @@ class RigidContact(ContactMultiplierState):
             self.slave_nodes = None
             self.multipliers = np.zeros(0, dtype=np.float64)
 
+        self.friction_state = CoulombFrictionState(len(self.multipliers))
+
     # =========================================================================
     # Contact Evaluation
     # =========================================================================
@@ -326,10 +374,14 @@ class RigidContact(ContactMultiplierState):
 
     def _resolve_slave_nodes(self, all_nodes: np.ndarray) -> np.ndarray:
         if self.slave_nodes is not None:
+            if self.friction_state is None or self.friction_state.n_candidates != len(self.slave_nodes):
+                self.friction_state = CoulombFrictionState(len(self.slave_nodes))
             return self.slave_nodes
         s_nodes = np.arange(len(all_nodes), dtype=np.int64)
         if len(self.multipliers) != len(s_nodes):
             self.multipliers = np.zeros(len(s_nodes), dtype=np.float64)
+        if self.friction_state is None or self.friction_state.n_candidates != len(s_nodes):
+            self.friction_state = CoulombFrictionState(len(s_nodes))
         return s_nodes
 
     def query_contact(
@@ -391,6 +443,9 @@ class RigidContact(ContactMultiplierState):
         query_res = self.detector.query(nodes[s_nodes], tolerance=self.tolerance)
         active_idx = self._active_indices(query_res)
         if len(active_idx) == 0:
+            if self.friction_state is not None:
+                self.friction_state.states.fill(StickSlipState.INACTIVE)
+                self.friction_state.forces.fill(0.0)
             return f_c
 
         active_nodes = s_nodes[active_idx]
@@ -404,7 +459,56 @@ class RigidContact(ContactMultiplierState):
         else:
             # Elastic penalty force: f_c = -k_p * g * n = k_p * |g| * n
             # Since g <= 0, -k_p * g is strictly non-negative
-            spring_forces = -self.k_penalty * gaps[:, None] * normals  # (M, 3)
+            f_N = -self.k_penalty * gaps
+            spring_forces = f_N[:, None] * normals  # (M, 3)
+
+        # Coulomb stick-slip friction forces
+        if self.friction > 0.0:
+            if self.friction_state is None or self.friction_state.n_candidates != len(s_nodes):
+                self.friction_state = CoulombFrictionState(len(s_nodes))
+
+            inact_mask = np.ones(len(s_nodes), dtype=bool)
+            inact_mask[active_idx] = False
+            self.friction_state.anchors[inact_mask] = np.nan
+            self.friction_state.states[inact_mask] = StickSlipState.INACTIVE
+            self.friction_state.forces[inact_mask] = 0.0
+            self.friction_state.multipliers[inact_mask] = 0.0
+
+            for i, cand_idx in enumerate(active_idx):
+                node_id = active_nodes[i]
+                x_curr = nodes[node_id]
+                n_curr = normals[i]
+                p_N_val = float(f_N[i])
+
+                anchor = self.friction_state.anchors[cand_idx]
+                if np.isnan(anchor[0]):
+                    anchor = x_curr.copy()
+                    self.friction_state.anchors[cand_idx] = anchor
+
+                delta_u = x_curr - anchor
+                lam_T = self.friction_state.multipliers[cand_idx]
+
+                f_T, _, _, state, s_dir = CoulombFrictionModel.return_mapping(
+                    p_N=p_N_val,
+                    normal=n_curr,
+                    delta_u_rel=delta_u,
+                    mu=self.friction,
+                    k_T=self.k_tangential,
+                    k_N=self.k_penalty,
+                    lambda_T=lam_T,
+                    symmetric_tangent=self.symmetric_tangent,
+                )
+
+                self.friction_state.states[cand_idx] = state
+                self.friction_state.forces[cand_idx] = f_T
+                self.friction_state.slip_dirs[cand_idx] = s_dir
+
+                if state == StickSlipState.SLIP:
+                    elastic_slip = -(self.friction * p_N_val / self.k_tangential) * s_dir
+                    self.friction_state.trial_anchors[cand_idx] = x_curr - elastic_slip
+                    self.friction_state.trial_slip_increments[cand_idx] = float(np.linalg.norm(delta_u - elastic_slip))
+
+                spring_forces[i] += f_T
 
         # Contact damping force: f_d = -c_p * (v . n) * n (when v . n < 0)
         if self.c_damping > 0.0 and velocities is not None:
@@ -439,7 +543,7 @@ class RigidContact(ContactMultiplierState):
     ) -> spsp.csr_matrix:
         """
         Assembles the sparse tangent contact stiffness matrix K_c.
-        K_c = sum_{active} (k_p + a_1 * c_p) * (n (x) n)
+        K_c = sum_{active} (k_p + a_1 * c_p) * (n (x) n) + K_friction
 
         Parameters:
         -----------
@@ -460,16 +564,16 @@ class RigidContact(ContactMultiplierState):
             else:
                 n_dofs = len(nodes) * self.dofs_per_node + self.dof_offset
 
-        query_res = self.detector.query(nodes[s_nodes], tolerance=0.0)
+        query_res = self.detector.query(nodes[s_nodes], tolerance=self.tolerance)
         active_idx = self._active_indices(query_res)
         if len(active_idx) == 0:
             return spsp.csr_matrix((n_dofs, n_dofs), dtype=np.float64)
 
         active_nodes = s_nodes[active_idx]
         normals = query_res.normals[active_idx]
+        gaps = query_res.gaps[active_idx]
 
         num_active = len(active_nodes)
-        # Each active node adds a 3x3 symmetric block (9 entries)
         rows = np.zeros(num_active * 9, dtype=np.int64)
         cols = np.zeros(num_active * 9, dtype=np.int64)
         vals = np.zeros(num_active * 9, dtype=np.float64)
@@ -480,14 +584,38 @@ class RigidContact(ContactMultiplierState):
         for i, node_id in enumerate(active_nodes):
             dof_start = self.dof_offset + node_id * self.dofs_per_node
             n = normals[i]
-            # Outer product n (x) n
-            nn = np.outer(n, n)
+            k_block = kp * np.outer(n, n)
+
+            if self.friction > 0.0 and self.friction_state is not None:
+                cand_idx = active_idx[i]
+                node_pos = nodes[node_id]
+                anchor = self.friction_state.anchors[cand_idx]
+                delta_u = (node_pos - anchor) if not np.isnan(anchor[0]) else np.zeros(3, dtype=np.float64)
+
+                lam_T = self.friction_state.multipliers[cand_idx]
+                p_N_val = (
+                    float(np.maximum(0.0, self.multipliers[cand_idx] - self.k_penalty * gaps[i]))
+                    if self.formulation == "augmented_lagrangian" and len(self.multipliers) > cand_idx
+                    else float(-self.k_penalty * gaps[i])
+                )
+
+                _, K_TT, K_TN, _, _ = CoulombFrictionModel.return_mapping(
+                    p_N=p_N_val,
+                    normal=n,
+                    delta_u_rel=delta_u,
+                    mu=self.friction,
+                    k_T=self.k_tangential,
+                    k_N=self.k_penalty,
+                    lambda_T=lam_T,
+                    symmetric_tangent=self.symmetric_tangent,
+                )
+                k_block = k_block + K_TT + K_TN
 
             for a in range(3):
                 for b in range(3):
                     rows[entry_idx] = dof_start + a
                     cols[entry_idx] = dof_start + b
-                    vals[entry_idx] = kp * nn[a, b]
+                    vals[entry_idx] = k_block[a, b]
                     entry_idx += 1
 
         K_c = spsp.coo_matrix(
@@ -530,13 +658,19 @@ class RigidContact(ContactMultiplierState):
         active_nodes = s_nodes[active_idx]
         energy = self.evaluate_potential_energy(current_nodes)
 
-        return {
+        info: dict[str, float | int | np.ndarray] = {
             "num_active": num_active,
             "max_penetration": max_pen,
             "active_nodes": active_nodes,
             "potential_energy": energy,
             "max_multiplier": float(np.max(self.multipliers)) if len(self.multipliers) > 0 else 0.0,
         }
+        if self.friction_state is not None:
+            info["num_stick"] = int(np.count_nonzero(self.friction_state.states == StickSlipState.STICK))
+            info["num_slip"] = int(np.count_nonzero(self.friction_state.states == StickSlipState.SLIP))
+            info["max_friction_force"] = float(np.max(np.linalg.norm(self.friction_state.forces, axis=1), initial=0.0))
+            info["max_slip_distance"] = float(np.max(self.friction_state.slip_distances, initial=0.0))
+        return info
 
 @dataclass(frozen=True)
 class _DeformableContactQuery:
@@ -585,6 +719,7 @@ class DeformableContact(ContactMultiplierState):
         master: Domain,
         slave_nodes: Sequence[int] | np.ndarray | None = None,
         k_penalty: float = 1e4,
+        k_tangential: float | None = None,
         c_damping: float = 0.0,
         friction: float = 0.0,
         slave_offset: int = 0,
@@ -592,6 +727,7 @@ class DeformableContact(ContactMultiplierState):
         domain: Domain | None = None,
         formulation: Literal["penalty", "augmented_lagrangian"] = "penalty",
         tolerance: float = 0.0,
+        symmetric_tangent: bool = False,
         *,
         smoothed_normals: bool = False,
         smoothing_weight: Literal["angle", "area"] = "angle",
@@ -626,6 +762,7 @@ class DeformableContact(ContactMultiplierState):
         self.slave = slave
         self.master = master
         self.k_penalty = float(k_penalty)
+        self.k_tangential = float(k_tangential if k_tangential is not None else k_penalty)
         self.c_damping = float(c_damping)
         self.friction = float(friction)
         self.slave_offset = int(slave_offset)
@@ -633,6 +770,7 @@ class DeformableContact(ContactMultiplierState):
         self.domain = domain
         self.formulation = formulation
         self.tolerance = float(tolerance)
+        self.symmetric_tangent = bool(symmetric_tangent)
         self.smoothed_normals = bool(smoothed_normals)
         self.smoothing_weight = str(smoothing_weight)
 
@@ -650,6 +788,9 @@ class DeformableContact(ContactMultiplierState):
             self.slave_nodes = np.arange(self.slave.mesh.n_nodes, dtype=np.int64)
         else:
             self.slave_nodes = np.arange(self.slave.n_dofs // 3, dtype=np.int64)
+
+        self.multipliers = np.zeros(len(self.slave_nodes), dtype=np.float64)
+        self.friction_state = CoulombFrictionState(len(self.slave_nodes))
 
         if not hasattr(self.master, "mesh") or not hasattr(self.master.mesh, "surface"):
             raise TypeError("Master domain must possess a surface mesh representation.")
@@ -799,24 +940,66 @@ class DeformableContact(ContactMultiplierState):
         for query in self._queries():
             pressure, _ = self._pressure(query)
             if pressure <= 0.0:
+                if self.friction_state is not None and query.slave_index < self.friction_state.n_candidates:
+                    self.friction_state.anchors[query.slave_index] = np.nan
+                    self.friction_state.states[query.slave_index] = StickSlipState.INACTIVE
+                    self.friction_state.forces[query.slave_index] = 0.0
+                    self.friction_state.multipliers[query.slave_index] = 0.0
                 continue
             geometry = query.geometry
             indices = self._dof_indices(query)
             local_force = pressure * geometry.gradient
-            if velocity is not None:
+
+            # Normal velocity damping
+            if velocity is not None and self.c_damping > 0.0:
                 weights = np.r_[1.0, -geometry.barycentric]
                 relative_velocity = weights @ velocity[indices].reshape(4, 3)
                 normal_velocity = float(relative_velocity @ geometry.normal)
-                if self.c_damping > 0.0 and normal_velocity < 0.0:
+                if normal_velocity < 0.0:
                     local_force += -self.c_damping * normal_velocity * geometry.gradient
-                tangential_velocity = relative_velocity - normal_velocity * geometry.normal
-                speed = float(np.linalg.norm(tangential_velocity))
-                if self.friction > 0.0 and speed > 1e-9:
-                    friction_force = (
-                        -self.friction * pressure * np.tanh(speed / 1e-3)
-                        * tangential_velocity / speed
-                    )
-                    local_force += np.kron(weights, friction_force)
+
+            # Coulomb stick-slip friction
+            if self.friction > 0.0:
+                if self.friction_state is None or self.friction_state.n_candidates != len(self.slave_nodes):
+                    self.friction_state = CoulombFrictionState(len(self.slave_nodes))
+
+                s_coord = self.slave.current_nodes[query.slave_node]
+                m_coords = self.master.current_nodes[query.master_nodes]
+                m_proj = geometry.barycentric @ m_coords
+                x_rel = s_coord - m_proj
+
+                anchor = self.friction_state.anchors[query.slave_index]
+                if np.isnan(anchor[0]):
+                    anchor = x_rel.copy()
+                    self.friction_state.anchors[query.slave_index] = anchor
+
+                delta_u_rel = x_rel - anchor
+                lam_T = self.friction_state.multipliers[query.slave_index]
+
+                f_T, _, _, state, s_dir = CoulombFrictionModel.return_mapping(
+                    p_N=pressure,
+                    normal=geometry.normal,
+                    delta_u_rel=delta_u_rel,
+                    mu=self.friction,
+                    k_T=self.k_tangential,
+                    k_N=self.k_penalty,
+                    lambda_T=lam_T,
+                    symmetric_tangent=self.symmetric_tangent,
+                )
+
+                self.friction_state.states[query.slave_index] = state
+                self.friction_state.forces[query.slave_index] = f_T
+                self.friction_state.slip_dirs[query.slave_index] = s_dir
+
+                if state == StickSlipState.SLIP:
+                    elastic_slip = -(self.friction * pressure / self.k_tangential) * s_dir
+                    self.friction_state.trial_anchors[query.slave_index] = x_rel - elastic_slip
+                    self.friction_state.trial_slip_increments[query.slave_index] = float(np.linalg.norm(delta_u_rel - elastic_slip))
+
+                weights = np.r_[1.0, -geometry.barycentric]
+                f_T_local = np.kron(weights, f_T)
+                local_force += f_T_local
+
             np.add.at(forces, indices, local_force)
         return forces
 
@@ -847,6 +1030,30 @@ class DeformableContact(ContactMultiplierState):
                 (self.k_penalty + a1 * self.c_damping) * np.outer(gradient, gradient)
                 - pressure * geometry.hessian
             )
+            if self.friction > 0.0 and self.friction_state is not None:
+                weights = np.r_[1.0, -geometry.barycentric]
+                s_coord = self.slave.current_nodes[query.slave_node]
+                m_coords = self.master.current_nodes[query.master_nodes]
+                m_proj = geometry.barycentric @ m_coords
+                x_rel = s_coord - m_proj
+
+                anchor = self.friction_state.anchors[query.slave_index]
+                delta_u_rel = (x_rel - anchor) if not np.isnan(anchor[0]) else np.zeros(3, dtype=np.float64)
+                lam_T = self.friction_state.multipliers[query.slave_index]
+
+                _, K_TT, K_TN, _, _ = CoulombFrictionModel.return_mapping(
+                    p_N=pressure,
+                    normal=geometry.normal,
+                    delta_u_rel=delta_u_rel,
+                    mu=self.friction,
+                    k_T=self.k_tangential,
+                    k_N=self.k_penalty,
+                    lambda_T=lam_T,
+                    symmetric_tangent=self.symmetric_tangent,
+                )
+                K_T_local = CoulombFrictionModel.assemble_two_body_stiffness(K_TT, K_TN, weights)
+                tangent = tangent + K_T_local
+
             indices = self._dof_indices(query)
             rows.append(np.repeat(indices, 12))
             columns.append(np.tile(indices, 12))
@@ -887,13 +1094,19 @@ class DeformableContact(ContactMultiplierState):
             if pressure > 0.0 or query.geometry.gap < 0.0:
                 active_nodes.append(query.slave_node)
                 max_penetration = max(max_penetration, -query.geometry.gap)
-        return {
+        info: dict[str, Any] = {
             "num_active": len(active_nodes),
             "max_penetration": max_penetration,
             "active_nodes": np.asarray(active_nodes, dtype=np.int64),
             "potential_energy": energy,
             "max_multiplier": float(np.max(self.multipliers)) if self.multipliers.size else 0.0,
         }
+        if self.friction_state is not None:
+            info["num_stick"] = int(np.count_nonzero(self.friction_state.states == StickSlipState.STICK))
+            info["num_slip"] = int(np.count_nonzero(self.friction_state.states == StickSlipState.SLIP))
+            info["max_friction_force"] = float(np.max(np.linalg.norm(self.friction_state.forces, axis=1), initial=0.0))
+            info["max_slip_distance"] = float(np.max(self.friction_state.slip_distances, initial=0.0))
+        return info
 
 
 @dataclass(frozen=True)
@@ -945,6 +1158,7 @@ class SelfContact(ContactMultiplierState):
         contact_nodes: Sequence[int] | np.ndarray | None = None,
         *,
         k_penalty: float = 1e4,
+        k_tangential: float | None = None,
         c_damping: float = 0.0,
         friction: float = 0.0,
         dof_offset: int = 0,
@@ -956,6 +1170,7 @@ class SelfContact(ContactMultiplierState):
         exclusion_rings: int = 4,
         smoothed_normals: bool = False,
         smoothing_weight: Literal["angle", "area"] = "angle",
+        symmetric_tangent: bool = False,
     ) -> None:
         """Bind surface candidates, material-independent contact law and search.
 
@@ -1011,6 +1226,7 @@ class SelfContact(ContactMultiplierState):
 
         self.domain = domain
         self.k_penalty = float(k_penalty)
+        self.k_tangential = float(k_tangential if k_tangential is not None else k_penalty)
         self.c_damping = float(c_damping)
         self.friction = float(friction)
         self.dof_offset = int(dof_offset)
@@ -1020,6 +1236,7 @@ class SelfContact(ContactMultiplierState):
         self.exclusion_rings = int(exclusion_rings)
         self.smoothed_normals = bool(smoothed_normals)
         self.smoothing_weight = str(smoothing_weight)
+        self.symmetric_tangent = bool(symmetric_tangent)
         if not hasattr(domain, "mesh") or not hasattr(domain.mesh, "surface"):
             raise TypeError("Domain must possess a surface mesh representation for SelfContact")
         surface = domain.mesh.surface
@@ -1048,6 +1265,7 @@ class SelfContact(ContactMultiplierState):
         if not np.all(np.isin(self.contact_nodes, self._surf_node_idx)):
             raise ValueError("contact_nodes must be surface node indices")
         self.multipliers = np.zeros(len(self.contact_nodes), dtype=np.float64)
+        self.friction_state = CoulombFrictionState(len(self.contact_nodes))
 
         self._edge_faces: dict[tuple[int, int], list[int]] = defaultdict(list)
         for face_index, face in enumerate(self._faces):
@@ -1327,20 +1545,58 @@ class SelfContact(ContactMultiplierState):
             geometry = query.geometry
             indices = self._dof_indices(query)
             local_force = pressure * geometry.gradient
-            if velocity is not None:
+
+            # Normal velocity damping
+            if velocity is not None and self.c_damping > 0.0:
                 weights = np.r_[1.0, -geometry.barycentric]
                 relative_velocity = weights @ velocity[indices].reshape(4, 3)
                 normal_velocity = float(relative_velocity @ geometry.normal)
-                if self.c_damping > 0.0 and normal_velocity < 0.0:
+                if normal_velocity < 0.0:
                     local_force -= self.c_damping * normal_velocity * geometry.gradient
-                tangential = relative_velocity - normal_velocity * geometry.normal
-                speed = float(np.linalg.norm(tangential))
-                if self.friction > 0.0 and speed > 1e-9:
-                    friction_force = (
-                        -self.friction * pressure * np.tanh(speed / 1e-3)
-                        * tangential / speed
-                    )
-                    local_force += np.kron(weights, friction_force)
+
+            # Coulomb stick-slip friction
+            if self.friction > 0.0:
+                if self.friction_state is None or self.friction_state.n_candidates != len(self.contact_nodes):
+                    self.friction_state = CoulombFrictionState(len(self.contact_nodes))
+
+                nodes = self._resolve_nodes(current_nodes)
+                s_coord = nodes[query.slave_node]
+                m_coords = nodes[query.master_nodes]
+                m_proj = geometry.barycentric @ m_coords
+                x_rel = s_coord - m_proj
+
+                anchor = self.friction_state.anchors[query.slave_index]
+                if np.isnan(anchor[0]):
+                    anchor = x_rel.copy()
+                    self.friction_state.anchors[query.slave_index] = anchor
+
+                delta_u_rel = x_rel - anchor
+                lam_T = self.friction_state.multipliers[query.slave_index]
+
+                f_T, _, _, state, s_dir = CoulombFrictionModel.return_mapping(
+                    p_N=pressure,
+                    normal=geometry.normal,
+                    delta_u_rel=delta_u_rel,
+                    mu=self.friction,
+                    k_T=self.k_tangential,
+                    k_N=self.k_penalty,
+                    lambda_T=lam_T,
+                    symmetric_tangent=self.symmetric_tangent,
+                )
+
+                self.friction_state.states[query.slave_index] = state
+                self.friction_state.forces[query.slave_index] = f_T
+                self.friction_state.slip_dirs[query.slave_index] = s_dir
+
+                if state == StickSlipState.SLIP:
+                    elastic_slip = -(self.friction * pressure / self.k_tangential) * s_dir
+                    self.friction_state.trial_anchors[query.slave_index] = x_rel - elastic_slip
+                    self.friction_state.trial_slip_increments[query.slave_index] = float(np.linalg.norm(delta_u_rel - elastic_slip))
+
+                weights = np.r_[1.0, -geometry.barycentric]
+                f_T_local = np.kron(weights, f_T)
+                local_force += f_T_local
+
             np.add.at(forces, indices, local_force)
         return forces
 
@@ -1368,6 +1624,31 @@ class SelfContact(ContactMultiplierState):
                 (self.k_penalty + a1 * self.c_damping) * np.outer(geometry.gradient, geometry.gradient)
                 - pressure * geometry.hessian
             )
+            if self.friction > 0.0 and self.friction_state is not None:
+                weights = np.r_[1.0, -geometry.barycentric]
+                nodes = self._resolve_nodes(current_nodes)
+                s_coord = nodes[query.slave_node]
+                m_coords = nodes[query.master_nodes]
+                m_proj = geometry.barycentric @ m_coords
+                x_rel = s_coord - m_proj
+
+                anchor = self.friction_state.anchors[query.slave_index]
+                delta_u_rel = (x_rel - anchor) if not np.isnan(anchor[0]) else np.zeros(3, dtype=np.float64)
+                lam_T = self.friction_state.multipliers[query.slave_index]
+
+                _, K_TT, K_TN, _, _ = CoulombFrictionModel.return_mapping(
+                    p_N=pressure,
+                    normal=geometry.normal,
+                    delta_u_rel=delta_u_rel,
+                    mu=self.friction,
+                    k_T=self.k_tangential,
+                    k_N=self.k_penalty,
+                    lambda_T=lam_T,
+                    symmetric_tangent=self.symmetric_tangent,
+                )
+                K_T_local = CoulombFrictionModel.assemble_two_body_stiffness(K_TT, K_TN, weights)
+                tangent = tangent + K_T_local
+
             indices = self._dof_indices(query)
             rows.append(np.repeat(indices, 12))
             columns.append(np.tile(indices, 12))
@@ -1405,12 +1686,18 @@ class SelfContact(ContactMultiplierState):
         )
         pressure = np.maximum(0.0, multipliers - self.k_penalty * gaps)
         active = (pressure > 0.0) | (gaps < 0.0)
-        return {
+        info: dict[str, Any] = {
             "num_active": int(np.count_nonzero(active)),
             "max_penetration": float(np.max(np.maximum(-gaps, 0.0), initial=0.0)),
             "active_nodes": self.contact_nodes[active],
             "potential_energy": float(np.sum((pressure**2 - multipliers**2) / (2.0 * self.k_penalty))),
             "max_multiplier": float(np.max(self.multipliers, initial=0.0)),
         }
+        if self.friction_state is not None:
+            info["num_stick"] = int(np.count_nonzero(self.friction_state.states == StickSlipState.STICK))
+            info["num_slip"] = int(np.count_nonzero(self.friction_state.states == StickSlipState.SLIP))
+            info["max_friction_force"] = float(np.max(np.linalg.norm(self.friction_state.forces, axis=1), initial=0.0))
+            info["max_slip_distance"] = float(np.max(self.friction_state.slip_distances, initial=0.0))
+        return info
 
 

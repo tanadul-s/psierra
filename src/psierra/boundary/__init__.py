@@ -24,6 +24,11 @@ from psierra.boundary.contact import (
     SelfContact,
 )
 from psierra.boundary.mortar import MortarContact
+from psierra.boundary.friction import (
+    StickSlipState,
+    CoulombFrictionState,
+    CoulombFrictionModel,
+)
 
 __all__ = [
     "BoundaryCondition",
@@ -42,4 +47,7 @@ __all__ = [
     "DeformableContact",
     "SelfContact",
     "MortarContact",
+    "StickSlipState",
+    "CoulombFrictionState",
+    "CoulombFrictionModel",
 ]

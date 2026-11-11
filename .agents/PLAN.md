@@ -160,8 +160,16 @@ This roadmap is laser-focused on biological soft-tissue mechanics, robust contac
   * Delivered new executable simulations:
     * `examples/08_contact/0806_mortar_dynamic_rigid_floor.py` (deformable beam impact on rigid floor with mortar contact).
     * `examples/08_contact/0807_mortar_dynamic_deformable_floor.py` (two-way deformable beam impact on flexible floor with mortar contact).
-* [ ] **Exact Coulomb Stick-Slip Friction**:
-  * Active-set Coulomb friction strategy with stick/slip transition boundaries.
+* [x] **Exact Coulomb Stick-Slip Friction**:
+  * 3D active-set Coulomb friction return mapping based on elastoplastic analogy with yield condition $\Phi^{\text{trial}} = \|\boldsymbol{f}_T^{\text{trial}}\| - \mu p_N \le 0$.
+  * Elastic stick regime ($\Phi \le 0$) with zero relative slip rate ($\Delta \boldsymbol{g}_T^{\text{slip}} = \mathbf{0}$) and dissipative slip regime ($\Phi > 0$) with collinear sliding friction $\boldsymbol{f}_T = \mu p_N \boldsymbol{s}$.
+  * Consistent algorithmic elastoplastic tangent operator $\boldsymbol{K}_{TT} = \frac{\mu p_N k_T}{\|\boldsymbol{f}_T^{\text{trial}}\|} (\boldsymbol{P}_T - \boldsymbol{s} \otimes \boldsymbol{s})$ exhibiting zero stiffness along the sliding direction ($\boldsymbol{K}_{TT} \boldsymbol{s} = \mathbf{0}$) and unsymmetric cross-coupling $\boldsymbol{K}_{TN} = \mu k_N (\boldsymbol{s} \otimes \boldsymbol{n})$.
+  * Universal integration across all contact boundaries (`RigidContact`, `DeformableContact`, `SelfContact`, `MortarContact`) and `MultiBodySystem`.
+  * Strict action-reaction momentum conservation: $\sum \boldsymbol{f}_{T, s} + \sum \boldsymbol{f}_{T, m} = \mathbf{0}$ to machine precision ($< 10^{-11}\text{ N}$) on both 4-node node-to-segment stencils and dual segment-to-segment mortar interfaces.
+  * Transactional history anchor tracking (`commit_step()`) capturing hysteretic direction reversals and preserving quadratic Newton-Raphson convergence during equilibrium solves.
+  * Augmented Lagrangian Uzawa multiplier projection updates: $\boldsymbol{\lambda}_T \leftarrow \operatorname{proj}_{\mu p_N}(\boldsymbol{f}_T)$.
+  * 13 automated mathematical verification tests in [`tests/test_friction_coulomb.py`](../tests/test_friction_coulomb.py) covering return mapping, consistency, plastic flow condition, finite-difference tangent verification, hysteresis reversal loops, momentum balance, AL solves, dynamic frictional dissipation, and multi-body contact.
+  * Executable simulation example: `examples/08_contact/0808_frictional_stick_slip.py` with unified XDMF and PVD export.
 
 ---
 

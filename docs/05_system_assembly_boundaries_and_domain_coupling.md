@@ -316,6 +316,79 @@ contact = system.add_contact_pair(
 
 ---
 
+## 5.7 Exact Active-Set Coulomb Stick-Slip Friction Mechanics
+
+Frictional interfaces are governed by non-smooth Coulomb friction laws exhibiting distinct **Stick** (elastic micro-slip with zero relative velocity) and **Slip** (dissipative sliding collinear with tangential traction) regimes. `pSierra` formulates 3D Coulomb friction via an exact **elastoplastic radial return mapping algorithm** with consistent algorithmic tangents across all contact formulations (`RigidContact`, `DeformableContact`, `SelfContact`, `MortarContact`).
+
+### 1. Elastoplastic Analogy & Active-Set Yield Function
+In computational contact mechanics, Coulomb friction mirrors non-associated perfect plasticity:
+- **Normal Pressure**: $p_N = \max(0, \lambda_N - k_N g_N)$ [force/area or nodal force].
+- **Coulomb Cone Yield Function**:
+  $$\Phi(\boldsymbol{f}_T, p_N) = \|\boldsymbol{f}_T^{\text{trial}}\| - \mu p_N \le 0$$
+- **Tangential Trial Force**:
+  $$\boldsymbol{f}_T^{\text{trial}} = \boldsymbol{\lambda}_T - k_T \Delta \boldsymbol{g}_T, \qquad \Delta \boldsymbol{g}_T = \boldsymbol{P}_T (\boldsymbol{x} - \boldsymbol{x}_{\text{anchor}})$$
+  where $\boldsymbol{P}_T = \boldsymbol{I} - \boldsymbol{n} \otimes \boldsymbol{n}$ projects relative displacement onto the interface tangent plane, $k_T$ is the tangential stick penalty stiffness, and $\boldsymbol{\lambda}_T$ is the tangential Augmented Lagrangian multiplier.
+
+Depending on the active-set yield condition:
+1. **Stick Regime ($\Phi \le 0$)**:
+   $$\boldsymbol{f}_T = \boldsymbol{f}_T^{\text{trial}}, \qquad \Delta \boldsymbol{g}_T^{\text{slip}} = \mathbf{0}$$
+   The interface behaves as an elastic spring resisting relative motion with zero slip.
+2. **Slip Regime ($\Phi > 0$)**:
+   $$\boldsymbol{f}_T = \mu p_N \boldsymbol{s}, \qquad \boldsymbol{s} = \frac{\boldsymbol{f}_T^{\text{trial}}}{\|\boldsymbol{f}_T^{\text{trial}}\|}$$
+   Frictional traction is collinear with sliding direction $\boldsymbol{s}$ and clamped at the Coulomb threshold $\mu p_N$.
+
+### 2. Algorithmic Consistent Tangent Operator
+To preserve the quadratic asymptotic convergence rate of the Newton-Raphson solver, the consistent algorithmic tangent operator $\boldsymbol{K}_T = -\frac{\partial \boldsymbol{f}_T}{\partial \Delta \boldsymbol{u}}$ is differentiated directly from the discrete return mapping:
+
+$$\boldsymbol{K}_{TT} = -\frac{\partial \boldsymbol{f}_T}{\partial \Delta \boldsymbol{g}_T} = \begin{cases} k_T \boldsymbol{P}_T & (\text{Stick}) \\ \frac{\mu p_N k_T}{\|\boldsymbol{f}_T^{\text{trial}}\|} (\boldsymbol{P}_T - \boldsymbol{s} \otimes \boldsymbol{s}) & (\text{Slip}) \end{cases}$$
+
+Crucially, in the slip regime, the operator satisfies the **plastic flow condition**:
+$$\boldsymbol{K}_{TT} \boldsymbol{s} = \frac{\mu p_N k_T}{\|\boldsymbol{f}_T^{\text{trial}}\|} (\boldsymbol{s} - \boldsymbol{s} (\boldsymbol{s} \cdot \boldsymbol{s})) = \mathbf{0}$$
+Zero tangent stiffness is transmitted along the sliding direction, ensuring no spurious elastic locking during steady-state sliding.
+
+The normal-tangential cross-coupling term arises from normal pressure variation:
+$$\boldsymbol{K}_{TN} = -\frac{\partial \boldsymbol{f}_T}{\partial g_N} = \mu k_N (\boldsymbol{s} \otimes \boldsymbol{n})$$
+Because $\boldsymbol{K}_{TN}$ is intrinsically unsymmetric in slip, `pSierra` leverages SuperLU sparse LU factorizations in `DirectSolver` to retain full quadratic Newton convergence. An optional `symmetric_tangent=True` mode is provided for symmetric iterative solvers (e.g. Conjugate Gradient).
+
+### 3. Action-Reaction Momentum Conservation
+Friction forces strictly conserve global linear momentum across all discretization schemes:
+- **Node-to-Segment (`DeformableContact` & `SelfContact`)**: Tangential forces scatter to 4-node contact stencils via partition-of-unity weights $\boldsymbol{w} = [1, -\xi_0, -\xi_1, -\xi_2]^T$:
+  $$\boldsymbol{f}_{T, \text{local}} = \boldsymbol{w} \otimes \boldsymbol{f}_T \implies \sum_{i=0}^3 \boldsymbol{f}_{T, i} = \mathbf{0}$$
+- **Mortar Segment-to-Segment (`MortarContact`)**: Master nodal friction forces are mapped through the transposed dual mortar projection:
+  $$\boldsymbol{f}_{T, m} = -(\boldsymbol{D}^{-1} \boldsymbol{M})^T \boldsymbol{f}_{T, s}$$
+  Because $\sum_j M_{ij} = D_{ii}$, $\sum \boldsymbol{f}_{T, s} + \sum \boldsymbol{f}_{T, m} = \mathbf{0}$ to machine precision ($< 10^{-11} \text{ N}$).
+
+### 4. History Tracking & Augmented Lagrangian Dual Updates
+- **Anchor History Tracking**: To capture physical hysteretic loops under cyclic motion reversals, stick anchors are transactional:
+  $$\boldsymbol{x}_{\text{anchor}} \leftarrow \boldsymbol{x}_{\text{curr}} - \Delta \boldsymbol{u}_{\text{elastic}}, \qquad \Delta \boldsymbol{u}_{\text{elastic}} = -\frac{\mu p_N}{k_T} \boldsymbol{s}$$
+  Committed only upon load/time step convergence (`commit_step()`), this guarantees pure quadratic Newton convergence during equilibrium solves without anchor jitter.
+- **Augmented Lagrangian Updates**: In Augmented Lagrangian mode, the tangential multiplier is projected onto the Coulomb limit:
+  $$\boldsymbol{\lambda}_T \leftarrow \operatorname{proj}_{\mu p_N}(\boldsymbol{f}_T)$$
+  driving penetration and slip constraint defects to zero without penalty ill-conditioning.
+
+### 5. API Usage in Project Sierra
+```python
+# Frictional rigid obstacle contact
+rigid_contact = RigidContact(
+    slave=domain,
+    master=floor,
+    k_penalty=1e4,
+    friction=0.35,
+    formulation="augmented_lagrangian",  # or "penalty"
+)
+
+# Frictional multi-body contact pair
+pair_contact = system.add_contact_pair(
+    slave="Slider",
+    master="Base",
+    k_penalty=5e4,
+    friction=0.3,
+    method="node_to_segment",  # or "mortar"
+)
+```
+
+---
+
 ## 6. Code Implementation Map
 
 | Operational Concept | Formulation | Source File | Class & Method |
@@ -328,19 +401,22 @@ contact = system.add_contact_pair(
 | Node Selection (Bounds/Planes) | Spatial Bounding Query | [`selector.py`](../src/psierra/boundary/selector.py) | `select_nodes_by_bounds()`, `select_nodes_by_plane()` |
 | Nodal Load Assembly | $\boldsymbol{f}_{ext} \in \mathbb{R}^{N_{\text{dofs}}}$ | [`loads.py`](../src/psierra/boundary/loads.py) | `NodalForce.compute_force_vector()` |
 | Consistent Gravity Load | $\boldsymbol{f}_{ext} = \boldsymbol{M} \bar{\boldsymbol{g}}$ | [`loads.py`](../src/psierra/boundary/loads.py) | `GravityLoad.compute_force_vector()` |
-| Deformable Contact Mechanics | Multi-Body Node-to-Segment | [`contact.py`](../src/psierra/boundary/contact.py) | `DeformableContact.evaluate_forces()`, `.evaluate_stiffness()` |
-| Self-Contact Mechanics | Single-Body Node-to-Segment Fold | [`contact.py`](../src/psierra/boundary/contact.py) | `SelfContact.evaluate_forces()`, `.evaluate_stiffness()` |
+| Coulomb Stick-Slip Friction | Elastoplastic Return Mapping & Consistent Tangent | [`friction.py`](../src/psierra/boundary/friction.py) | `CoulombFrictionModel.return_mapping()`, `CoulombFrictionState` |
+| Deformable Contact Mechanics | Multi-Body Node-to-Segment + Coulomb Friction | [`contact.py`](../src/psierra/boundary/contact.py) | `DeformableContact.evaluate_forces()`, `.evaluate_stiffness()` |
+| Self-Contact Mechanics | Single-Body Node-to-Segment Fold + Coulomb Friction | [`contact.py`](../src/psierra/boundary/contact.py) | `SelfContact.evaluate_forces()`, `.evaluate_stiffness()` |
 | C^1 Normal Smoothing Kernel | Triangle Pseudonormal Barycentrics | [`triangle.py`](../src/psierra/collision/triangle.py) | `TriangleContactGeometry.evaluate(vertex_normals=...)` |
-| Segment-to-Segment Mortar Contact | Dual Biorthogonal Segment Formulation | [`mortar.py`](../src/psierra/boundary/mortar.py) | `MortarContact.evaluate_forces()`, `.evaluate_stiffness()` |
+| Segment-to-Segment Mortar Contact | Dual Biorthogonal Mortar + Dual Friction Transfer | [`mortar.py`](../src/psierra/boundary/mortar.py) | `MortarContact.evaluate_forces()`, `.evaluate_stiffness()` |
 | Mortar Intersection & Quadrature | Sutherland-Hodgman & Dunavant Integration | [`mortar.py`](../src/psierra/collision/mortar.py) | `MortarInterfaceIntegrator.integrate()` |
 
 ---
 
 ## 7. References & Further Reading
 
+- **P. Alart & A. Curnier**, *A mixed formulation for frictional contact problems prone to Newton like solution methods*, Computer Methods in Applied Mechanics and Engineering, 92(3):353-375, 1991.
+- **T.A. Laursen**, *Computational Contact and Impact Mechanics: Fundamentals of Modeling Interface Phenomena in Nonlinear Finite Element Analysis*, Springer, 2002.
+- **P. Wriggers**, *Computational Contact Mechanics*, 2nd Edition, Springer, 2006.
 - **B.I. Wohlmuth**, *A Mortar Finite Element Method Using Dual Spaces for the Lagrange Multiplier*, SIAM Journal on Numerical Analysis, 38(3):989-1012, 2000.
 - **M.A. Puso & T.A. Laursen**, *A mortar segment-to-segment contact method for large deformation solid mechanics*, CMAME, 193(6-8):601-629, 2004.
-- **P. Wriggers**, *Computational Contact Mechanics*, 2nd Edition, Springer, 2006.
 - **M.A. Puso & T.A. Laursen**, *A formulation for frictionless contact problems using a continuum based surface smoothing technique*, Computer Methods in Applied Mechanics and Engineering, 191(27-28):3097-3119, 2002.
 - **P. Wriggers, L. Krstulovic-Opara, J. Korelc**, *Smooth $C^1$-interpolations for contact problems*, CMAME, 190(31):4079-4091, 2001.
 - **K.J. Bathe**, *Finite Element Procedures*, Chapter 4: Formulation and Calculation of Isoparametric Finite Element Matrices.

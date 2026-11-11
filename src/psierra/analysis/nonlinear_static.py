@@ -422,6 +422,11 @@ class NonlinearStaticAnalysis(Analysis):
                 if status.converged:
                     iteration_history.append(total_iterations)
                     al_iterations_history.append(al_iteration if augmentation.contacts else 0)
+                    for c in contact_list:
+                        if hasattr(c, "commit_state"):
+                            c.commit_state()
+                    if hasattr(self.domain, "commit_state"):
+                        self.domain.commit_state()
                     if verbose:
                         print(f"  [bold green]✓ Step {step} accepted.[/bold green]\n")
                     break

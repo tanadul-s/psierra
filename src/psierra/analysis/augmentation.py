@@ -53,6 +53,7 @@ class ContactAugmentation:
         self.gap_tol = gap_tol
         self.tolerance = tolerance
         self.rebound_relaxation = bool(rebound_relaxation)
+        self._friction_snapshots: list[Any] = []
 
     def snapshot(self, current_nodes: np.ndarray | None = None) -> list[np.ndarray]:
         """Copy accepted dual state; resolve any lazy candidate dimensions first."""
@@ -62,12 +63,20 @@ class ContactAugmentation:
         for values in snapshots:
             if not np.all(np.isfinite(values)) or np.any(values < 0.0):
                 raise ValueError("Initial AL multipliers must be finite and nonnegative")
+        self._friction_snapshots = [
+            c.snapshot_friction_state() if hasattr(c, "snapshot_friction_state") else None
+            for c in self.contacts
+        ]
         return snapshots
 
     def restore(self, snapshot: list[np.ndarray]) -> None:
         """Restore accepted multipliers and invalidate derived query state."""
         for contact, multipliers in zip(self.contacts, snapshot, strict=True):
             contact.set_multipliers(multipliers)
+        if self._friction_snapshots and len(self._friction_snapshots) == len(self.contacts):
+            for contact, f_snap in zip(self.contacts, self._friction_snapshots, strict=True):
+                if hasattr(contact, "restore_friction_state") and f_snap is not None:
+                    contact.restore_friction_state(f_snap)
 
     def assess(self, current_nodes: np.ndarray | None = None) -> AugmentationStatus:
         """Evaluate projected multipliers and defects without changing state."""
@@ -111,6 +120,13 @@ class ContactAugmentation:
         """Commit projected nonnegative dual values before another equilibrium solve."""
         for contact, pressure in zip(self.contacts, status.proposed, strict=True):
             contact.set_multipliers(pressure)
+            if (
+                hasattr(contact, "friction")
+                and contact.friction > 0.0
+                and hasattr(contact, "friction_state")
+                and contact.friction_state is not None
+            ):
+                contact.friction_state.multipliers[:] = contact.friction_state.forces[:]
 
     def relax_rebound(self) -> int:
         """Zero retained multipliers on non-penetrating candidates across all AL contacts."""

@@ -822,9 +822,12 @@ class NonlinearDynamicAnalysis(Analysis):
             a_full[free_dofs] = a_f
             self.domain.update_state(u=u_full, v=v_full, a=a_full)
 
-            # Accept converged step: commit internal history for viscoelastic materials
+            # Accept converged step: commit internal history for viscoelastic materials and contact friction
             if hasattr(self.domain, "commit_state"):
                 self.domain.commit_state()
+            for c in contact_list:
+                if hasattr(c, "commit_state"):
+                    c.commit_state()
 
             t_current += current_dt
             time_points.append(t_current)
