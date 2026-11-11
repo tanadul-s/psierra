@@ -251,6 +251,71 @@ system.add_self_contact(
 
 ---
 
+## 5.6 Segment-to-Segment Mortar Contact
+
+In traditional node-to-segment contact, point-wise non-penetration constraints can lead to **contact stress oscillations**, mesh dependency, and artificial locking when discretizing non-conforming mesh interfaces. The **Mortar Contact Method** overcomes these limitations by enforcing the non-penetration condition in a **weak (variational) sense** across overlapping surface segments:
+
+$$\int_{\Gamma_c} \delta \lambda_N \bar{g}_N d\Gamma = 0$$
+
+where $\bar{g}_N = (\boldsymbol{x}_s - \boldsymbol{x}_m) \cdot \boldsymbol{n}_m$ is the normal gap, and $\delta \lambda_N$ is the variation of the interface Lagrange multiplier field.
+
+### 1. Wohlmuth Biorthogonal Dual Shape Functions
+To decouple the Lagrange multiplier unknowns and yield an efficient algebraic system, `pSierra` employs **Wohlmuth dual shape functions** $\Phi_i(\boldsymbol{\xi})$ on linear triangular slave facets $\tau$:
+
+$$\Phi_i(\boldsymbol{\xi}) = 4\xi_i - 1, \quad i \in \{0, 1, 2\}$$
+
+These dual functions satisfy the strict biorthogonality condition with standard linear Lagrange shape functions $N_j(\boldsymbol{\xi}) = \xi_j$:
+
+$$\int_\tau \Phi_i(\boldsymbol{\xi}) N_j(\boldsymbol{\xi}) d\Gamma = \frac{A_\tau}{3} \delta_{ij}$$
+
+Consequently, the slave mortar mass matrix $\boldsymbol{D}$ is **strictly diagonal**:
+
+$$D_{ii} = \int_{\Gamma_c} \Phi_i N_i d\Gamma = \sum_{\tau \ni i} \frac{A_\tau}{3}$$
+
+This diagonal property enables explicit condensation and direct nodal evaluation of the contact pressures without solving an auxiliary linear system at the contact interface.
+
+### 2. Geometric Clipping and Dunavant Quadrature
+For non-conforming, mismatched meshes, slave facets and master facets do not coincide. `pSierra` evaluates the cross-mortar matrix $\boldsymbol{M}$ via exact geometric intersection:
+1. **Sutherland-Hodgman Polygon Clipping**: Master facets are projected onto the local 2D tangent plane of the candidate slave facet and clipped against the slave triangle boundaries to determine the exact polygon of overlap.
+2. **Triangulation**: Overlap polygons with $n \ge 3$ vertices are partitioned into a fan of non-overlapping sub-triangles.
+3. **Dunavant Numerical Quadrature**: Each sub-triangle is integrated using a symmetric 3-point Dunavant Gauss quadrature rule:
+   $$\boldsymbol{M}_{ik} = \int_{\tau_s \cap \tau_m} \Phi_i(\boldsymbol{\xi}_s) N_k(\boldsymbol{\xi}_m) d\Gamma$$
+   $$\tilde{g}_i = \int_{\tau_s \cap \tau_m} \Phi_i(\boldsymbol{\xi}_s) g_N(\boldsymbol{x}) d\Gamma$$
+
+The weighted average gap at slave node $i$ is:
+$$\bar{g}_i = \frac{\tilde{g}_i}{D_{ii}^{\text{contact}}}, \quad D_{ii}^{\text{contact}} = \sum_k M_{ik}$$
+
+### 3. Exact Momentum Balance and Symmetric Tangent Stiffness
+The Mortar contact formulation in `pSierra` guarantees:
+- **Exact Action-Reaction Balance**: Linear momentum is strictly conserved across the interface:
+  $$\sum_i \boldsymbol{f}_{s, i} + \sum_k \boldsymbol{f}_{m, k} = \boldsymbol{0}$$
+- **Conservative Tangent Stiffness Symmetry**: The two-way coupled tangent stiffness matrix is symmetric positive semi-definite:
+  $$\boldsymbol{K}_c = \begin{bmatrix} \boldsymbol{K}_{ss} & \boldsymbol{K}_{sm} \\ \boldsymbol{K}_{ms} & \boldsymbol{K}_{mm} \end{bmatrix} = \boldsymbol{K}_c^T$$
+- **Contact Patch Test Consistency**: Passes the contact patch test exactly, transmitting uniform contact pressures ($p_0 = \text{const}$) across arbitrarily non-conforming interface meshes without artificial stress concentrations.
+
+### 4. API Usage in MultiBodySystem
+```python
+# Direct instantiation via MultiBodySystem
+contact = system.add_mortar_contact(
+    slave="UpperBody",
+    master="LowerFoundation",
+    k_penalty=5e4,
+    c_damping=10.0,
+    formulation="augmented_lagrangian",  # or "penalty"
+    search_radius=10.0,
+)
+
+# Or via add_contact_pair with method="mortar"
+contact = system.add_contact_pair(
+    slave="UpperBody",
+    master="LowerFoundation",
+    k_penalty=5e4,
+    method="mortar",
+)
+```
+
+---
+
 ## 6. Code Implementation Map
 
 | Operational Concept | Formulation | Source File | Class & Method |
@@ -266,11 +331,15 @@ system.add_self_contact(
 | Deformable Contact Mechanics | Multi-Body Node-to-Segment | [`contact.py`](../src/psierra/boundary/contact.py) | `DeformableContact.evaluate_forces()`, `.evaluate_stiffness()` |
 | Self-Contact Mechanics | Single-Body Node-to-Segment Fold | [`contact.py`](../src/psierra/boundary/contact.py) | `SelfContact.evaluate_forces()`, `.evaluate_stiffness()` |
 | C^1 Normal Smoothing Kernel | Triangle Pseudonormal Barycentrics | [`triangle.py`](../src/psierra/collision/triangle.py) | `TriangleContactGeometry.evaluate(vertex_normals=...)` |
+| Segment-to-Segment Mortar Contact | Dual Biorthogonal Segment Formulation | [`mortar.py`](../src/psierra/boundary/mortar.py) | `MortarContact.evaluate_forces()`, `.evaluate_stiffness()` |
+| Mortar Intersection & Quadrature | Sutherland-Hodgman & Dunavant Integration | [`mortar.py`](../src/psierra/collision/mortar.py) | `MortarInterfaceIntegrator.integrate()` |
 
 ---
 
 ## 7. References & Further Reading
 
+- **B.I. Wohlmuth**, *A Mortar Finite Element Method Using Dual Spaces for the Lagrange Multiplier*, SIAM Journal on Numerical Analysis, 38(3):989-1012, 2000.
+- **M.A. Puso & T.A. Laursen**, *A mortar segment-to-segment contact method for large deformation solid mechanics*, CMAME, 193(6-8):601-629, 2004.
 - **P. Wriggers**, *Computational Contact Mechanics*, 2nd Edition, Springer, 2006.
 - **M.A. Puso & T.A. Laursen**, *A formulation for frictionless contact problems using a continuum based surface smoothing technique*, Computer Methods in Applied Mechanics and Engineering, 191(27-28):3097-3119, 2002.
 - **P. Wriggers, L. Krstulovic-Opara, J. Korelc**, *Smooth $C^1$-interpolations for contact problems*, CMAME, 190(31):4079-4091, 2001.

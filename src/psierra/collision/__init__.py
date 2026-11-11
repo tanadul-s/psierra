@@ -11,6 +11,15 @@ from psierra.collision.shapes import (
 )
 from psierra.collision.raytrace import RayMeshObstacle
 from psierra.collision.detector import CollisionDetector, ContactQueryResult
+from psierra.collision.mortar import (
+    sutherland_hodgman_clip_2d,
+    triangulate_convex_polygon_2d,
+    polygon_area_2d,
+    dunavant_triangle_quadrature_3pt,
+    eval_dual_shape_functions,
+    MortarSegmentData,
+    MortarInterfaceIntegrator,
+)
 
 __all__ = [
     "CollisionShape",
@@ -20,5 +29,12 @@ __all__ = [
     "RayMeshObstacle",
     "CollisionDetector",
     "ContactQueryResult",
+    "sutherland_hodgman_clip_2d",
+    "triangulate_convex_polygon_2d",
+    "polygon_area_2d",
+    "dunavant_triangle_quadrature_3pt",
+    "eval_dual_shape_functions",
+    "MortarSegmentData",
+    "MortarInterfaceIntegrator",
 ]
 

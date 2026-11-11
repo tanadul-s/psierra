@@ -23,6 +23,7 @@ from psierra.boundary.contact import (
     DeformableContact,
     SelfContact,
 )
+from psierra.boundary.mortar import MortarContact
 
 __all__ = [
     "BoundaryCondition",
@@ -40,4 +41,5 @@ __all__ = [
     "RigidContact",
     "DeformableContact",
     "SelfContact",
+    "MortarContact",
 ]

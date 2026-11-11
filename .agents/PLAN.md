@@ -148,8 +148,18 @@ This roadmap is laser-focused on biological soft-tissue mechanics, robust contac
   * Implemented Dual Rebound Relaxation in `ContactMultiplierState` and `ContactAugmentation` (`relax_rebound(gap_tol=0.0)`), dynamically zeroing multipliers ($\lambda \leftarrow 0$) when local rebound opens a positive gap ($g > g_{\text{tol}}$), eliminating artificial tensile "sticky contact" adhesion ($p = 0.0\text{ N}$).
   * Seamlessly integrated into `NonlinearDynamicAnalysis` and `NonlinearStaticAnalysis` with full backward compatibility (`rebound_relaxation=False` by default).
   * 13 automated tests in [`tests/test_analysis_line_search_and_relaxation.py`](../tests/test_analysis_line_search_and_relaxation.py) validating error classification, Armijo descent, inversion handling, fallback, rebound zeroing, and dynamic/static solver integration.
-* [ ] **Segment-to-Segment Mortar Contact**:
-  * Mortar contact formulation for non-conforming mesh interfaces.
+* [x] **Segment-to-Segment Mortar Contact (`MortarContact`, `MortarInterfaceIntegrator`)**:
+  * Implemented Segment-to-Segment Mortar Contact for non-conforming, mismatched 3D mesh interfaces with exact action-reaction linear momentum balance ($\sum \boldsymbol{f}_s + \sum \boldsymbol{f}_m = \boldsymbol{0}$ to $< 10^{-12}\text{ N}$).
+  * Wohlmuth biorthogonal dual shape functions $\Phi_i(\boldsymbol{\xi}) = 4\xi_i - 1$ satisfying $\int_\tau \Phi_i N_j d\Gamma = \frac{A_\tau}{3} \delta_{ij}$, yielding a strictly diagonal slave mortar mass matrix $\boldsymbol{D}$ and decoupled contact multipliers.
+  * Sutherland-Hodgman 2D convex polygon clipping on local slave facet tangent planes, polygon triangulation, and symmetric 3-point Dunavant numerical quadrature over clipped sub-triangles.
+  * Conservative tangent stiffness symmetry ($\boldsymbol{K}_c = \boldsymbol{K}_c^T$) with rigid body translation invariance ($\boldsymbol{K}_c \boldsymbol{u}_{\text{trans}} = \boldsymbol{0}$) and full two-way off-diagonal coupling blocks ($\boldsymbol{K}_{ss}, \boldsymbol{K}_{sm}, \boldsymbol{K}_{ms}, \boldsymbol{K}_{mm}$).
+  * Contact patch test exact verification: uniform normal pressure transmission ($p_0 = \text{const}$) across arbitrarily non-conforming meshes without stress concentrations.
+  * Dual rebound relaxation (`relax_rebound`) dynamically releasing separated interface nodes and eliminating tensile contact stickiness.
+  * Full integration in `MultiBodySystem` (`add_mortar_contact()` and `add_contact_pair(..., method='mortar')`), compatible with penalty and Augmented Lagrangian formulations.
+  * 9 automated mathematical verification tests in [`tests/test_mortar_contact.py`](../tests/test_mortar_contact.py) covering biorthogonality, clipping, partition of unity, momentum conservation, tangent symmetry, translation invariance, patch test, registration, and end-to-end static/dynamic finite deformation solves.
+  * Delivered new executable simulations:
+    * `examples/08_contact/0806_mortar_dynamic_rigid_floor.py` (deformable beam impact on rigid floor with mortar contact).
+    * `examples/08_contact/0807_mortar_dynamic_deformable_floor.py` (two-way deformable beam impact on flexible floor with mortar contact).
 * [ ] **Exact Coulomb Stick-Slip Friction**:
   * Active-set Coulomb friction strategy with stick/slip transition boundaries.
 

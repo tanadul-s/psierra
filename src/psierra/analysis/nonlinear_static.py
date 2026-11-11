@@ -14,7 +14,9 @@ from psierra.boundary import (
     RigidContact,
     DeformableContact,
     SelfContact,
+    MortarContact,
 )
+from psierra.boundary.contact import ContactMultiplierState
 from psierra.solver.sparse_linear_solver import SparseLinearSolver, DirectSolver
 from psierra.analysis.base import Analysis
 from psierra.analysis.augmentation import ContactAugmentation
@@ -77,10 +79,8 @@ class NonlinearStaticAnalysis(Analysis):
         ),
         f_ext: np.ndarray | None = None,
         contact: (
-            RigidContact
-            | DeformableContact
-            | SelfContact
-            | Sequence[RigidContact | DeformableContact | SelfContact]
+            ContactMultiplierState
+            | Sequence[ContactMultiplierState]
             | None
         ) = None,
         n_steps: int = 10,
@@ -170,7 +170,7 @@ class NonlinearStaticAnalysis(Analysis):
                 contact_list = list(self.domain.contacts)
             else:
                 contact_list = []
-        elif isinstance(contact, (RigidContact, DeformableContact, SelfContact)):
+        elif isinstance(contact, ContactMultiplierState):
             contact_list = [contact]
         else:
             contact_list = list(contact)

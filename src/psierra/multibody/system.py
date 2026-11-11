@@ -250,6 +250,21 @@ class MultiBodySystem(Domain):
             DeformableContact,
             SelfContact,
         )
+        from psierra.boundary.mortar import MortarContact
+
+        # Route method="mortar" to add_mortar_contact
+        if kwargs.get("method") == "mortar" or kwargs.get("contact_type") == "mortar":
+            kwargs_mortar = {k: v for k, v in kwargs.items() if k not in ("method", "contact_type")}
+            return self.add_mortar_contact(
+                slave=slave,
+                master=master,
+                k_penalty=k_penalty,
+                c_damping=c_damping,
+                friction=friction,
+                slave_nodes=slave_nodes,
+                formulation=formulation,
+                **kwargs_mortar,
+            )
 
         slave_body = self[slave] if isinstance(slave, (str, int)) else slave
         master_obj = (
@@ -318,6 +333,96 @@ class MultiBodySystem(Domain):
                 **kwargs,
             )
 
+        self._contacts.append(contact)
+        return contact
+
+    def add_mortar_contact(
+        self,
+        slave: str | int | Domain,
+        master: str | int | Domain | Any,
+        k_penalty: float = 1e4,
+        c_damping: float = 0.0,
+        friction: float = 0.0,
+        slave_nodes: Sequence[int] | np.ndarray | None = None,
+        formulation: Literal["penalty", "augmented_lagrangian"] = "penalty",
+        search_radius: float = 10.0,
+        tolerance: float = 0.0,
+        **kwargs: Any,
+    ) -> Any:
+        """
+        Defines and registers a segment-to-segment Mortar contact interaction constraint.
+
+        Uses Wohlmuth biorthogonal dual shape functions, satisfying the contact
+        patch test across non-conforming mesh interfaces without node-to-segment
+        overconstraining or directional facet-edge chattering.
+
+        Parameters:
+        -----------
+        slave : str, int, or Domain
+            Deformable slave body undergoing contact.
+        master : str, int, Domain, or surface obstacle
+            Target master body (deformable domain or rigid surface).
+        k_penalty : float, default=1e4
+            Normal penalty contact stiffness in N/mm.
+        c_damping : float, default=0.0
+            Contact velocity damping coefficient in N*s/mm.
+        friction : float, default=0.0
+            Friction coefficient.
+        slave_nodes : Sequence[int] or np.ndarray, optional
+            Candidate contact nodes on the slave body (defaults to surface nodes).
+        formulation : {'penalty', 'augmented_lagrangian'}, default='penalty'
+            Contact enforcement scheme.
+        search_radius : float, default=10.0
+            Broad-phase AABB distance threshold in mm.
+        tolerance : float, default=0.0
+            Geometric contact tolerance in mm.
+
+        Returns:
+        --------
+        contact : MortarContact
+            The registered Mortar contact interaction constraint.
+        """
+        from psierra.boundary.mortar import MortarContact
+
+        slave_body = self[slave] if isinstance(slave, (str, int)) else slave
+        master_obj = (
+            self[master]
+            if (isinstance(master, (str, int)) and master in self)
+            else master
+        )
+
+        slave_idx = self.get_body_index(slave_body)
+        slave_offset = int(self._dof_offsets[slave_idx])
+
+        is_deformable_master = (
+            hasattr(master_obj, "mesh")
+            and hasattr(master_obj.mesh, "surface")
+            and hasattr(master_obj, "n_dofs")
+        )
+        master_idx = (
+            self.get_body_index(master_obj)
+            if (is_deformable_master and master_obj in self)
+            else None
+        )
+        master_offset = (
+            int(self._dof_offsets[master_idx]) if master_idx is not None else 0
+        )
+
+        contact = MortarContact(
+            slave=slave_body,
+            master=master_obj,
+            slave_nodes=slave_nodes,
+            k_penalty=k_penalty,
+            c_damping=c_damping,
+            friction=friction,
+            slave_offset=slave_offset,
+            master_offset=master_offset,
+            domain=self,
+            formulation=formulation,
+            search_radius=search_radius,
+            tolerance=tolerance,
+            **kwargs,
+        )
         self._contacts.append(contact)
         return contact
 
