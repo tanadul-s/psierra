@@ -215,7 +215,9 @@ This roadmap is laser-focused on biological soft-tissue mechanics, robust contac
     7. `examples/12_advanced_contact/1202_mortar_contact_friction.py`: Segment-to-segment mortar contact with Coulomb stick-slip.
     8. `examples/13_hyperreduction/1301_deim_hyperelastic_force.py`: Discrete Empirical Interpolation (DEIM) vs. ECSW.
     9. [x] `examples/13_hyperreduction/1302_contact_aware_ecsw.py`: Deformable contact hyper-reduced with joint bulk + contact cubature.
-    10. `examples/14_clinical_digital_twins/1401_neurosurgical_digital_twin_complete.py`: **The Grand Flagship Simulation** combining patient-specific brain with tumor, Tet4Fbar + viscoelasticity, falx cerebri membrane, CSF drainage, real-time ROM shape sensing, and HDF5 storage.
+    10. [x] `examples/13_hyperreduction/1303_hyperreduced_brain_shift_shell_contact.py`: Real-time ECSW hyper-reduced neurosurgical brain shift with coupled solid-shell meninges (Tet4 + Shell3) and dual multi-obstacle contact (concave inner skull vault + surgical indenter probe).
+    11. [x] `examples/13_hyperreduction/1304_hyperreduced_brain_shift_dynamic_relaxation.py`: Hyper-reduced explicit Dynamic Relaxation (DR) static equilibrium solver with Barnes/Underwood kinetic energy peak damping, coupled solid-shell meninges, and dual skull + probe contact.
+    12. `examples/14_clinical_digital_twins/1401_neurosurgical_digital_twin_complete.py`: **The Grand Flagship Simulation** combining patient-specific brain with tumor, Tet4Fbar + viscoelasticity, falx cerebri membrane, CSF drainage, real-time ROM shape sensing, and HDF5 storage.
 
 ---
 
