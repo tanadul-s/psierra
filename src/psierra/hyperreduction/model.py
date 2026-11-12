@@ -27,6 +27,9 @@ class _CachedElementECSW:
     nodes: np.ndarray  # (n_elem_nodes,)
     coords: np.ndarray  # (n_elem_nodes, 3) reference coordinates
     Phi_e: np.ndarray  # (n_elem_dofs, r) element modal sub-basis
+    elem_form: Any = None
+    dofs_per_node: int = 3
+    is_shell: bool = False
 
 
 class HyperReducedNonlinearModel:
@@ -125,27 +128,89 @@ class HyperReducedNonlinearModel:
 
         # 6. Pre-cache Element Modal Sub-Bases for the Reduced Integration Domain (RID)
         self._cached_elements: list[_CachedElementECSW] = []
-        dofs_per_node = domain.element.dofs_per_node
+        is_coupled = hasattr(domain, "solid_domain") and hasattr(domain, "shell_domain")
         Phi_full = basis.basis_matrix
 
-        for elem_idx, weight in zip(self.rid.element_indices, self.rid.weights):
-            elem_nodes = domain.mesh.elements[elem_idx]
-            coords = domain.mesh.nodes[elem_nodes]
-            # Element DOFs
-            edofs = np.concatenate(
-                [np.arange(dofs_per_node * nid, dofs_per_node * nid + dofs_per_node) for nid in elem_nodes]
-            )
-            Phi_e = Phi_full[edofs, :]  # shape: (n_elem_dofs, r)
+        if is_coupled:
+            n_solid_elems = domain.solid_domain.mesh.n_elements
+            solid_nodes = domain.solid_domain.mesh.nodes
+            solid_elems = domain.solid_domain.mesh.elements
+            solid_form = domain.solid_domain.element
 
-            self._cached_elements.append(
-                _CachedElementECSW(
-                    elem_idx=int(elem_idx),
-                    weight=float(weight),
-                    nodes=elem_nodes,
-                    coords=coords,
-                    Phi_e=Phi_e,
+            shell_elems = domain.shell_domain.mesh.elements
+            shell_form = domain.shell_domain.element
+            shell_coupled_dofs = domain._shell_coupled_dofs
+            shell_node_indices = domain.shell_domain.mesh.node_indices
+
+            for elem_idx, weight in zip(self.rid.element_indices, self.rid.weights):
+                e_int = int(elem_idx)
+                if e_int < n_solid_elems:
+                    enodes = solid_elems[e_int]
+                    coords = solid_nodes[enodes]
+                    edofs = np.concatenate(
+                        [np.arange(3 * nid, 3 * nid + 3) for nid in enodes]
+                    )
+                    Phi_e = Phi_full[edofs, :]
+                    self._cached_elements.append(
+                        _CachedElementECSW(
+                            elem_idx=e_int,
+                            weight=float(weight),
+                            nodes=enodes,
+                            coords=coords,
+                            Phi_e=Phi_e,
+                            elem_form=solid_form,
+                            dofs_per_node=3,
+                            is_shell=False,
+                        )
+                    )
+                else:
+                    s_idx = e_int - n_solid_elems
+                    s_conn = shell_elems[s_idx]
+                    g_conn = shell_node_indices[s_conn]
+                    coords = solid_nodes[g_conn]
+                    edofs = shell_coupled_dofs[s_idx]
+                    Phi_e = Phi_full[edofs, :]
+                    self._cached_elements.append(
+                        _CachedElementECSW(
+                            elem_idx=e_int,
+                            weight=float(weight),
+                            nodes=g_conn,
+                            coords=coords,
+                            Phi_e=Phi_e,
+                            elem_form=shell_form,
+                            dofs_per_node=6,
+                            is_shell=True,
+                        )
+                    )
+        else:
+            elem_form = domain.element
+            dofs_per_node = elem_form.dofs_per_node
+            elements = domain.mesh.elements
+            nodes = domain.mesh.nodes
+
+            for elem_idx, weight in zip(self.rid.element_indices, self.rid.weights):
+                elem_nodes = elements[elem_idx]
+                coords = nodes[elem_nodes]
+                edofs = np.concatenate(
+                    [
+                        np.arange(dofs_per_node * nid, dofs_per_node * nid + dofs_per_node)
+                        for nid in elem_nodes
+                    ]
                 )
-            )
+                Phi_e = Phi_full[edofs, :]
+
+                self._cached_elements.append(
+                    _CachedElementECSW(
+                        elem_idx=int(elem_idx),
+                        weight=float(weight),
+                        nodes=elem_nodes,
+                        coords=coords,
+                        Phi_e=Phi_e,
+                        elem_form=elem_form,
+                        dofs_per_node=dofs_per_node,
+                        is_shell=False,
+                    )
+                )
 
         # 7. Surface Sub-Basis for Instant Boundary Reconstruction
         if surface_nodes is not None:
@@ -204,20 +269,21 @@ class HyperReducedNonlinearModel:
 
         f_r_int = np.zeros(self.r, dtype=np.float64)
         K_r_t = np.zeros((self.r, self.r), dtype=np.float64)
-        elem_form = self.domain.element
-        dofs_per_node = elem_form.dofs_per_node
+        default_form = getattr(self.domain, "element", None)
 
         for entry in self._cached_elements:
             w = entry.weight
             Phi_e = entry.Phi_e  # (n_elem_dofs, r)
             coords = entry.coords
+            form = entry.elem_form if entry.elem_form is not None else default_form
+            dpn = entry.dofs_per_node
 
             # Local element displacement: u_elem = Phi_e * u_r
             u_elem_flat = Phi_e @ u_r_vec
-            u_elem_nodes = u_elem_flat.reshape(-1, dofs_per_node)
+            u_elem_nodes = u_elem_flat.reshape(-1, dpn)
 
             # Compute elemental nonlinear tangent stiffness and internal force
-            k_tan_e, f_int_e = elem_form.compute_nonlinear_force_and_tangent_stiffness(coords, u_elem_nodes)
+            k_tan_e, f_int_e = form.compute_nonlinear_force_and_tangent_stiffness(coords, u_elem_nodes)
             f_int_e = f_int_e.ravel()
 
             # Accumulate cubature weighted contributions:

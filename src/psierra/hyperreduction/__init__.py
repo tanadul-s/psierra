@@ -30,7 +30,9 @@ from psierra.hyperreduction.model import HyperReducedNonlinearModel
 from psierra.hyperreduction.solver import (
     HyperReducedNonlinearStaticSolver,
     HyperReducedNonlinearDynamicSolver,
+    HyperReducedDynamicRelaxationSolver,
     HyperReducedSolverStats,
+    HyperReducedDynamicRelaxationStats,
 )
 
 __all__ = [
@@ -44,7 +46,9 @@ __all__ = [
     "HyperReducedNonlinearModel",
     "HyperReducedNonlinearStaticSolver",
     "HyperReducedNonlinearDynamicSolver",
+    "HyperReducedDynamicRelaxationSolver",
     "HyperReducedSolverStats",
+    "HyperReducedDynamicRelaxationStats",
     "HyperReducedRigidContact",
     "ContactTelemetry",
 ]

@@ -11,6 +11,7 @@ coordinates u_r in R^r:
 from __future__ import annotations
 from dataclasses import dataclass
 import time
+from typing import Any, Literal
 import numpy as np
 import scipy.linalg as spla
 
@@ -442,4 +443,336 @@ class HyperReducedNonlinearDynamicSolver:
             kinetic_energy=self.compute_kinetic_energy(),
             strain_energy=self.compute_strain_energy(),
             total_energy=self.compute_total_energy(),
+        )
+
+
+@dataclass
+class HyperReducedDynamicRelaxationStats:
+    """Execution performance and convergence telemetry for hyper-reduced Dynamic Relaxation."""
+
+    steps_completed: int = 0
+    kinetic_peaks: int = 0
+    kinetic_energy: float = 0.0
+    strain_energy: float = 0.0
+    residual_norm: float = 0.0
+    relative_residual: float = 0.0
+    converged: bool = False
+    average_step_ms: float = 0.0
+    effective_hz: float = 0.0
+    wall_time: float = 0.0
+
+
+class HyperReducedDynamicRelaxationSolver:
+    """
+    Hyper-reduced explicit Dynamic Relaxation (DR) static equilibrium solver on R^r.
+
+    Solves the static equilibrium equations:
+        R_r(u_r) = f_r_ext + f_r_c(u_r) - f_r_int(u_r) = 0
+    by integrating a fictitious, highly damped explicit dynamic system:
+        M_r_fict * u_r_ddot + C_r_fict * u_r_dot = R_r(u_r)
+
+    Key Features:
+    - Matrix-free explicit vector evaluation on R^r: avoids dense r x r matrix inversion and factorization.
+    - Parameter-free Barnes/Underwood kinetic energy peak damping (v_r <- 0 when dEk/dt < 0).
+    - Unconditionally robust in non-smooth contact, avoiding Newton-Raphson chattering or step rejection.
+    - Gerschgorin diagonal mass scaling guaranteeing CFL numerical stability for explicit time-stepping.
+    - Provides both incremental pseudo-stepping (step) for real-time visualization of the relaxation path
+      and multi-step relaxation (relax) to converge directly to static equilibrium.
+    """
+
+    def __init__(
+        self,
+        model: HyperReducedNonlinearModel,
+        dt: float = 1.0,
+        damping_type: Literal["kinetic", "viscous"] = "kinetic",
+        safety_factor: float = 1.1,
+        viscous_damping: float | None = None,
+        tol: float = 1e-5,
+        max_steps: int = 500,
+        min_steps: int = 5,
+        contact: Any = None,
+    ) -> None:
+        """
+        Parameters:
+        -----------
+        model : HyperReducedNonlinearModel
+            ECSW hyper-reduced model.
+        dt : float, default=1.0
+            Explicit pseudo-time step increment.
+        damping_type : {'kinetic', 'viscous'}, default='kinetic'
+            Relaxation damping mechanism. 'kinetic' is parameter-free and recommended.
+        safety_factor : float, default=1.1
+            Gerschgorin mass scaling safety factor (must be >= 1.0).
+        viscous_damping : float, optional
+            Mass-proportional damping factor (used when damping_type='viscous').
+        tol : float, default=1e-5
+            Relative residual convergence tolerance ||R_r|| / max(||f_r_ext||, 1.0).
+        max_steps : int, default=500
+            Maximum relaxation steps per solve.
+        min_steps : int, default=5
+            Minimum relaxation steps before checking convergence.
+        contact : HyperReducedRigidContact or Sequence, optional
+            Active contact operators enforcing obstacle constraints.
+        """
+        self.model = model
+        self.r = model.n_modes
+        self.dt = float(dt)
+        self.damping_type = damping_type.lower()
+        if self.damping_type not in ("kinetic", "viscous"):
+            raise ValueError(f"damping_type must be 'kinetic' or 'viscous', got '{damping_type}'")
+        self.safety_factor = float(safety_factor)
+        self.viscous_damping = viscous_damping if viscous_damping is not None else 0.5
+        self.tol = float(tol)
+        self.max_steps = max(1, int(max_steps))
+        self.min_steps = max(1, int(min_steps))
+
+        if contact is None:
+            self.contacts = []
+        elif isinstance(contact, (list, tuple)):
+            self.contacts = list(contact)
+        else:
+            self.contacts = [contact]
+
+        # Kinematic state buffers in reduced coordinates R^r
+        self.u_r = np.zeros(self.r, dtype=np.float64)
+        self.v_half_r = np.zeros(self.r, dtype=np.float64)
+        self.a_r = np.zeros(self.r, dtype=np.float64)
+
+        # Fictitious diagonal mass setup
+        self._setup_fictitious_mass()
+
+        # Viscous damping constants (c1, c2)
+        cd = self.viscous_damping
+        self.c1 = (2.0 - cd * self.dt) / (2.0 + cd * self.dt)
+        self.c2 = (2.0 * self.dt) / (2.0 + cd * self.dt)
+
+        # Kinetic damping tracking
+        self.prev_Ek = 0.0
+        self.kinetic_peaks = 0
+        self.converged = False
+        self.last_rel_res = 1.0
+        self.last_res_norm = 0.0
+
+        # Performance tracking
+        self.steps_completed = 0
+        self.wall_time = 0.0
+        self._total_step_time = 0.0
+
+    def _setup_fictitious_mass(self) -> None:
+        """Computes explicit Gerschgorin-scaled fictitious diagonal mass on R^r."""
+        _, K0_r = self.model.evaluate_forces_and_stiffness(np.zeros(self.r))
+        K_tot = np.abs(K0_r)
+        for c in self.contacts:
+            if hasattr(c, "surface_basis") and hasattr(c, "k_penalty"):
+                Phi_s = c.surface_basis.basis
+                K_c_bound = c.k_penalty * (Phi_s.T @ Phi_s)
+                K_tot += np.abs(K_c_bound)
+            elif hasattr(c, "evaluate_reduced_forces_and_stiffness"):
+                try:
+                    _, Kc_0 = c.evaluate_reduced_forces_and_stiffness(np.zeros(self.r))
+                    K_tot += np.abs(Kc_0)
+                except Exception:
+                    pass
+
+        row_sums = np.sum(K_tot, axis=1)
+        max_row = float(row_sums.max()) if row_sums.size > 0 and row_sums.max() > 0 else 1.0
+        row_sums = np.maximum(row_sums, 1e-6 * max_row)
+
+        self.m_diag = 0.25 * self.safety_factor * (self.dt**2) * row_sums
+        if hasattr(self.model, "M_r"):
+            m_phys = np.diag(self.model.M_r)
+            self.m_diag = np.maximum(self.m_diag, m_phys)
+        self.inv_m = 1.0 / self.m_diag
+
+    def reset_state(self) -> None:
+        """Resets kinematic state, contact history, and relaxation statistics."""
+        self.u_r.fill(0.0)
+        self.v_half_r.fill(0.0)
+        self.a_r.fill(0.0)
+        self.prev_Ek = 0.0
+        self.kinetic_peaks = 0
+        self.converged = False
+        self.last_rel_res = 1.0
+        self.last_res_norm = 0.0
+        self.steps_completed = 0
+        self.wall_time = 0.0
+        self._total_step_time = 0.0
+        for c in self.contacts:
+            c.reset_state()
+
+    def step(self, f_ext_r: np.ndarray | None = None) -> np.ndarray:
+        """
+        Advances the hyper-reduced system by one explicit pseudo-time relaxation step.
+
+        Parameters:
+        -----------
+        f_ext_r : np.ndarray of shape (r,), optional
+            Target external load vector in reduced coordinates. If None, uses model.f_r_base.
+
+        Returns:
+        --------
+        u_r : np.ndarray of shape (r,)
+            Updated reduced displacement vector.
+        """
+        t_start = time.perf_counter()
+
+        f_total = (
+            np.asarray(f_ext_r, dtype=np.float64).ravel()
+            if f_ext_r is not None
+            else self.model.f_r_base
+        )
+        f_ref_norm = max(float(np.linalg.norm(f_total)), 1.0)
+
+        # 1. Update displacement: u^{n+1} = u^n + dt * v^{n+1/2}
+        u_prev = self.u_r.copy()
+        a_prev = self.a_r.copy()
+        self.u_r += self.dt * self.v_half_r
+
+        # 2. Evaluate internal and contact forces at u_r with inversion safeguard
+        try:
+            f_int, _ = self.model.evaluate_forces_and_stiffness(self.u_r)
+        except (ValueError, FloatingPointError):
+            self.u_r[:] = 0.5 * (self.u_r + u_prev)
+            self.v_half_r.fill(0.0)
+            f_int, _ = self.model.evaluate_forces_and_stiffness(self.u_r)
+
+        f_c = np.zeros(self.r, dtype=np.float64)
+        for c in self.contacts:
+            fc, _ = c.evaluate_reduced_forces_and_stiffness(self.u_r, self.v_half_r)
+            f_c += fc
+
+        residual = f_total + f_c - f_int
+        res_norm = float(np.linalg.norm(residual))
+        rel_res = res_norm / f_ref_norm
+        self.last_res_norm = res_norm
+        self.last_rel_res = rel_res
+
+        # 3. Explicit acceleration: a = inv_m * R
+        a_next = self.inv_m * residual
+
+        # 4. Kinetic energy evaluation & peak damping reset
+        if self.damping_type == "kinetic":
+            v_full = self.v_half_r + self.dt * a_next
+            v_mid = 0.5 * (self.v_half_r + v_full)
+            Ek = 0.5 * float(np.sum(self.m_diag * (v_mid**2)))
+
+            if self.steps_completed > 0 and Ek < self.prev_Ek:
+                self.kinetic_peaks += 1
+                # Underwood peak displacement interpolation
+                u_peak = self.u_r - 1.5 * self.dt * self.v_half_r + 0.5 * (self.dt**2) * a_prev
+                self.u_r[:] = u_peak
+
+                # Re-evaluate forces at peak displacement
+                f_int_pk, _ = self.model.evaluate_forces_and_stiffness(self.u_r)
+                f_c_pk = np.zeros(self.r, dtype=np.float64)
+                for c in self.contacts:
+                    fc, _ = c.evaluate_reduced_forces_and_stiffness(self.u_r, np.zeros(self.r))
+                    f_c_pk += fc
+                residual = f_total + f_c_pk - f_int_pk
+                a_next = self.inv_m * residual
+                res_norm = float(np.linalg.norm(residual))
+                rel_res = res_norm / f_ref_norm
+                self.last_res_norm = res_norm
+                self.last_rel_res = rel_res
+
+                # Velocity reset to zero from peak
+                v_next = 0.5 * self.dt * a_next
+                self.prev_Ek = 0.0
+            else:
+                v_next = v_full
+                self.prev_Ek = Ek
+
+            self.v_half_r[:] = v_next
+            self.a_r[:] = a_next
+        else:
+            self.v_half_r[:] = self.c1 * self.v_half_r + self.c2 * a_next
+            self.a_r[:] = a_next
+
+        # 5. Commit contact multipliers
+        for c in self.contacts:
+            c.update_multipliers(self.u_r)
+
+        self.converged = rel_res <= self.tol
+        t_elapsed = time.perf_counter() - t_start
+        self._total_step_time += t_elapsed
+        self.wall_time += t_elapsed
+        self.steps_completed += 1
+
+        return self.u_r
+
+    def relax(
+        self,
+        f_ext_r: np.ndarray | None = None,
+        tol: float | None = None,
+        max_steps: int | None = None,
+        min_steps: int | None = None,
+    ) -> np.ndarray:
+        """
+        Advances explicit dynamic relaxation iterations until static equilibrium is reached.
+
+        Parameters:
+        -----------
+        f_ext_r : np.ndarray of shape (r,), optional
+            Target external load vector in reduced coordinates.
+        tol : float, optional
+            Convergence tolerance (defaults to self.tol).
+        max_steps : int, optional
+            Maximum allowed relaxation steps (defaults to self.max_steps).
+        min_steps : int, optional
+            Minimum relaxation steps before declaring convergence (defaults to self.min_steps).
+
+        Returns:
+        --------
+        u_r : np.ndarray of shape (r,)
+            Converged static equilibrium reduced displacement coordinates.
+        """
+        target_tol = float(tol) if tol is not None else self.tol
+        m_steps = int(max_steps) if max_steps is not None else self.max_steps
+        min_s = int(min_steps) if min_steps is not None else self.min_steps
+
+        for _ in range(m_steps):
+            self.step(f_ext_r)
+            if self.steps_completed >= min_s and self.last_rel_res <= target_tol:
+                self.converged = True
+                break
+
+        return self.u_r
+
+    def reconstruct_displacement(self) -> np.ndarray:
+        """Reconstructs full volumetric 3D displacement u in R^n_dofs."""
+        return self.model.reconstruct_displacement(self.u_r)
+
+    def reconstruct_surface_displacement(self) -> np.ndarray:
+        """Reconstructs 3D boundary surface mesh displacement (N_surf, 3)."""
+        return self.model.reconstruct_surface_displacement(self.u_r)
+
+    def compute_kinetic_energy(self) -> float:
+        """Computes instantaneous reduced kinetic energy."""
+        return float(0.5 * np.sum(self.m_diag * (self.v_half_r**2)))
+
+    def compute_strain_energy(self) -> float:
+        """Approximates instantaneous elastic strain energy."""
+        f_int, _ = self.model.evaluate_forces_and_stiffness(self.u_r)
+        return float(0.5 * self.u_r.T @ f_int)
+
+    def get_stats(self) -> HyperReducedDynamicRelaxationStats:
+        """Returns comprehensive real-time execution statistics."""
+        avg_ms = (
+            (self._total_step_time / self.steps_completed) * 1000.0
+            if self.steps_completed > 0
+            else 0.0
+        )
+        eff_hz = 1000.0 / avg_ms if avg_ms > 0.0 else 0.0
+
+        return HyperReducedDynamicRelaxationStats(
+            steps_completed=self.steps_completed,
+            kinetic_peaks=self.kinetic_peaks,
+            kinetic_energy=self.compute_kinetic_energy(),
+            strain_energy=self.compute_strain_energy(),
+            residual_norm=self.last_res_norm,
+            relative_residual=self.last_rel_res,
+            converged=self.converged,
+            average_step_ms=avg_ms,
+            effective_hz=eff_hz,
+            wall_time=self.wall_time,
         )

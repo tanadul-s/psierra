@@ -229,12 +229,100 @@ class ECSWTrainingMatrix:
             )
 
         r = basis.n_modes
+        Phi = basis.basis_matrix  # (n_dofs, r)
+        is_coupled = hasattr(domain, "solid_domain") and hasattr(domain, "shell_domain")
+
+        if is_coupled:
+            n_solid_elems = domain.solid_domain.mesh.n_elements
+            n_shell_elems = domain.shell_domain.mesh.n_elements
+            n_elems = n_solid_elems + n_shell_elems
+            solid_nodes = domain.solid_domain.mesh.nodes
+            solid_elems = domain.solid_domain.mesh.elements
+            solid_form = domain.solid_domain.element
+
+            shell_elems = domain.shell_domain.mesh.elements
+            shell_form = domain.shell_domain.element
+            shell_coupled_dofs = domain._shell_coupled_dofs
+            shell_node_indices = domain.shell_domain.mesh.node_indices
+
+            coords_list = []
+            form_list = []
+            dpn_list = []
+            dofs_list = []
+            Phi_e_list = []
+
+            for e in range(n_solid_elems):
+                enodes = solid_elems[e]
+                coords_list.append(solid_nodes[enodes])
+                form_list.append(solid_form)
+                dpn_list.append(3)
+                edofs = np.concatenate([np.arange(3 * nid, 3 * nid + 3) for nid in enodes])
+                dofs_list.append(edofs)
+                Phi_e_list.append(Phi[edofs, :])
+
+            for s in range(n_shell_elems):
+                s_conn = shell_elems[s]
+                g_conn = shell_node_indices[s_conn]
+                coords_list.append(solid_nodes[g_conn])
+                form_list.append(shell_form)
+                dpn_list.append(6)
+                edofs = shell_coupled_dofs[s]
+                dofs_list.append(edofs)
+                Phi_e_list.append(Phi[edofs, :])
+
+            M_rows = m_snapshots * r
+            A = np.zeros((M_rows, n_elems), dtype=np.float64)
+
+            for k in range(m_snapshots):
+                u_k = snap_mat[:, k]
+                row_start = k * r
+                row_end = row_start + r
+
+                for e in range(n_elems):
+                    coords = coords_list[e]
+                    form = form_list[e]
+                    dpn = dpn_list[e]
+                    edofs = dofs_list[e]
+                    u_elem = u_k[edofs].reshape(-1, dpn)
+
+                    _, f_int_e = form.compute_nonlinear_force_and_tangent_stiffness(coords, u_elem)
+                    f_int_e = f_int_e.ravel()
+
+                    c_e = Phi_e_list[e].T @ f_int_e
+                    A[row_start:row_end, e] = c_e
+
+            if include_stiffness:
+                triu_idx = np.triu_indices(r)
+                n_triu = len(triu_idx[0])
+                A_stiff = np.zeros((n_triu, n_elems), dtype=np.float64)
+
+                for e in range(n_elems):
+                    coords = coords_list[e]
+                    form = form_list[e]
+                    dpn = dpn_list[e]
+                    u_zero = np.zeros((coords.shape[0], dpn), dtype=np.float64)
+                    K_0_e, _ = form.compute_nonlinear_force_and_tangent_stiffness(coords, u_zero)
+                    Phi_e = Phi_e_list[e]
+                    K_r_e = Phi_e.T @ K_0_e @ Phi_e
+                    A_stiff[:, e] = K_r_e[triu_idx]
+
+                s_force = float(np.linalg.norm(A)) / np.sqrt(max(A.shape[0], 1))
+                s_stiff = float(np.linalg.norm(A_stiff)) / np.sqrt(max(n_triu, 1))
+                if s_force > 1e-12 and s_stiff > 1e-12:
+                    weight = float(stiffness_weight) if stiffness_weight is not None else 1.0
+                    scale = (s_force / s_stiff) * weight
+                    A_stiff *= scale
+
+                A = np.vstack([A, A_stiff])
+
+            b = A.sum(axis=1)
+            return A, b
+
         n_elems = domain.mesh.n_elements
         nodes = domain.mesh.nodes
         elements = domain.mesh.elements
         elem_form = domain.element
 
-        Phi = basis.basis_matrix  # (n_dofs, r)
         dofs_per_node = elem_form.dofs_per_node
 
         M_rows = m_snapshots * r
