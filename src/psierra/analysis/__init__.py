@@ -31,6 +31,10 @@ from psierra.analysis.dynamic_relaxation import (
     DynamicRelaxationAnalysis,
     DynamicRelaxationResult,
 )
+from psierra.analysis.quasi_static import (
+    QuasiStaticAnalysis,
+    QuasiStaticResult,
+)
 
 __all__ = [
     # Base
@@ -44,6 +48,9 @@ __all__ = [
     # Nonlinear Static
     "NonlinearStaticAnalysis",
     "NonlinearStaticResult",
+    # Quasi-Static
+    "QuasiStaticAnalysis",
+    "QuasiStaticResult",
     # Nonlinear Dynamic
     "NonlinearDynamicAnalysis",
     "NonlinearDynamicResult",

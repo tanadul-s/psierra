@@ -31,6 +31,7 @@ from psierra.hyperreduction.solver import (
     HyperReducedNonlinearStaticSolver,
     HyperReducedNonlinearDynamicSolver,
     HyperReducedDynamicRelaxationSolver,
+    HyperReducedQuasiStaticSolver,
     HyperReducedSolverStats,
     HyperReducedDynamicRelaxationStats,
 )
@@ -47,6 +48,7 @@ __all__ = [
     "HyperReducedNonlinearStaticSolver",
     "HyperReducedNonlinearDynamicSolver",
     "HyperReducedDynamicRelaxationSolver",
+    "HyperReducedQuasiStaticSolver",
     "HyperReducedSolverStats",
     "HyperReducedDynamicRelaxationStats",
     "HyperReducedRigidContact",

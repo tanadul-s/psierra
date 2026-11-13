@@ -283,7 +283,17 @@ class HyperReducedNonlinearModel:
             u_elem_nodes = u_elem_flat.reshape(-1, dpn)
 
             # Compute elemental nonlinear tangent stiffness and internal force
-            k_tan_e, f_int_e = form.compute_nonlinear_force_and_tangent_stiffness(coords, u_elem_nodes)
+            try:
+                k_tan_e, f_int_e = form.compute_nonlinear_force_and_tangent_stiffness(
+                    coords, u_elem_nodes, elem_index=entry.elem_idx
+                )
+            except (TypeError, ValueError) as err:
+                if isinstance(err, TypeError) or "elem_index" in str(err):
+                    k_tan_e, f_int_e = form.compute_nonlinear_force_and_tangent_stiffness(
+                        coords, u_elem_nodes
+                    )
+                else:
+                    raise
             f_int_e = f_int_e.ravel()
 
             # Accumulate cubature weighted contributions:
@@ -365,3 +375,23 @@ class HyperReducedNonlinearModel:
         """Projects a full-order external load vector onto the reduced subspace."""
         f_arr = np.asarray(f_ext, dtype=np.float64).ravel()
         return self.Phi_f.T @ f_arr[self.free_dofs]
+
+    def set_time_step(self, dt: float) -> None:
+        """Sets the active time increment for rate-dependent materials in the model."""
+        if hasattr(self.domain, "set_time_step"):
+            self.domain.set_time_step(dt)
+
+    def commit_state(self) -> None:
+        """Commits converged equilibrium state for history-dependent materials."""
+        if hasattr(self.domain, "commit_state"):
+            self.domain.commit_state()
+
+    def revert_state(self) -> None:
+        """Reverts trial state buffers for history-dependent materials upon cutback."""
+        if hasattr(self.domain, "revert_state"):
+            self.domain.revert_state()
+
+    def reset_state(self) -> None:
+        """Resets all internal history variables in the physical domain."""
+        if hasattr(self.domain, "reset_state"):
+            self.domain.reset_state()
