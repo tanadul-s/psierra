@@ -175,12 +175,16 @@ This roadmap is laser-focused on biological soft-tissue mechanics, robust contac
 
 ### Phase 3: Advanced Non-Linear Hyper-Reduction (DEIM & Contact-Aware ECSW)
 *Objective*: Evaluate non-linear internal forces on low-dimensional sample points, extend hyper-reduction to deformable contact, and preserve sub-millisecond CPU ROM latency.
-* [ ] **Discrete Empirical Interpolation Method (DEIM / Q-DEIM)**:
+* [x] **Discrete Empirical Interpolation Method (DEIM / Q-DEIM)**:
   * Out-of-core force snapshot matrix assembly streamed directly into HDF5 datasets: $\boldsymbol{S}_f = [\boldsymbol{f}_{\text{int}}(\boldsymbol{u}_1), \dots, \boldsymbol{f}_{\text{int}}(\boldsymbol{u}_m)]$.
   * SVD basis extraction for force space: $\boldsymbol{\Psi}_f \in \mathbb{R}^{n \times m_f}$.
-  * Greedy DEIM / Q-DEIM row selection determining interpolation indices $\boldsymbol{P} \in \mathbb{R}^{n \times m_f}$.
-  * Support for internal history variables (viscoelasticity).
-  * Online reduced nonlinear force approximation: $\boldsymbol{f}_r \approx \boldsymbol{\Phi}^T \boldsymbol{\Psi}_f (\boldsymbol{P}^T \boldsymbol{\Psi}_f)^{-1} \boldsymbol{f}_{\text{int}}(\boldsymbol{u})[\boldsymbol{P}]$.
+  * Greedy DEIM (Chaturantabut & Sorensen 2010) and Q-DEIM (Drmac & Gugercin 2016 QR with column pivoting) row selection determining interpolation indices $\boldsymbol{P} \in \mathbb{R}^{n \times m_f}$.
+  * Pre-projected online DEIM operator: $\mathbb{E}_{\text{DEIM}} = \boldsymbol{\Phi}_f^T \boldsymbol{\Psi}_f (\boldsymbol{P}^T \boldsymbol{\Psi}_f)^{-1} \in \mathbb{R}^{r \times m_f}$.
+  * Sparse element sub-mesh cache: evaluates internal forces and tangent stiffness ONLY on elements touching sampled interpolation DOFs $\boldsymbol{P}$ with vectorized scatter.
+  * Support for internal history variables (rate-dependent viscoelasticity delegation) and optional tangent stiffness symmetrization.
+  * Delivered core modules: [`greedy_deim`](../src/psierra/hyperreduction/deim.py), [`q_deim`](../src/psierra/hyperreduction/deim.py), [`DEIMForceBasis`](../src/psierra/hyperreduction/deim.py), [`ForceSnapshotManager`](../src/psierra/hyperreduction/deim.py), [`HyperReducedDEIMModel`](../src/psierra/hyperreduction/deim.py), [`HyperReducedDEIMDynamicSolver`](../src/psierra/hyperreduction/deim.py).
+  * 11 automated verification tests in [`tests/test_hyperreduction_deim.py`](../tests/test_hyperreduction_deim.py) validating greedy/Q-DEIM index selection, non-singularity, condition number, HDF5 streaming, model force fidelity, static equilibrium, and real-time Generalized-alpha dynamic solves (100% pass rate).
+  * Delivered new executable simulation: [`examples/13_hyperreduction/1301_deim_hyperelastic_force.py`](../examples/13_hyperreduction/1301_deim_hyperelastic_force.py) comparing FOM, ECSW, and DEIM dynamic beam deformation under gravity load.
 * [x] **Contact-Aware ECSW & Enriched POD Basis (Method 2 Hyper-Reduced Contact)**:
   * Joint cubature training in ECSW incorporating virtual work from contact boundary interfaces:
     $$\boldsymbol{A}_{\text{joint}} = \begin{bmatrix} \boldsymbol{A}_{\text{vol}} \\ \alpha_c \boldsymbol{A}_{\text{contact}} \end{bmatrix}, \quad \boldsymbol{c}_{c, i}^{(k)} = \boldsymbol{\Phi}_{s, i}^T \boldsymbol{f}_{c, i}^{(k)}$$
@@ -218,7 +222,7 @@ This roadmap is laser-focused on biological soft-tissue mechanics, robust contac
     5. `examples/11_advanced_continua/1105_hdf5_checkpoint_resume.py`: Out-of-core snapshot streaming, stopping, and seamless resume.
     6. `examples/12_advanced_contact/1201_3pillar_regularized_impact.py`: High-energy dynamic impact with adaptive cutback & $C^1$ pseudonormals.
     7. `examples/12_advanced_contact/1202_mortar_contact_friction.py`: Segment-to-segment mortar contact with Coulomb stick-slip.
-    8. `examples/13_hyperreduction/1301_deim_hyperelastic_force.py`: Discrete Empirical Interpolation (DEIM) vs. ECSW.
+    8. [x] `examples/13_hyperreduction/1301_deim_hyperelastic_force.py`: Three-way dynamic beam deformation under gravity load benchmark comparing Full-Order Model (FOM Generalized-alpha), ECSW empirical cubature, and DEIM interpolation with ParaView XDMF/H5 and PVD export.
     9. [x] `examples/13_hyperreduction/1302_contact_aware_ecsw.py`: Deformable contact hyper-reduced with joint bulk + contact cubature.
     10. [x] `examples/13_hyperreduction/1303_hyperreduced_brain_shift_shell_contact.py`: Real-time ECSW hyper-reduced neurosurgical brain shift with coupled solid-shell meninges (Tet4 + Shell3) and dual multi-obstacle contact (concave inner skull vault + surgical indenter probe).
     11. [x] `examples/13_hyperreduction/1304_hyperreduced_brain_shift_dynamic_relaxation.py`: Hyper-reduced explicit Dynamic Relaxation (DR) static equilibrium solver with Barnes/Underwood kinetic energy peak damping, coupled solid-shell meninges, and dual skull + probe contact.
