@@ -170,7 +170,7 @@ flowchart TD
   - Strict positive-definiteness preserving numerical stability and energy conservation.
 - **Sparse Non-Negative Least Squares (NNLS)**: Greedy column selection with active-set Lawson-Hanson solver.
 - **Hyper-Reduced Rigid Contact**: Sub-basis surface projection, vectorized gap evaluation against analytical obstacles, rank-1 symmetric tangent stiffness updates, and Uzawa Augmented Lagrangian multipliers.
-- Implementation map: [`ECSWTrainer`](../src/psierra/hyperreduction/ecsw.py), [`HyperReducedNonlinearModel`](../src/psierra/hyperreduction/model.py), [`HyperReducedNonlinearStaticSolver`](../src/psierra/hyperreduction/solver.py), [`HyperReducedNonlinearDynamicSolver`](../src/psierra/hyperreduction/solver.py), [`HyperReducedRigidContact`](../src/psierra/hyperreduction/contact.py).
+- Implementation map: [`ECSWTrainer`](../src/psierra/hyperreduction/ecsw.py), [`HyperReducedECSWModel`](../src/psierra/hyperreduction/model.py), [`HyperReducedDEIMModel`](../src/psierra/hyperreduction/deim.py), [`HyperReducedStaticSolver`](../src/psierra/hyperreduction/solver.py), [`HyperReducedDynamicSolver`](../src/psierra/hyperreduction/solver.py), [`HyperReducedRigidContact`](../src/psierra/hyperreduction/contact.py).
 
 ### 10. [Inverse FEM (iFEM), Constitutive Calibration & Stress-Free Inversion](10_inverse_fem_and_parameter_identification.md)
 - **Variational Shape Sensing iFEM**:

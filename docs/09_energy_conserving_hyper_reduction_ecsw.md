@@ -79,7 +79,7 @@ $$\min_{\boldsymbol{w} \ge \boldsymbol{0}} \|\boldsymbol{A} \boldsymbol{w} - \bo
 Solves $\boldsymbol{f}_{r, \text{int}}(\boldsymbol{u}_r) - \boldsymbol{f}_{r, \text{ext}} = \boldsymbol{0}$ iteratively:
 $$\boldsymbol{K}_{r, t}(\boldsymbol{u}_r^{(k)}) \Delta \boldsymbol{u}_r = -(\boldsymbol{f}_{r, \text{int}}(\boldsymbol{u}_r^{(k)}) - \boldsymbol{f}_{r, \text{ext}})$$
 $$\boldsymbol{u}_r^{(k+1)} = \boldsymbol{u}_r^{(k)} + \Delta \boldsymbol{u}_r$$
-Because $r \approx 5$, the linear system is solved via dense Cholesky in nanoseconds. Implemented in [`HyperReducedNonlinearStaticSolver`](file:///home/tanadul/Workspace/project-sierra/psierra/src/psierra/hyperreduction/solver.py).
+Because $r \approx 5$, the linear system is solved via dense Cholesky in nanoseconds. Implemented in [`HyperReducedStaticSolver`](file:///home/tanadul/Workspace/project-sierra/psierra/src/psierra/hyperreduction/solver.py).
 
 ### 2.2 Nonlinear Dynamics (Generalized-$\alpha$ on $\mathbb{R}^r$)
 Solves the second-order nonlinear equations of motion:
@@ -89,7 +89,7 @@ $$\boldsymbol{K}_{\text{eff}, r} \Delta \boldsymbol{u}_r = \boldsymbol{R}_{\text
 where:
 $$\boldsymbol{K}_{\text{eff}, r} = (1 - \alpha_m) a_0 \boldsymbol{M}_r + (1 - \alpha_f) a_1 \boldsymbol{C}_r + (1 - \alpha_f) \boldsymbol{K}_{r, t}(\boldsymbol{u}_{r, \text{mid}})$$
 $$\boldsymbol{R}_{\text{dyn}} = \boldsymbol{f}_{r, \text{ext}} - \boldsymbol{M}_r \boldsymbol{a}_{r, \text{mid}} - \boldsymbol{C}_r \boldsymbol{v}_{r, \text{mid}} - \boldsymbol{f}_{r, \text{int}}(\boldsymbol{u}_{r, \text{mid}})$$
-Because each evaluation only touches $p$ elements ($p \ll N_e$), physics update rates reach **$> 2{,}000\text{--}10{,}000\text{ Hz}$** ($< 0.2\text{ ms/step}$). Implemented in [`HyperReducedNonlinearDynamicSolver`](file:///home/tanadul/Workspace/project-sierra/psierra/src/psierra/hyperreduction/solver.py).
+Because each evaluation only touches $p$ elements ($p \ll N_e$), physics update rates reach **$> 2{,}000\text{--}10{,}000\text{ Hz}$** ($< 0.2\text{ ms/step}$). Implemented in [`HyperReducedDynamicSolver`](file:///home/tanadul/Workspace/project-sierra/psierra/src/psierra/hyperreduction/solver.py).
 
 ---
 
@@ -100,9 +100,9 @@ Because each evaluation only touches $p$ elements ($p \ll N_e$), physics update 
 | **RID Container** | `ReducedIntegrationDomain` | [`psierra/hyperreduction/ecsw.py`](file:///home/tanadul/Workspace/project-sierra/psierra/src/psierra/hyperreduction/ecsw.py) | Stores $\tilde{\mathcal{E}}$, $w_e > 0$, relative error, and `.save()` / `.load()` `.npz` caching. |
 | **Training Matrix** | `ECSWTrainingMatrix` | [`psierra/hyperreduction/ecsw.py`](file:///home/tanadul/Workspace/project-sierra/psierra/src/psierra/hyperreduction/ecsw.py) | Assembles virtual work snapshot matrix $\boldsymbol{A} \in \mathbb{R}^{(m \cdot r) \times N_e}$ and target vector $\boldsymbol{b}$. |
 | **NNLS Optimizer** | `ECSWOptimizer` | [`psierra/hyperreduction/ecsw.py`](file:///home/tanadul/Workspace/project-sierra/psierra/src/psierra/hyperreduction/ecsw.py) | Greedy active-set selection with zero-weight pruning and `get_or_compute` auto-caching. |
-| **Hyper-Model** | `HyperReducedNonlinearModel` | [`psierra/hyperreduction/model.py`](file:///home/tanadul/Workspace/project-sierra/psierra/src/psierra/hyperreduction/model.py) | Pre-caches element sub-bases $\boldsymbol{\Phi}_e$ and evaluates $\boldsymbol{f}_{r, \text{int}}$ and $\boldsymbol{K}_{r, t}$. |
-| **Static Solver** | `HyperReducedNonlinearStaticSolver` | [`psierra/hyperreduction/solver.py`](file:///home/tanadul/Workspace/project-sierra/psierra/src/psierra/hyperreduction/solver.py) | Dense $r \times r$ Newton-Raphson static equilibrium solver with load increments. |
-| **Dynamic Solver** | `HyperReducedNonlinearDynamicSolver` | [`psierra/hyperreduction/solver.py`](file:///home/tanadul/Workspace/project-sierra/psierra/src/psierra/hyperreduction/solver.py) | Real-time Generalized-$\alpha$ dynamic integration with interactive impulse handling. |
+| **Hyper-Model** | `HyperReducedECSWModel` | [`psierra/hyperreduction/model.py`](file:///home/tanadul/Workspace/project-sierra/psierra/src/psierra/hyperreduction/model.py) | Pre-caches element sub-bases $\boldsymbol{\Phi}_e$ and evaluates $\boldsymbol{f}_{r, \text{int}}$ and $\boldsymbol{K}_{r, t}$. |
+| **Static Solver** | `HyperReducedStaticSolver` | [`psierra/hyperreduction/solver.py`](file:///home/tanadul/Workspace/project-sierra/psierra/src/psierra/hyperreduction/solver.py) | Dense $r \times r$ Newton-Raphson static equilibrium solver with load increments. |
+| **Dynamic Solver** | `HyperReducedDynamicSolver` | [`psierra/hyperreduction/solver.py`](file:///home/tanadul/Workspace/project-sierra/psierra/src/psierra/hyperreduction/solver.py) | Real-time Generalized-$\alpha$ dynamic integration with interactive impulse handling. |
 
 ---
 
