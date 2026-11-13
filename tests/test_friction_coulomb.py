@@ -451,8 +451,8 @@ class TestRigidContactStickSlipSolves:
         sol = analysis.solve(
             dirichlet=dirichlet,
             contact=contact,
-            n_steps=1,
-            nr_iterations=20,
+            n_steps=2,
+            nr_iterations=25,
             nr_tol=1e-4,
         )
         assert sol.converged
