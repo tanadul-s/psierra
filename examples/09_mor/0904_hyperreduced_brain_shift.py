@@ -42,9 +42,9 @@ from psierra.hyperreduction import (
     ReducedIntegrationDomain,
     ECSWTrainingMatrix,
     ECSWOptimizer,
-    HyperReducedNonlinearModel,
-    HyperReducedNonlinearStaticSolver,
-    HyperReducedNonlinearDynamicSolver,
+    HyperReducedECSWModel,
+    HyperReducedStaticSolver,
+    HyperReducedDynamicSolver,
 )
 
 install(show_locals=False)
@@ -461,7 +461,7 @@ def main() -> None:
 
     # 5.3 Construct Hyper-Reduced Nonlinear Model
     t_model_start = time.perf_counter()
-    hyper_model = HyperReducedNonlinearModel(
+    hyper_model = HyperReducedECSWModel(
         domain=domain,
         basis=basis,
         rid=rid,
@@ -483,9 +483,9 @@ def main() -> None:
         f"(Phi_surf: {surf_basis.n_surface_nodes:,} nodes, Phi_lesion: {lesion_basis.n_surface_nodes:,} nodes)"
     )
 
-    # 5.5 Nonlinear Static Equilibrium Solve (HyperReducedNonlinearStaticSolver)
+    # 5.5 Nonlinear Static Equilibrium Solve (HyperReducedStaticSolver)
     t_static_start = time.perf_counter()
-    static_solver = HyperReducedNonlinearStaticSolver(model=hyper_model, max_iter=25, tol=1e-5)
+    static_solver = HyperReducedStaticSolver(model=hyper_model, max_iter=25, tol=1e-5)
     u_r_static = static_solver.solve(n_increments=3, verbose=False)
     t_static = time.perf_counter() - t_static_start
     u_surf_static = hyper_model.reconstruct_surface_displacement(u_r_static)
@@ -495,8 +495,8 @@ def main() -> None:
         f"({t_static*1000:.2f} ms across 3 NR increments)"
     )
 
-    # Instantiate Hyper-Reduced Nonlinear Dynamic Solver
-    dynamic_solver = HyperReducedNonlinearDynamicSolver(
+    # Instantiate Hyper-Reduced Dynamic Solver
+    dynamic_solver = HyperReducedDynamicSolver(
         model=hyper_model,
         dt=dt,
         spectral_radius=args.spectral_radius,

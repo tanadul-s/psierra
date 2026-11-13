@@ -21,17 +21,17 @@ from psierra.hyperreduction.ecsw import (
     ECSWTrainingMatrix,
     ECSWOptimizer,
 )
-from psierra.hyperreduction.model import HyperReducedNonlinearModel
+from psierra.hyperreduction.model import HyperReducedECSWModel
 from psierra.hyperreduction.solver import (
-    HyperReducedNonlinearStaticSolver,
-    HyperReducedNonlinearDynamicSolver,
+    HyperReducedStaticSolver,
+    HyperReducedDynamicSolver,
 )
 from psierra.hyperreduction.contact import HyperReducedRigidContact
 from psierra.collision.shapes import RigidPlane, RigidSphere
 
 
 @pytest.fixture
-def beam_hyper_model() -> tuple[HyperReducedNonlinearModel, VolumetricMesh]:
+def beam_hyper_model() -> tuple[HyperReducedECSWModel, VolumetricMesh]:
     """Sets up a hyper-reduced beam model for contact tests."""
     mesh_path = Path("psierra/data/beam1/mesh/beam1.vtk")
     if not mesh_path.exists():
@@ -68,7 +68,7 @@ def beam_hyper_model() -> tuple[HyperReducedNonlinearModel, VolumetricMesh]:
         domain.assemble_mass_matrix()
     )
 
-    model = HyperReducedNonlinearModel(
+    model = HyperReducedECSWModel(
         domain=domain,
         basis=basis,
         rid=rid,
@@ -156,7 +156,7 @@ class TestHyperReducedRigidContact:
             formulation="augmented_lagrangian",
         )
 
-        solver = HyperReducedNonlinearStaticSolver(
+        solver = HyperReducedStaticSolver(
             model=model, max_iter=20, tol=1e-4, contact=contact
         )
         u_r_sol = solver.solve(n_increments=2, verbose=False)
@@ -177,7 +177,7 @@ class TestHyperReducedRigidContact:
             formulation="augmented_lagrangian",
         )
 
-        solver = HyperReducedNonlinearDynamicSolver(
+        solver = HyperReducedDynamicSolver(
             model=model, dt=0.005, spectral_radius=0.8, nr_max_iter=5, contact=contact
         )
 

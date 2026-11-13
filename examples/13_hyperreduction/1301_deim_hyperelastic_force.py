@@ -39,12 +39,11 @@ from psierra.boundary import DirichletManager, DirichletConstraint, GravityLoad
 from psierra.damping import RayleighDamping
 from psierra.reduction import SnapshotManager
 from psierra.hyperreduction.ecsw import ECSWTrainingMatrix, ECSWOptimizer
-from psierra.hyperreduction.model import HyperReducedNonlinearModel
-from psierra.hyperreduction.solver import HyperReducedNonlinearDynamicSolver
+from psierra.hyperreduction.model import HyperReducedECSWModel
+from psierra.hyperreduction.solver import HyperReducedDynamicSolver
 from psierra.hyperreduction.deim import (
     ForceSnapshotManager,
     HyperReducedDEIMModel,
-    HyperReducedDEIMDynamicSolver,
 )
 from psierra.analysis.nonlinear_dynamic import NonlinearDynamicAnalysis
 from psierra.exchange import SimulationWriter
@@ -281,7 +280,7 @@ def run_simulation(args: argparse.Namespace) -> None:
     rid = ecsw_optimizer.optimize(A_ecsw, b_ecsw)
     t_ecsw_train = time.perf_counter() - t_ecsw_train
 
-    ecsw_model = HyperReducedNonlinearModel(
+    ecsw_model = HyperReducedECSWModel(
         domain=domain,
         basis=pod_basis,
         rid=rid,
@@ -346,7 +345,7 @@ def run_simulation(args: argparse.Namespace) -> None:
     )
 
     # 5.1 ECSW Online Dynamic Run
-    ecsw_solver = HyperReducedNonlinearDynamicSolver(
+    ecsw_solver = HyperReducedDynamicSolver(
         model=ecsw_model,
         dt=args.dt,
         spectral_radius=0.8,
@@ -393,7 +392,7 @@ def run_simulation(args: argparse.Namespace) -> None:
     ecsw_hz = 1000.0 / max(ecsw_avg_ms, 1e-6)
 
     # 5.2 DEIM Online Dynamic Run
-    deim_solver = HyperReducedDEIMDynamicSolver(
+    deim_solver = HyperReducedDynamicSolver(
         model=deim_model,
         dt=args.dt,
         spectral_radius=0.8,

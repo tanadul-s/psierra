@@ -44,9 +44,9 @@ from psierra.damping import RayleighDamping
 from psierra.reduction import SnapshotManager, PODBasis
 from psierra.hyperreduction import (
     ReducedIntegrationDomain,
-    HyperReducedNonlinearModel,
-    HyperReducedNonlinearStaticSolver,
-    HyperReducedNonlinearDynamicSolver,
+    HyperReducedECSWModel,
+    HyperReducedStaticSolver,
+    HyperReducedDynamicSolver,
     HyperReducedRigidContact,
 )
 from psierra.collision.shapes import RigidSphere
@@ -319,7 +319,7 @@ def main() -> None:
     console.print(
         "\n[bold yellow][5/6] Constructing Hyper-Reduced Model & Sub-Basis Contact Operator[/bold yellow]"
     )
-    hyper_model = HyperReducedNonlinearModel(
+    hyper_model = HyperReducedECSWModel(
         domain=domain,
         basis=basis,
         rid=rid,
@@ -357,8 +357,8 @@ def main() -> None:
         f"(Penalty kp = {args.k_penalty:.2f} N/mm)"
     )
 
-    # Initialize Hyper-Reduced Nonlinear Dynamic Solver with Contact
-    dynamic_solver = HyperReducedNonlinearDynamicSolver(
+    # Initialize Hyper-Reduced Dynamic Solver with Contact
+    dynamic_solver = HyperReducedDynamicSolver(
         model=hyper_model,
         dt=args.dt,
         spectral_radius=args.spectral_radius,

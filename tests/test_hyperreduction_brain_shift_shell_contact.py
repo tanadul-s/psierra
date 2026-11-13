@@ -33,10 +33,10 @@ from psierra.hyperreduction.ecsw import (
     ECSWTrainingMatrix,
     ECSWOptimizer,
 )
-from psierra.hyperreduction.model import HyperReducedNonlinearModel
+from psierra.hyperreduction.model import HyperReducedECSWModel
 from psierra.hyperreduction.contact import HyperReducedRigidContact
 from psierra.hyperreduction.solver import (
-    HyperReducedNonlinearDynamicSolver,
+    HyperReducedDynamicSolver,
     HyperReducedDynamicRelaxationSolver,
 )
 from psierra.collision import RayMeshObstacle, CollisionDetector
@@ -126,7 +126,7 @@ def test_coupled_ecsw_optimizer_and_rid(coupled_test_domain):
 
 
 def test_coupled_hyperreduced_model_symmetry(coupled_test_domain):
-    """Verifies that HyperReducedNonlinearModel preserves exact tangent stiffness symmetry."""
+    """Verifies that HyperReducedECSWModel preserves exact tangent stiffness symmetry."""
     coupled_dom, mesh = coupled_test_domain
     n_dofs = coupled_dom.n_dofs
     r = 4
@@ -139,7 +139,7 @@ def test_coupled_hyperreduced_model_symmetry(coupled_test_domain):
     A, b = ECSWTrainingMatrix.build(coupled_dom, basis, snapshots, include_stiffness=True)
     rid = ECSWOptimizer(tolerance=0.03, max_elements=15).optimize(A, b)
 
-    model = HyperReducedNonlinearModel(coupled_dom, basis, rid)
+    model = HyperReducedECSWModel(coupled_dom, basis, rid)
 
     # Evaluate at multiple reduced displacement states
     test_states = [
@@ -170,7 +170,7 @@ def test_coupled_dual_obstacle_contact(coupled_test_domain):
     A, b = ECSWTrainingMatrix.build(coupled_dom, basis, snapshots)
     rid = ECSWOptimizer(tolerance=0.05, max_elements=10).optimize(A, b)
 
-    model = HyperReducedNonlinearModel(coupled_dom, basis, rid)
+    model = HyperReducedECSWModel(coupled_dom, basis, rid)
 
     # Obstacle 1: Flat floor plane
     obs1 = RigidPlane(origin=(0.0, -25.0, 0.0), normal=(0.0, 1.0, 0.0))
@@ -208,12 +208,12 @@ def test_coupled_hyperreduced_dynamic_solver(coupled_test_domain):
     A, b = ECSWTrainingMatrix.build(coupled_dom, basis, snapshots)
     rid = ECSWOptimizer(tolerance=0.05, max_elements=10).optimize(A, b)
 
-    model = HyperReducedNonlinearModel(coupled_dom, basis, rid)
+    model = HyperReducedECSWModel(coupled_dom, basis, rid)
     obs = RigidPlane(origin=(0.0, -25.0, 0.0), normal=(0.0, 1.0, 0.0))
     contact = HyperReducedRigidContact(model=model, obstacle=obs, k_penalty=2.0)
     model.contact = contact
 
-    solver = HyperReducedNonlinearDynamicSolver(
+    solver = HyperReducedDynamicSolver(
         model=model,
         contact=contact,
         dt=0.005,
@@ -243,7 +243,7 @@ def test_coupled_dual_obstacle_dynamic_toggling(coupled_test_domain):
 
     A, b = ECSWTrainingMatrix.build(coupled_dom, basis, snapshots)
     rid = ECSWOptimizer(tolerance=0.05, max_elements=10).optimize(A, b)
-    model = HyperReducedNonlinearModel(coupled_dom, basis, rid)
+    model = HyperReducedECSWModel(coupled_dom, basis, rid)
 
     # Intersecting plane (obstacle 1) and overlapping sphere at a surface node (obstacle 2)
     surf_pts = model.domain.mesh.surface.nodes
@@ -298,7 +298,7 @@ def test_coupled_hyperreduced_dynamic_relaxation_solver(coupled_test_domain):
 
     A, b = ECSWTrainingMatrix.build(coupled_dom, basis, snapshots)
     rid = ECSWOptimizer(tolerance=0.05, max_elements=10).optimize(A, b)
-    model = HyperReducedNonlinearModel(coupled_dom, basis, rid)
+    model = HyperReducedECSWModel(coupled_dom, basis, rid)
 
     # 1. Kinetic Damping Relaxation without contact
     dr_solver = HyperReducedDynamicRelaxationSolver(

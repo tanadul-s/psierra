@@ -28,10 +28,6 @@ from psierra.domain.base import Domain
 from psierra.boundary.dirichlet import DirichletManager, DirichletConstraint
 from psierra.damping.rayleigh import RayleighDamping
 from psierra.reduction.basis import PODBasis, SurfacePODBasis
-from psierra.hyperreduction.solver import (
-    HyperReducedNonlinearDynamicSolver,
-    HyperReducedSolverStats,
-)
 
 
 def greedy_deim(psi: np.ndarray, m_select: int | None = None) -> np.ndarray:
@@ -1099,31 +1095,3 @@ class HyperReducedDEIMModel:
         """Resets all internal history variables in the physical domain."""
         if hasattr(self.domain, "reset_state"):
             self.domain.reset_state()
-
-
-class HyperReducedDEIMDynamicSolver(HyperReducedNonlinearDynamicSolver):
-    """
-    Online Generalized-alpha nonlinear dynamic solver specialized for DEIM hyper-reduced models.
-
-    Inherits real-time predictor-corrector time stepping, controllable high-frequency
-    dissipation (rho_infinity), and sub-millisecond execution.
-    """
-
-    def __init__(
-        self,
-        model: HyperReducedDEIMModel,
-        dt: float = 0.005,
-        spectral_radius: float = 0.8,
-        nr_max_iter: int = 10,
-        nr_tol: float = 1e-4,
-        contact: Any = None,
-    ) -> None:
-        super().__init__(
-            model=model,
-            dt=dt,
-            spectral_radius=spectral_radius,
-            nr_max_iter=nr_max_iter,
-            nr_tol=nr_tol,
-            contact=contact,
-        )
-        self.deim_model: HyperReducedDEIMModel = model

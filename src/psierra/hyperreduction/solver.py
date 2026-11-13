@@ -1,11 +1,13 @@
 """
-Hyper-Reduced Online Solvers (ECSW).
+Hyper-Reduced Online Solvers.
 
 Provides ultra-fast nonlinear static and dynamic solvers operating in generalized
 coordinates u_r in R^r:
-1. HyperReducedNonlinearStaticSolver: Dense r x r Newton-Raphson static equilibrium solver.
-2. HyperReducedNonlinearDynamicSolver: Dense r x r Generalized-alpha dynamic solver
+1. HyperReducedStaticSolver: Dense r x r Newton-Raphson static equilibrium solver.
+2. HyperReducedDynamicSolver: Dense r x r Generalized-alpha dynamic solver
    with predictor-corrector iterations executing in < 0.2 ms (> 5,000 Hz).
+3. HyperReducedDynamicRelaxationSolver: Explicit kinetic energy peak-damping solver.
+4. HyperReducedQuasiStaticSolver: Rate-dependent viscoelastic quasi-static solver.
 """
 
 from __future__ import annotations
@@ -15,7 +17,7 @@ from typing import Any, Literal
 import numpy as np
 import scipy.linalg as spla
 
-from psierra.hyperreduction.model import HyperReducedNonlinearModel
+from psierra.hyperreduction.model import HyperReducedECSWModel
 
 
 @dataclass
@@ -34,7 +36,7 @@ class HyperReducedSolverStats:
     total_energy: float = 0.0
 
 
-class HyperReducedNonlinearStaticSolver:
+class HyperReducedStaticSolver:
     """
     Hyper-reduced nonlinear static equilibrium solver using dense Newton-Raphson on R^r.
 
@@ -48,7 +50,7 @@ class HyperReducedNonlinearStaticSolver:
 
     def __init__(
         self,
-        model: HyperReducedNonlinearModel,
+        model: HyperReducedECSWModel | Any,
         max_iter: int = 25,
         tol: float = 1e-6,
         contact: Any = None,
@@ -56,8 +58,8 @@ class HyperReducedNonlinearStaticSolver:
         """
         Parameters:
         -----------
-        model : HyperReducedNonlinearModel
-            ECSW hyper-reduced model.
+        model : HyperReducedECSWModel or HyperReducedDEIMModel or Any
+            Hyper-reduced continuum model.
         max_iter : int, default=25
             Maximum Newton-Raphson iterations per load step.
         tol : float, default=1e-6
@@ -170,10 +172,10 @@ class HyperReducedNonlinearStaticSolver:
         return self.model.reconstruct_surface_displacement(self.u_r)
 
 
-class HyperReducedNonlinearDynamicSolver:
+class HyperReducedDynamicSolver:
     """
     Online hyper-reduced nonlinear dynamic solver using Generalized-alpha
-    implicit time integration on POD-ECSW reduced models.
+    implicit time integration on reduced models.
 
     Governing Formulation:
     -----------------------
@@ -190,7 +192,7 @@ class HyperReducedNonlinearDynamicSolver:
 
     def __init__(
         self,
-        model: HyperReducedNonlinearModel,
+        model: HyperReducedECSWModel | Any,
         dt: float = 0.005,
         spectral_radius: float = 0.8,
         nr_max_iter: int = 10,
@@ -200,8 +202,8 @@ class HyperReducedNonlinearDynamicSolver:
         """
         Parameters:
         -----------
-        model : HyperReducedNonlinearModel
-            ECSW hyper-reduced model.
+        model : HyperReducedECSWModel or HyperReducedDEIMModel or Any
+            Hyper-reduced continuum model.
         dt : float, default=0.005
             Physical time step increment in seconds (e.g. 0.005 s = 200 Hz).
         spectral_radius : float, default=0.8
@@ -482,7 +484,7 @@ class HyperReducedDynamicRelaxationSolver:
 
     def __init__(
         self,
-        model: HyperReducedNonlinearModel,
+        model: HyperReducedECSWModel | Any,
         dt: float = 1.0,
         damping_type: Literal["kinetic", "viscous"] = "kinetic",
         safety_factor: float = 1.1,
@@ -495,8 +497,8 @@ class HyperReducedDynamicRelaxationSolver:
         """
         Parameters:
         -----------
-        model : HyperReducedNonlinearModel
-            ECSW hyper-reduced model.
+        model : HyperReducedECSWModel or HyperReducedDEIMModel or Any
+            Hyper-reduced continuum model.
         dt : float, default=1.0
             Explicit pseudo-time step increment.
         damping_type : {'kinetic', 'viscous'}, default='kinetic'
@@ -800,7 +802,7 @@ class HyperReducedQuasiStaticSolver:
 
     def __init__(
         self,
-        model: HyperReducedNonlinearModel,
+        model: HyperReducedECSWModel | Any,
         max_iter: int = 25,
         tol: float = 1e-6,
         contact: Any = None,

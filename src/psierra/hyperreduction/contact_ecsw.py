@@ -25,7 +25,7 @@ from psierra.boundary.dirichlet import DirichletManager, DirichletConstraint
 from psierra.damping.rayleigh import RayleighDamping
 from psierra.reduction.basis import PODBasis, EnrichedPODBasis
 from psierra.hyperreduction.ecsw import ReducedIntegrationDomain
-from psierra.hyperreduction.model import HyperReducedNonlinearModel
+from psierra.hyperreduction.model import HyperReducedECSWModel
 from psierra.hyperreduction.contact import HyperReducedRigidContact
 
 
@@ -643,7 +643,7 @@ class ContactAwareECSWOptimizer:
         )
 
 
-class ContactAwareHyperReducedModel(HyperReducedNonlinearModel):
+class ContactAwareHyperReducedModel(HyperReducedECSWModel):
     """
     Method 2 Contact-Aware Hyper-Reduced Mechanical Model.
 

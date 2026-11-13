@@ -50,7 +50,7 @@ from psierra.hyperreduction.contact_ecsw import (
     ContactAwareHyperReducedModel,
 )
 from psierra.hyperreduction.contact import HyperReducedRigidContact
-from psierra.hyperreduction.solver import HyperReducedNonlinearDynamicSolver
+from psierra.hyperreduction.solver import HyperReducedDynamicSolver
 from psierra.collision.shapes import RigidPlane
 
 install(show_locals=False)
@@ -349,7 +349,7 @@ def main() -> None:
 
     # 6. Execute Real-Time Online Dynamic Simulation & Stream XDMF/H5 Export
     console.print("\n[bold yellow][6/6] Launching Real-Time Dynamic Simulation (Generalized-alpha)...[/bold yellow]")
-    solver = HyperReducedNonlinearDynamicSolver(
+    solver = HyperReducedDynamicSolver(
         model=model,
         contact=contact,
         dt=args.dt,

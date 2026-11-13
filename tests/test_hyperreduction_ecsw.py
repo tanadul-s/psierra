@@ -25,10 +25,10 @@ from psierra.hyperreduction.ecsw import (
     ECSWTrainingMatrix,
     ECSWOptimizer,
 )
-from psierra.hyperreduction.model import HyperReducedNonlinearModel
+from psierra.hyperreduction.model import HyperReducedECSWModel
 from psierra.hyperreduction.solver import (
-    HyperReducedNonlinearStaticSolver,
-    HyperReducedNonlinearDynamicSolver,
+    HyperReducedStaticSolver,
+    HyperReducedDynamicSolver,
 )
 
 
@@ -204,8 +204,8 @@ class TestECSWTrainingAndOptimization:
         assert np.all(rid.weights > 0.0)
 
 
-class TestHyperReducedNonlinearModelAndSolvers:
-    """Tests HyperReducedNonlinearModel, symmetry preservation, and static/dynamic solvers."""
+class TestHyperReducedECSWModelAndSolvers:
+    """Tests HyperReducedECSWModel, symmetry preservation, and static/dynamic solvers."""
 
     def test_model_symmetry_and_evaluation(self, beam_domain) -> None:
         domain, dirichlet, mesh = beam_domain
@@ -230,7 +230,7 @@ class TestHyperReducedNonlinearModelAndSolvers:
             domain.assemble_mass_matrix()
         )
 
-        model = HyperReducedNonlinearModel(
+        model = HyperReducedECSWModel(
             domain=domain,
             basis=basis,
             rid=rid,
@@ -275,7 +275,7 @@ class TestHyperReducedNonlinearModelAndSolvers:
             domain.assemble_mass_matrix()
         )
 
-        model = HyperReducedNonlinearModel(
+        model = HyperReducedECSWModel(
             domain=domain,
             basis=basis,
             rid=rid,
@@ -283,7 +283,7 @@ class TestHyperReducedNonlinearModelAndSolvers:
             f_ext_base=f_grav,
         )
 
-        solver = HyperReducedNonlinearStaticSolver(model=model, max_iter=20, tol=1e-6)
+        solver = HyperReducedStaticSolver(model=model, max_iter=20, tol=1e-6)
         u_r_sol = solver.solve(verbose=False)
 
         assert u_r_sol.shape == (r,)
@@ -313,7 +313,7 @@ class TestHyperReducedNonlinearModelAndSolvers:
             domain.assemble_mass_matrix()
         )
 
-        model = HyperReducedNonlinearModel(
+        model = HyperReducedECSWModel(
             domain=domain,
             basis=basis,
             rid=rid,
@@ -323,7 +323,7 @@ class TestHyperReducedNonlinearModelAndSolvers:
             surface_nodes=mesh.surface.node_indices,
         )
 
-        solver = HyperReducedNonlinearDynamicSolver(
+        solver = HyperReducedDynamicSolver(
             model=model, dt=0.005, spectral_radius=0.8, nr_max_iter=5
         )
 

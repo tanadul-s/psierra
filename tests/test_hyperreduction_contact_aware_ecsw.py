@@ -32,7 +32,7 @@ from psierra.hyperreduction.contact_ecsw import (
     ContactAwareHyperReducedModel,
 )
 from psierra.hyperreduction.contact import HyperReducedRigidContact
-from psierra.hyperreduction.solver import HyperReducedNonlinearDynamicSolver
+from psierra.hyperreduction.solver import HyperReducedDynamicSolver
 from psierra.collision.shapes import RigidPlane
 
 
@@ -426,7 +426,7 @@ class TestContactAwareHyperReducedModel:
             formulation="penalty",
         )
 
-        solver = HyperReducedNonlinearDynamicSolver(
+        solver = HyperReducedDynamicSolver(
             model=model,
             contact=contact,
             dt=0.002,

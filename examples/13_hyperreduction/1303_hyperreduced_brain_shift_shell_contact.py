@@ -65,9 +65,9 @@ from psierra.hyperreduction.ecsw import (
     ECSWTrainingMatrix,
     ECSWOptimizer,
 )
-from psierra.hyperreduction.model import HyperReducedNonlinearModel
+from psierra.hyperreduction.model import HyperReducedECSWModel
 from psierra.hyperreduction.contact import HyperReducedRigidContact
-from psierra.hyperreduction.solver import HyperReducedNonlinearDynamicSolver
+from psierra.hyperreduction.solver import HyperReducedDynamicSolver
 from psierra.collision import RayMeshObstacle, CollisionDetector
 from psierra.collision.shapes import RigidSphere
 
@@ -585,7 +585,7 @@ def main() -> None:
     console.print(
         "\n[bold yellow][5/6] Initializing Dual Contact Mechanics (Skull + Probe)...[/bold yellow]"
     )
-    hyper_model = HyperReducedNonlinearModel(
+    hyper_model = HyperReducedECSWModel(
         domain=coupled_domain,
         basis=basis,
         rid=rid,
@@ -643,7 +643,7 @@ def main() -> None:
     console.print(
         "\n[bold yellow][6/6] Instantiating Generalized-alpha Real-Time Dynamic Solver...[/bold yellow]"
     )
-    solver = HyperReducedNonlinearDynamicSolver(
+    solver = HyperReducedDynamicSolver(
         model=hyper_model,
         contact=contact,
         dt=args.dt,

@@ -39,9 +39,9 @@ from psierra.hyperreduction import (
     ReducedIntegrationDomain,
     ECSWTrainingMatrix,
     ECSWOptimizer,
-    HyperReducedNonlinearModel,
-    HyperReducedNonlinearStaticSolver,
-    HyperReducedNonlinearDynamicSolver,
+    HyperReducedECSWModel,
+    HyperReducedStaticSolver,
+    HyperReducedDynamicSolver,
 )
 
 install(show_locals=False)
@@ -324,7 +324,7 @@ def main() -> None:
 
     # 5.3 Construct Hyper-Reduced Nonlinear Model
     t_model_start = time.perf_counter()
-    hyper_model = HyperReducedNonlinearModel(
+    hyper_model = HyperReducedECSWModel(
         domain=domain,
         basis=basis,
         rid=rid,
@@ -336,9 +336,9 @@ def main() -> None:
     t_model = time.perf_counter() - t_model_start
     console.print(f"  • Hyper-Reduced Model Setup  : [green]{t_model*1000:.2f} ms[/green]")
 
-    # 5.4 Nonlinear Static Equilibrium Solve (HyperReducedNonlinearStaticSolver)
+    # 5.4 Nonlinear Static Equilibrium Solve (HyperReducedStaticSolver)
     t_static_start = time.perf_counter()
-    static_solver = HyperReducedNonlinearStaticSolver(model=hyper_model, max_iter=25, tol=1e-5)
+    static_solver = HyperReducedStaticSolver(model=hyper_model, max_iter=25, tol=1e-5)
     u_r_static = static_solver.solve(n_increments=3, verbose=False)
     t_static = time.perf_counter() - t_static_start
     u_full_static = static_solver.reconstruct_displacement()
@@ -355,8 +355,8 @@ def main() -> None:
         "\n[bold yellow][6/6] Real-Time Interactive 3D Visualization & Telemetry[/bold yellow]"
     )
 
-    # Initialize Hyper-Reduced Nonlinear Dynamic Solver
-    dynamic_solver = HyperReducedNonlinearDynamicSolver(
+    # Initialize Hyper-Reduced Dynamic Solver
+    dynamic_solver = HyperReducedDynamicSolver(
         model=hyper_model,
         dt=dt,
         spectral_radius=0.8,

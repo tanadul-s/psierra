@@ -32,7 +32,7 @@ class _CachedElementECSW:
     is_shell: bool = False
 
 
-class HyperReducedNonlinearModel:
+class HyperReducedECSWModel:
     """
     Hyper-reduced nonlinear continuum model using ECSW empirical cubature.
 

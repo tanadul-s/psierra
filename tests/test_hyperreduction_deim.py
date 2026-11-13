@@ -25,8 +25,8 @@ from psierra.hyperreduction.deim import (
     DEIMForceBasis,
     ForceSnapshotManager,
     HyperReducedDEIMModel,
-    HyperReducedDEIMDynamicSolver,
 )
+from psierra.hyperreduction.solver import HyperReducedDynamicSolver
 
 
 @pytest.fixture
@@ -300,7 +300,7 @@ class TestHyperReducedDEIMModel:
     def test_deim_dynamic_solver_stepping(
         self, cantilever_beam: tuple[SolidDomain, DirichletManager, PODBasis, np.ndarray]
     ) -> None:
-        """Verifies HyperReducedDEIMDynamicSolver executes real-time Generalized-alpha time steps."""
+        """Verifies HyperReducedDynamicSolver executes real-time Generalized-alpha time steps with DEIM model."""
         domain, dirichlet, pod_basis, u_snapshots = cantilever_beam
 
         force_mgr = ForceSnapshotManager(n_dofs=domain.n_dofs)
@@ -321,7 +321,7 @@ class TestHyperReducedDEIMModel:
             symmetrize_stiffness=True,
         )
 
-        solver = HyperReducedDEIMDynamicSolver(
+        solver = HyperReducedDynamicSolver(
             model=deim_model,
             dt=0.002,
             spectral_radius=0.8,
@@ -354,9 +354,9 @@ class TestHyperReducedDEIMModel:
     def test_deim_static_and_quasi_static_solvers(
         self, cantilever_beam: tuple[SolidDomain, DirichletManager, PODBasis, np.ndarray]
     ) -> None:
-        """Verifies HyperReducedNonlinearStaticSolver and HyperReducedQuasiStaticSolver with DEIM."""
+        """Verifies HyperReducedStaticSolver and HyperReducedQuasiStaticSolver with DEIM."""
         from psierra.hyperreduction.solver import (
-            HyperReducedNonlinearStaticSolver,
+            HyperReducedStaticSolver,
             HyperReducedQuasiStaticSolver,
         )
 
@@ -379,7 +379,7 @@ class TestHyperReducedDEIMModel:
         )
 
         # 1. Static solve
-        static_solver = HyperReducedNonlinearStaticSolver(model=deim_model, tol=1e-5)
+        static_solver = HyperReducedStaticSolver(model=deim_model, tol=1e-5)
         u_r_stat = static_solver.solve(n_increments=2)
         assert u_r_stat.shape == (deim_model.n_modes,)
         assert np.all(np.isfinite(u_r_stat))

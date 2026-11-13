@@ -17,9 +17,9 @@ from psierra.hyperreduction.ecsw import (
     ECSWTrainingMatrix,
     ECSWOptimizer,
 )
-from psierra.hyperreduction.model import HyperReducedNonlinearModel
+from psierra.hyperreduction.model import HyperReducedECSWModel
 from psierra.hyperreduction.solver import (
-    HyperReducedNonlinearStaticSolver,
+    HyperReducedStaticSolver,
     HyperReducedQuasiStaticSolver,
 )
 
@@ -54,7 +54,7 @@ class TestHyperReducedQuasiStaticSolver:
     def test_hyperreduced_quasi_static_elastic_solve(self, beam_domain) -> None:
         """
         Verifies that on an elastic model, HyperReducedQuasiStaticSolver produces
-        the exact same equilibrium state as HyperReducedNonlinearStaticSolver.
+        the exact same equilibrium state as HyperReducedStaticSolver.
         """
         domain, dirichlet, mesh = beam_domain
 
@@ -75,7 +75,7 @@ class TestHyperReducedQuasiStaticSolver:
             domain.assemble_mass_matrix()
         )
 
-        model = HyperReducedNonlinearModel(
+        model = HyperReducedECSWModel(
             domain=domain,
             basis=basis,
             rid=rid,
@@ -84,7 +84,7 @@ class TestHyperReducedQuasiStaticSolver:
         )
 
         # 1. Hyper-reduced static solver
-        static_solver = HyperReducedNonlinearStaticSolver(model=model, max_iter=25, tol=1e-6)
+        static_solver = HyperReducedStaticSolver(model=model, max_iter=25, tol=1e-6)
         u_r_static = static_solver.solve(verbose=False)
 
         # 2. Hyper-reduced quasi-static solver with 4 steps over 1.0s
@@ -137,7 +137,7 @@ class TestHyperReducedQuasiStaticSolver:
             domain.assemble_mass_matrix()
         )
 
-        model = HyperReducedNonlinearModel(
+        model = HyperReducedECSWModel(
             domain=domain,
             basis=basis,
             rid=rid,
@@ -189,7 +189,7 @@ class TestHyperReducedQuasiStaticSolver:
             domain.assemble_mass_matrix()
         )
 
-        model = HyperReducedNonlinearModel(
+        model = HyperReducedECSWModel(
             domain=domain,
             basis=basis,
             rid=rid,

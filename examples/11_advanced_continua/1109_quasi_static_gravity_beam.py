@@ -44,7 +44,7 @@ from psierra.hyperreduction import (
     ReducedIntegrationDomain,
     ECSWTrainingMatrix,
     ECSWOptimizer,
-    HyperReducedNonlinearModel,
+    HyperReducedECSWModel,
     HyperReducedQuasiStaticSolver,
 )
 from psierra.exchange.writer import SimulationWriter
@@ -360,7 +360,7 @@ def main() -> None:
         Viscoelastic(NeoHookean(params), prony_terms),
         Tet4TotalLagrangian(Viscoelastic(NeoHookean(params), prony_terms)),
     )
-    model_rom = HyperReducedNonlinearModel(
+    model_rom = HyperReducedECSWModel(
         domain=dom_rom_visco,
         basis=basis,
         rid=rid,

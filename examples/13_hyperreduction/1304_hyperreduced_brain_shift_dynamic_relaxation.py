@@ -68,7 +68,7 @@ from psierra.hyperreduction.ecsw import (
     ECSWTrainingMatrix,
     ECSWOptimizer,
 )
-from psierra.hyperreduction.model import HyperReducedNonlinearModel
+from psierra.hyperreduction.model import HyperReducedECSWModel
 from psierra.hyperreduction.contact import (
     HyperReducedRigidContact,
     ContactTelemetry,
@@ -477,7 +477,7 @@ class ThreadSafeNavigatorState:
 def physics_worker_loop(
     state: ThreadSafeNavigatorState,
     solver: HyperReducedDynamicRelaxationSolver,
-    hyper_model: HyperReducedNonlinearModel,
+    hyper_model: HyperReducedECSWModel,
     contact: HyperReducedRigidContact,
     collision_detector: CollisionDetector,
     skull_obstacle: RayMeshObstacle,
@@ -955,7 +955,7 @@ def main() -> None:
     console.print(
         "\n[bold yellow][5/6] Initializing Dual Contact Mechanics (Skull + Probe)...[/bold yellow]"
     )
-    hyper_model = HyperReducedNonlinearModel(
+    hyper_model = HyperReducedECSWModel(
         domain=coupled_domain,
         basis=basis,
         rid=rid,

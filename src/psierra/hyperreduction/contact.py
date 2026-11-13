@@ -26,7 +26,7 @@ from psierra.collision.shapes import CollisionShape
 from psierra.collision.detector import CollisionDetector, ContactQueryResult
 from psierra.collision.raytrace import RayMeshObstacle
 from psierra.reduction.basis import SurfacePODBasis
-from psierra.hyperreduction.model import HyperReducedNonlinearModel
+from psierra.hyperreduction.model import HyperReducedECSWModel
 
 
 @dataclass
@@ -47,7 +47,7 @@ class HyperReducedRigidContact:
 
     Parameters:
     -----------
-    model : HyperReducedNonlinearModel
+    model : HyperReducedECSWModel or HyperReducedDEIMModel or Any
         Hyper-reduced physical domain containing surface modal sub-basis and reference coordinates.
     obstacle : CollisionShape, RayMeshObstacle, or Sequence[CollisionShape]
         Master obstacle (e.g. RigidPlane, RigidSphere, or RayMeshObstacle for skull).
@@ -66,7 +66,7 @@ class HyperReducedRigidContact:
 
     def __init__(
         self,
-        model: HyperReducedNonlinearModel,
+        model: HyperReducedECSWModel | Any,
         obstacle: CollisionShape | Sequence[CollisionShape] | Any,
         k_penalty: float = 1.0,
         c_damping: float = 0.0,
