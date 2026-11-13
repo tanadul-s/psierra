@@ -36,6 +36,7 @@ from __future__ import annotations
 import argparse
 import os
 from pathlib import Path
+import threading
 import time
 from typing import Literal
 import numpy as np
@@ -68,8 +69,14 @@ from psierra.hyperreduction.ecsw import (
     ECSWOptimizer,
 )
 from psierra.hyperreduction.model import HyperReducedNonlinearModel
-from psierra.hyperreduction.contact import HyperReducedRigidContact
-from psierra.hyperreduction.solver import HyperReducedDynamicRelaxationSolver
+from psierra.hyperreduction.contact import (
+    HyperReducedRigidContact,
+    ContactTelemetry,
+)
+from psierra.hyperreduction.solver import (
+    HyperReducedDynamicRelaxationSolver,
+    HyperReducedDynamicRelaxationStats,
+)
 from psierra.collision import RayMeshObstacle, CollisionDetector
 from psierra.collision.shapes import RigidSphere
 
@@ -103,14 +110,14 @@ def parse_arguments() -> argparse.Namespace:
     parser.add_argument(
         "--dr-tol",
         type=float,
-        default=1e-4,
-        help="Relative residual convergence tolerance for Dynamic Relaxation (default: 1e-4)",
+        default=1e-3,
+        help="Relative residual convergence tolerance for Dynamic Relaxation (default: 1e-3)",
     )
     parser.add_argument(
         "--dr-max-steps",
         type=int,
-        default=250,
-        help="Maximum pseudo-time relaxation steps per static solve (default: 250)",
+        default=50,
+        help="Maximum pseudo-time relaxation steps per static solve (default: 50)",
     )
     parser.add_argument(
         "--safety-factor",
@@ -274,6 +281,359 @@ def _resolve_asset_path(rel_path: str) -> Path:
     if not p.exists():
         raise FileNotFoundError(f"Required asset not found: {rel_path}")
     return p
+
+
+class ThreadSafeNavigatorState:
+    """Thread-safe synchronization container between PyVista GUI and Physics Worker."""
+
+    def __init__(
+        self,
+        orientation: HeadOrientationManager,
+        csf_state: CSFStateManager,
+        probe_center: np.ndarray,
+        initial_u_r: np.ndarray,
+        n_surf_nodes: int,
+        n_lesion_nodes: int,
+        formulation: str = "penalty",
+        damping_type: str = "kinetic",
+        dr_mode: str = "relax",
+    ) -> None:
+        self._lock = threading.Lock()
+
+        # Shared input parameters (GUI -> Physics)
+        self.pitch: float = float(orientation.pitch)
+        self.roll: float = float(orientation.roll)
+        self.yaw: float = float(orientation.yaw)
+        self.csf_mode_idx: int = int(csf_state.mode_idx)
+        self.probe_center: np.ndarray = np.array(probe_center, dtype=np.float64)
+        self.skull_contact_enabled: bool = True
+        self.probe_contact_enabled: bool = True
+        self.contact_formulation: str = formulation
+        self.dr_damping: str = damping_type
+        self.dr_mode: str = dr_mode
+        self.substeps: int = 2
+
+        # Control flags
+        self.exit_requested: bool = False
+        self.reset_requested: bool = False
+        self.condition_changed: bool = True
+
+        # Shared output telemetry (Physics -> GUI)
+        self.u_r: np.ndarray = np.array(initial_u_r, dtype=np.float64)
+        self.u_surf: np.ndarray = np.zeros((n_surf_nodes, 3), dtype=np.float64)
+        self.u_lesion: np.ndarray = np.zeros((n_lesion_nodes, 3), dtype=np.float64)
+        self.max_sag: float = 0.0
+        self.lesion_drift: float = 0.0
+        self.relative_residual: float = 1.0
+        self.kinetic_peaks: int = 0
+        self.num_active_contacts: int = 0
+        self.max_penetration: float = 0.0
+        self.max_contact_force: float = 0.0
+        self.total_force_norm: float = 0.0
+        self.physics_hz: float = 0.0
+        self.effective_step_ms: float = 0.0
+        self.is_converged: bool = False
+
+    def request_exit(self) -> None:
+        with self._lock:
+            self.exit_requested = True
+
+    def is_exit_requested(self) -> bool:
+        with self._lock:
+            return self.exit_requested
+
+    def request_reset(self) -> None:
+        with self._lock:
+            self.reset_requested = True
+            self.condition_changed = True
+
+    def set_orientation(self, pitch: float, roll: float, yaw: float) -> None:
+        with self._lock:
+            self.pitch = float(pitch)
+            self.roll = float(roll)
+            self.yaw = float(yaw)
+            self.condition_changed = True
+
+    def set_probe_center(self, center: np.ndarray) -> None:
+        with self._lock:
+            self.probe_center[:] = center
+            self.condition_changed = True
+
+    def set_csf_mode(self, mode_idx: int) -> None:
+        with self._lock:
+            self.csf_mode_idx = int(mode_idx)
+            self.condition_changed = True
+
+    def toggle_skull_contact(self) -> bool:
+        with self._lock:
+            self.skull_contact_enabled = not self.skull_contact_enabled
+            self.condition_changed = True
+            return self.skull_contact_enabled
+
+    def toggle_probe_contact(self) -> bool:
+        with self._lock:
+            self.probe_contact_enabled = not self.probe_contact_enabled
+            self.condition_changed = True
+            return self.probe_contact_enabled
+
+    def toggle_contact_formulation(self) -> str:
+        with self._lock:
+            self.contact_formulation = (
+                "penalty"
+                if self.contact_formulation == "augmented_lagrangian"
+                else "augmented_lagrangian"
+            )
+            self.condition_changed = True
+            return self.contact_formulation
+
+    def toggle_damping(self) -> str:
+        with self._lock:
+            self.dr_damping = "viscous" if self.dr_damping == "kinetic" else "kinetic"
+            self.condition_changed = True
+            return self.dr_damping
+
+    def toggle_dr_mode(self) -> str:
+        with self._lock:
+            self.dr_mode = "step" if self.dr_mode == "relax" else "relax"
+            return self.dr_mode
+
+    def get_inputs_for_physics(self) -> dict:
+        with self._lock:
+            inputs = {
+                "pitch": self.pitch,
+                "roll": self.roll,
+                "yaw": self.yaw,
+                "csf_mode_idx": self.csf_mode_idx,
+                "probe_center": self.probe_center.copy(),
+                "skull_contact_enabled": self.skull_contact_enabled,
+                "probe_contact_enabled": self.probe_contact_enabled,
+                "contact_formulation": self.contact_formulation,
+                "dr_damping": self.dr_damping,
+                "dr_mode": self.dr_mode,
+                "substeps": self.substeps,
+                "reset_requested": self.reset_requested,
+                "condition_changed": self.condition_changed,
+            }
+            self.reset_requested = False
+            self.condition_changed = False
+            return inputs
+
+    def publish_physics_telemetry(
+        self,
+        u_r: np.ndarray,
+        u_surf: np.ndarray,
+        u_lesion: np.ndarray,
+        max_sag: float,
+        lesion_drift: float,
+        relative_residual: float,
+        kinetic_peaks: int,
+        num_active: int,
+        max_pen: float,
+        max_fc: float,
+        tot_fc: float,
+        physics_hz: float,
+        step_ms: float,
+        is_converged: bool,
+    ) -> None:
+        with self._lock:
+            self.u_r[:] = u_r
+            self.u_surf[:] = u_surf
+            self.u_lesion[:] = u_lesion
+            self.max_sag = float(max_sag)
+            self.lesion_drift = float(lesion_drift)
+            self.relative_residual = float(relative_residual)
+            self.kinetic_peaks = int(kinetic_peaks)
+            self.num_active_contacts = int(num_active)
+            self.max_penetration = float(max_pen)
+            self.max_contact_force = float(max_fc)
+            self.total_force_norm = float(tot_fc)
+            self.physics_hz = float(physics_hz)
+            self.effective_step_ms = float(step_ms)
+            self.is_converged = bool(is_converged)
+
+    def get_render_snapshot(self) -> dict:
+        with self._lock:
+            return {
+                "u_surf": self.u_surf.copy(),
+                "u_lesion": self.u_lesion.copy(),
+                "max_sag": self.max_sag,
+                "lesion_drift": self.lesion_drift,
+                "relative_residual": self.relative_residual,
+                "kinetic_peaks": self.kinetic_peaks,
+                "num_active_contacts": self.num_active_contacts,
+                "max_penetration": self.max_penetration,
+                "max_contact_force": self.max_contact_force,
+                "total_force_norm": self.total_force_norm,
+                "physics_hz": self.physics_hz,
+                "effective_step_ms": self.effective_step_ms,
+                "is_converged": self.is_converged,
+                "dr_mode": self.dr_mode,
+                "dr_damping": self.dr_damping,
+                "contact_formulation": self.contact_formulation,
+                "skull_contact_enabled": self.skull_contact_enabled,
+                "probe_contact_enabled": self.probe_contact_enabled,
+            }
+
+
+def physics_worker_loop(
+    state: ThreadSafeNavigatorState,
+    solver: HyperReducedDynamicRelaxationSolver,
+    hyper_model: HyperReducedNonlinearModel,
+    contact: HyperReducedRigidContact,
+    collision_detector: CollisionDetector,
+    skull_obstacle: RayMeshObstacle,
+    probe_obstacle: RigidSphere,
+    lesion_basis: PODBasis,
+    m_r_x: np.ndarray,
+    m_r_y: np.ndarray,
+    m_r_z: np.ndarray,
+    h_r_icp: np.ndarray,
+    dr_tol: float,
+    dr_max_steps: int,
+) -> None:
+    """Dedicated background physics thread executing asynchronous Dynamic Relaxation."""
+    last_probe_pos = np.zeros(3, dtype=np.float64)
+    last_skull_on = True
+    last_probe_on = True
+    last_formulation = contact.formulation
+    last_damping = solver.damping_type
+
+    hz_timer = time.perf_counter()
+    steps_count = 0
+    physics_hz = 0.0
+    step_duration_acc = 0.0
+    csf_modes = CSFStateManager.MODES
+
+    while not state.is_exit_requested():
+        inputs = state.get_inputs_for_physics()
+
+        # 1. Reset handling
+        if inputs["reset_requested"]:
+            solver.reset_state()
+            contact.reset_state()
+            hyper_model.f_r_base.fill(0.0)
+
+        # 2. Obstacles and Contact sync
+        if (
+            inputs["skull_contact_enabled"] != last_skull_on
+            or inputs["probe_contact_enabled"] != last_probe_on
+        ):
+            active_obs = []
+            if inputs["skull_contact_enabled"]:
+                active_obs.append(skull_obstacle)
+            if inputs["probe_contact_enabled"]:
+                active_obs.append(probe_obstacle)
+            collision_detector._obstacles[:] = active_obs
+            contact.reset_state()
+            last_skull_on = inputs["skull_contact_enabled"]
+            last_probe_on = inputs["probe_contact_enabled"]
+
+        # 3. Probe position sync
+        if np.linalg.norm(inputs["probe_center"] - last_probe_pos) > 1e-4:
+            probe_obstacle.center = tuple(inputs["probe_center"])
+            last_probe_pos[:] = inputs["probe_center"]
+
+        # 4. Contact formulation & Damping mechanism sync
+        if inputs["contact_formulation"] != last_formulation:
+            contact.formulation = inputs["contact_formulation"]
+            contact.reset_state()
+            last_formulation = inputs["contact_formulation"]
+
+        if inputs["dr_damping"] != last_damping:
+            solver.damping_type = inputs["dr_damping"]
+            last_damping = inputs["dr_damping"]
+
+        # 5. External force projection (Gravity + CSF Archimedean Buoyancy + Hydrostatic ICP)
+        r_head = Rotation.from_euler(
+            "xyz", [inputs["pitch"], inputs["roll"], inputs["yaw"]], degrees=True
+        )
+        g_world = np.array([0.0, -9810.0, 0.0], dtype=np.float64)
+        g_loc = r_head.as_matrix().T @ g_world
+
+        _, buoy_factor, icp_mpa, _ = csf_modes[
+            inputs["csf_mode_idx"] % len(csf_modes)
+        ]
+        b_ratio = buoy_factor * (1.00e-9 / 1.04e-9)
+        f_r_grav = (1.0 - b_ratio) * (
+            g_loc[0] * m_r_x + g_loc[1] * m_r_y + g_loc[2] * m_r_z
+        )
+        f_r_h = icp_mpa * h_r_icp
+        hyper_model.f_r_base[:] = f_r_grav + f_r_h
+
+        # 6. Advance Dynamic Relaxation Steps
+        t_start = time.perf_counter()
+        n_executed = 0
+
+        if inputs["dr_mode"] == "relax":
+            if inputs["condition_changed"] or not solver.converged:
+                # Execute in responsive batches (10 steps per slice)
+                batch_steps = 10
+                for _ in range(batch_steps):
+                    solver.step(hyper_model.f_r_base)
+                    n_executed += 1
+                    if solver.converged and solver.steps_completed >= 5:
+                        break
+            else:
+                # Settled at static equilibrium: sleep briefly to yield CPU
+                time.sleep(0.005)
+        else:
+            # Animated pseudo-time relaxation path
+            for _ in range(inputs["substeps"]):
+                solver.step(hyper_model.f_r_base)
+                n_executed += 1
+            time.sleep(0.002)
+
+        t_step_batch = time.perf_counter() - t_start
+        if n_executed > 0:
+            step_duration_acc += t_step_batch / n_executed
+            steps_count += n_executed
+
+        # 7. Update physics step rate (Hz)
+        now = time.perf_counter()
+        if now - hz_timer >= 0.5:
+            physics_hz = steps_count / max(now - hz_timer, 1e-6)
+            avg_step_ms = (step_duration_acc / max(steps_count, 1)) * 1000.0
+            steps_count = 0
+            step_duration_acc = 0.0
+            hz_timer = now
+        else:
+            avg_step_ms = (
+                (step_duration_acc / max(steps_count, 1)) * 1000.0
+                if steps_count > 0
+                else 0.0
+            )
+
+        # 8. Reconstruct displacements & publish telemetry
+        u_r = solver.u_r.copy()
+        u_surf = hyper_model.reconstruct_surface_displacement(u_r)
+        u_lesion = lesion_basis.reconstruct_surface_displacements(u_r)
+        u_norms = np.linalg.norm(u_surf, axis=1)
+        max_sag = float(np.max(u_norms)) if len(u_norms) > 0 else 0.0
+        lesion_drift = (
+            float(np.linalg.norm(np.mean(u_lesion, axis=0)))
+            if len(u_lesion) > 0
+            else 0.0
+        )
+
+        telem = contact.get_telemetry()
+        st = solver.get_stats()
+
+        state.publish_physics_telemetry(
+            u_r=u_r,
+            u_surf=u_surf,
+            u_lesion=u_lesion,
+            max_sag=max_sag,
+            lesion_drift=lesion_drift,
+            relative_residual=st.relative_residual,
+            kinetic_peaks=st.kinetic_peaks,
+            num_active=telem.num_active,
+            max_pen=telem.max_penetration,
+            max_fc=telem.max_contact_force,
+            tot_fc=telem.total_contact_force_norm,
+            physics_hz=physics_hz,
+            step_ms=avg_step_ms,
+            is_converged=solver.converged,
+        )
 
 
 def main() -> None:
@@ -445,19 +805,8 @@ def main() -> None:
         else:
             cache_dir = Path("psierra") / args.cache_dir
 
-    # Fallback check: reuse precomputed archives from 1303 if available
-    shared_1303_cache = (
-        Path("data/mrbraintumor1/mor/1303_brain_shift_shell_contact")
-        if Path("data").exists()
-        else Path("psierra/data/mrbraintumor1/mor/1303_brain_shift_shell_contact")
-    )
-
     snapshots_path = cache_dir / "snapshots.npz"
     ecsw_path = cache_dir / "ecsw_rid.npz"
-
-    if not snapshots_path.exists() and (shared_1303_cache / "snapshots.npz").exists():
-        snapshots_path = shared_1303_cache / "snapshots.npz"
-        ecsw_path = shared_1303_cache / "ecsw_rid.npz"
 
     if snapshots_path.exists() and ecsw_path.exists():
         console.print(
@@ -479,7 +828,7 @@ def main() -> None:
     else:
         cache_dir.mkdir(parents=True, exist_ok=True)
         console.print(
-            "  • Precomputed archive not found. Harvesting high-fidelity snapshots via SuperLU..."
+            "  • Precomputed archive not found. Harvesting high-fidelity snapshots across symmetric pose set via SuperLU..."
         )
         t0_snap = time.perf_counter()
         K_global = coupled_domain.assemble_stiffness_matrix()
@@ -487,13 +836,30 @@ def main() -> None:
         console.print("    [dim]Factorizing K_ff with SuperLU (done once)...[/dim]")
         lu = spspla.splu(K_ff)
 
+        # Symmetric, comprehensive operative head orientations across all 3 anatomical planes
         head_poses = [
-            (0.0, 0.0),  # Supine
-            (180.0, 0.0),  # Prone
-            (0.0, -45.0),  # Right Tilt
-            (0.0, 45.0),  # Left Tilt
-            (-15.0, 30.0),  # Pterional
-            (-60.0, 0.0),  # Upright tilt
+            # 1. Primary Sagittal Poses (Pitch)
+            (0.0, 0.0),       # Neutral Supine (Face Up)
+            (180.0, 0.0),     # Prone (Face Down)
+            (-45.0, 0.0),     # Upright / Sitting 45°
+            (45.0, 0.0),      # Trendelenburg (Head Down) 45°
+            (-90.0, 0.0),     # Full Upright Sitting 90°
+
+            # 2. Coronal Lateral Poses (Roll - Symmetric Bilateral Pairs)
+            (0.0, -45.0),     # Right Lateral 45°
+            (0.0, 45.0),      # Left Lateral 45°
+            (0.0, -90.0),     # Full Right Lateral 90°
+            (0.0, 90.0),      # Full Left Lateral 90°
+
+            # 3. Pterional / Frontotemporal Approaches (Symmetric Bilateral Pairs)
+            (-15.0, 30.0),    # Right Pterional 30°
+            (-15.0, -30.0),   # Left Pterional 30°
+            (-30.0, 45.0),    # Deep Right Pterional 45°
+            (-30.0, -45.0),   # Deep Left Pterional 45°
+
+            # 4. Retrosigmoid / Suboccipital Poses (Symmetric Bilateral Pairs)
+            (165.0, 30.0),    # Right Retrosigmoid
+            (165.0, -30.0),   # Left Retrosigmoid
         ]
 
         X = mesh.nodes
@@ -536,28 +902,28 @@ def main() -> None:
             u_full[free_dofs] = u_f
             snapshots_list.append(safe_scale_u(u_full))
 
-        front_cortex_nodes = [
-            nid
-            for nid in surf_nodes
-            if mesh.nodes[nid, 1] > 60.0 and abs(mesh.nodes[nid, 0]) < 20.0
-        ]
-        if front_cortex_nodes:
-            sample_probe_nodes = front_cortex_nodes[:4]
-            for nid in sample_probe_nodes:
-                f_probe = np.zeros(coupled_domain.n_dofs, dtype=np.float64)
-                f_probe[3 * nid + 1] = -2.5
-                u_f_probe = lu.solve(f_probe[free_dofs])
-                u_full = np.zeros(coupled_domain.n_dofs, dtype=np.float64)
-                u_full[free_dofs] = u_f_probe
-                snapshots_list.append(safe_scale_u(u_full))
+        # Bilateral frontal cortex probe nodes (Right, Left, and Midline)
+        front_r = [nid for nid in surf_nodes if mesh.nodes[nid, 1] > 55.0 and 5.0 < mesh.nodes[nid, 0] < 25.0][:2]
+        front_l = [nid for nid in surf_nodes if mesh.nodes[nid, 1] > 55.0 and -25.0 < mesh.nodes[nid, 0] < -5.0][:2]
+        front_m = [nid for nid in surf_nodes if mesh.nodes[nid, 1] > 60.0 and abs(mesh.nodes[nid, 0]) <= 5.0][:2]
+        for nid in front_r + front_l + front_m:
+            f_probe = np.zeros(coupled_domain.n_dofs, dtype=np.float64)
+            f_probe[3 * nid + 1] = -2.5
+            u_f_probe = lu.solve(f_probe[free_dofs])
+            u_full = np.zeros(coupled_domain.n_dofs, dtype=np.float64)
+            u_full[free_dofs] = u_f_probe
+            snapshots_list.append(safe_scale_u(u_full))
 
         snap_mat = np.column_stack(snapshots_list)
+        console.print(
+            f"    [dim]Harvested {snap_mat.shape[1]} symmetric snapshots in {time.perf_counter()-t0_snap:.1f} s[/dim]"
+        )
         u_svd, s_svd, _ = np.linalg.svd(snap_mat, full_matrices=False)
         energy_sq = s_svd**2
         tot_energy = float(energy_sq.sum())
         cum_energy = np.cumsum(energy_sq) / max(tot_energy, 1e-14)
         r_cutoff = int(np.searchsorted(cum_energy, 0.999) + 1)
-        r_cutoff = max(r_cutoff, 4)
+        r_cutoff = max(r_cutoff, 6)
         Phi = u_svd[:, :r_cutoff]
         s_cut = s_svd[:r_cutoff]
 
@@ -567,12 +933,23 @@ def main() -> None:
             cumulative_energy=float(cum_energy[r_cutoff - 1]),
             total_energy=tot_energy,
         )
+        console.print(
+            f"  • Retained Modal Basis: [bold green]r = {basis.n_modes}[/bold green] modes (99.9% energy)"
+        )
 
+        console.print(
+            "  • Assembling ECSW virtual work training matrix across solid and shell elements..."
+        )
+        t0_ecsw = time.perf_counter()
         A, b = ECSWTrainingMatrix.build(
             coupled_domain, basis, snapshots_list, include_stiffness=False
         )
-        optimizer = ECSWOptimizer(tolerance=0.03, max_elements=25)
+        optimizer = ECSWOptimizer(tolerance=0.03, max_elements=30)
         rid = optimizer.optimize(A, b)
+        console.print(
+            f"  • ECSW Optimization: [bold green]{rid.n_selected}[/bold green] / {rid.n_total_elements:,} elements "
+            f"({rid.element_reduction_pct:.2f}% reduction) in {time.perf_counter()-t0_ecsw:.1f} s"
+        )
 
         np.savez_compressed(
             snapshots_path,
@@ -619,10 +996,14 @@ def main() -> None:
     shaft_length = 50.0
     probe_obstacle = RigidSphere(center=tuple(probe_center), radius=probe_radius)
 
+    clamped_set = set(clamped_solid_nodes)
+    free_surf_nodes = [nid for nid in surf_nodes if nid not in clamped_set]
+
     collision_detector = CollisionDetector([skull_obstacle, probe_obstacle])
     contact = HyperReducedRigidContact(
         model=hyper_model,
         obstacle=collision_detector,
+        candidate_node_indices=free_surf_nodes,
         k_penalty=args.k_penalty,
         formulation=args.formulation,
     )
@@ -668,6 +1049,31 @@ def main() -> None:
     console.print(
         f"  • Gerschgorin Scaling   : [bold green]safety = {args.safety_factor:.2f}[/bold green]"
     )
+
+    # Precompute fast reduced external force projection operators
+    e_x = np.zeros(coupled_domain.n_dofs, dtype=np.float64)
+    e_x[0::3] = 1.0
+    e_y = np.zeros(coupled_domain.n_dofs, dtype=np.float64)
+    e_y[1::3] = 1.0
+    e_z = np.zeros(coupled_domain.n_dofs, dtype=np.float64)
+    e_z[2::3] = 1.0
+
+    m_r_x = basis.basis_matrix.T @ (M_global @ e_x)
+    m_r_y = basis.basis_matrix.T @ (M_global @ e_y)
+    m_r_z = basis.basis_matrix.T @ (M_global @ e_z)
+
+    smesh = mesh.surface
+    normals = smesh.polydata.cell_normals
+    areas = smesh.areas
+    s_conn = smesh.elements
+    g_conn = smesh.node_indices
+    f_h_unit = np.zeros(coupled_domain.n_dofs, dtype=np.float64)
+    for f_idx in range(len(s_conn)):
+        facet_force = (areas[f_idx] / 3.0) * normals[f_idx]
+        for sk in s_conn[f_idx]:
+            gk = g_conn[sk]
+            f_h_unit[3 * gk : 3 * gk + 3] += facet_force
+    h_r_icp = basis.basis_matrix.T @ f_h_unit
 
     initial_brain_points = mesh.nodes.copy()
     initial_lesion_points = mesh.nodes[lesion_node_indices].copy()
@@ -744,7 +1150,10 @@ def main() -> None:
 
             t_start = time.perf_counter()
             u_r_step = solver.relax(
-                hyper_model.f_r_base, tol=args.dr_tol, max_steps=args.dr_max_steps
+                hyper_model.f_r_base,
+                tol=args.dr_tol,
+                max_steps=args.dr_max_steps,
+                min_steps=5,
             )
             t_end = time.perf_counter()
             step_times.append(t_end - t_start)
@@ -866,14 +1275,20 @@ def main() -> None:
     )
     plotter.set_background("#0f172a", top="#1e293b")
 
-    gui_state = {
-        "exit_requested": False,
-        "dr_mode": args.mode,  # 'relax' (instant static) or 'step' (animated relaxation)
-        "substeps": 3,
-    }
+    navigator_state = ThreadSafeNavigatorState(
+        orientation=orientation,
+        csf_state=csf_state,
+        probe_center=probe_center,
+        initial_u_r=solver.u_r,
+        n_surf_nodes=mesh.surface.n_nodes,
+        n_lesion_nodes=len(lesion_node_indices),
+        formulation=args.formulation,
+        damping_type=args.damping_type,
+        dr_mode=args.mode,
+    )
 
     def key_quit() -> None:
-        gui_state["exit_requested"] = True
+        navigator_state.request_exit()
         if not getattr(plotter, "_closed", False):
             plotter.close()
 
@@ -1024,98 +1439,78 @@ def main() -> None:
 
     plotter.camera_position = [(30.0, 320.0, 80.0), (0.0, -10.0, 0.0), (0.0, 0.0, 1.0)]
 
-    # Key event & contact toggle state
     skull_opacities = [0.10, 0.25, 0.0, 0.04]
     skull_op_idx = 0
-    contact_state = {
-        "skull_enabled": True,
-        "probe_enabled": True,
-    }
 
-    def sync_active_obstacles() -> None:
-        active_obs = []
-        if contact_state["skull_enabled"]:
-            active_obs.append(skull_obstacle)
-        if contact_state["probe_enabled"]:
-            active_obs.append(probe_obstacle)
-        collision_detector._obstacles[:] = active_obs
-        contact.reset_state()
+    def cycle_skull_opacity() -> None:
+        nonlocal skull_op_idx
+        skull_op_idx = (skull_op_idx + 1) % len(skull_opacities)
+        skull_actor.GetProperty().SetOpacity(skull_opacities[skull_op_idx])
 
     def toggle_skull_contact() -> None:
-        contact_state["skull_enabled"] = not contact_state["skull_enabled"]
-        sync_active_obstacles()
-        state_str = "ON" if contact_state["skull_enabled"] else "OFF"
+        enabled = navigator_state.toggle_skull_contact()
         skull_actor.GetProperty().SetColor(
-            (0.88, 0.88, 0.88) if contact_state["skull_enabled"] else (0.94, 0.55, 0.55)
+            (0.88, 0.88, 0.88) if enabled else (0.94, 0.55, 0.55)
         )
         console.print(
-            f"[bold cyan]Skull Contact Toggled:[/bold cyan] [bold white]{state_str}[/bold white]"
+            f"[bold cyan]Skull Contact Toggled:[/bold cyan] [bold white]{'ON' if enabled else 'OFF'}[/bold white]"
         )
 
     def toggle_probe_contact() -> None:
-        contact_state["probe_enabled"] = not contact_state["probe_enabled"]
-        sync_active_obstacles()
-        state_str = "ON" if contact_state["probe_enabled"] else "OFF"
-        if contact_state["probe_enabled"]:
+        enabled = navigator_state.toggle_probe_contact()
+        if enabled:
             probe_actor.GetProperty().SetColor(0.81, 0.85, 0.86)
             probe_actor.GetProperty().SetOpacity(0.95)
         else:
             probe_actor.GetProperty().SetColor(0.47, 0.56, 0.61)
             probe_actor.GetProperty().SetOpacity(0.30)
         console.print(
-            f"[bold cyan]Indenter Contact Toggled:[/bold cyan] [bold white]{state_str}[/bold white]"
+            f"[bold cyan]Indenter Contact Toggled:[/bold cyan] [bold white]{'ON' if enabled else 'OFF'}[/bold white]"
         )
 
-    def cycle_skull_opacity():
-        nonlocal skull_op_idx
-        skull_op_idx = (skull_op_idx + 1) % len(skull_opacities)
-        skull_actor.GetProperty().SetOpacity(skull_opacities[skull_op_idx])
-
-    def toggle_contact_formulation():
-        new_form = contact.toggle_formulation()
+    def toggle_contact_formulation() -> None:
+        new_form = navigator_state.toggle_contact_formulation()
         console.print(
             f"[bold cyan]Contact Formulation Toggled:[/bold cyan] {new_form.upper()}"
         )
 
-    def cycle_csf_state():
-        new_mode = csf_state.cycle()
+    def cycle_csf_state() -> None:
+        csf_state.cycle()
+        navigator_state.set_csf_mode(csf_state.mode_idx)
         console.print(
-            f"[bold green]CSF Buoyancy / Drainage State:[/bold green] [bold white]{new_mode}[/bold white]"
+            f"[bold green]CSF Buoyancy / Drainage State:[/bold green] [bold white]{csf_state.mode_name}[/bold white]"
         )
 
-    def toggle_dr_mode():
-        if gui_state["dr_mode"] == "relax":
-            gui_state["dr_mode"] = "step"
-        else:
-            gui_state["dr_mode"] = "relax"
+    def toggle_dr_mode() -> None:
+        new_mode = navigator_state.toggle_dr_mode()
         console.print(
             f"[bold magenta]DR Mode Toggled:[/bold magenta] "
-            f"[bold white]{'Instant Static Solve' if gui_state['dr_mode'] == 'relax' else 'Animated Pseudo-Time Relaxation'}[/bold white]"
+            f"[bold white]{'Instant Static Solve' if new_mode == 'relax' else 'Animated Pseudo-Time Relaxation'}[/bold white]"
         )
 
-    def toggle_dr_damping():
-        if solver.damping_type == "kinetic":
-            solver.damping_type = "viscous"
-        else:
-            solver.damping_type = "kinetic"
+    def toggle_dr_damping() -> None:
+        new_damp = navigator_state.toggle_damping()
         console.print(
-            f"[bold magenta]DR Damping Mechanism Toggled:[/bold magenta] [bold white]{solver.damping_type.upper()}[/bold white]"
+            f"[bold magenta]DR Damping Mechanism Toggled:[/bold magenta] [bold white]{new_damp.upper()}[/bold white]"
         )
 
-    def move_probe(dx: float, dy: float, dz: float):
+    def move_probe(dx: float, dy: float, dz: float) -> None:
         probe_center[0] += dx
         probe_center[1] += dy
         probe_center[2] += dz
-        probe_obstacle.center = tuple(probe_center)
+        navigator_state.set_probe_center(probe_center)
         R = orientation.rotation_matrix
         probe_actor.GetMapper().SetInputData(
             build_probe_geometry(probe_center @ R.T, R)
         )
 
-    def set_pose_preset(preset_key: str):
+    def set_pose_preset(preset_key: str) -> None:
         if getattr(plotter, "render_window", None) is not None:
             plotter.render_window.SetStereoRender(False)
         desc = orientation.set_preset(preset_key)
+        navigator_state.set_orientation(
+            orientation.pitch, orientation.roll, orientation.yaw
+        )
         R = orientation.rotation_matrix
         probe_actor.GetMapper().SetInputData(
             build_probe_geometry(probe_center @ R.T, R)
@@ -1124,18 +1519,30 @@ def main() -> None:
             f"[cyan]Head Orientation Preset:[/cyan] [bold white]{desc}[/bold white]"
         )
 
-    def reset_simulation():
+    def adjust_pose(dp: float = 0.0, dr: float = 0.0, dy: float = 0.0) -> None:
+        orientation.adjust(dp=dp, dr=dr, dy=dy)
+        navigator_state.set_orientation(
+            orientation.pitch, orientation.roll, orientation.yaw
+        )
+        R = orientation.rotation_matrix
+        probe_actor.GetMapper().SetInputData(
+            build_probe_geometry(probe_center @ R.T, R)
+        )
+
+    def reset_simulation() -> None:
         orientation.set_preset("supine")
         csf_state.mode_idx = 0
-        contact_state["skull_enabled"] = True
-        contact_state["probe_enabled"] = True
+        probe_center[:] = [4.7, 76.0, -4.6]
+        navigator_state.set_orientation(
+            orientation.pitch, orientation.roll, orientation.yaw
+        )
+        navigator_state.set_csf_mode(csf_state.mode_idx)
+        navigator_state.set_probe_center(probe_center)
+        navigator_state.request_reset()
+
         skull_actor.GetProperty().SetColor(0.88, 0.88, 0.88)
         probe_actor.GetProperty().SetColor(0.81, 0.85, 0.86)
         probe_actor.GetProperty().SetOpacity(0.95)
-        probe_center[:] = [4.7, 76.0, -4.6]
-        probe_obstacle.center = tuple(probe_center)
-        sync_active_obstacles()
-        solver.reset_state()
         R = orientation.rotation_matrix
         probe_actor.GetMapper().SetInputData(
             build_probe_geometry(probe_center @ R.T, R)
@@ -1182,18 +1589,18 @@ def main() -> None:
     plotter.add_key_event("O", lambda: move_probe(0.0, 0.0, -2.0))
 
     # Head reorientation
-    plotter.add_key_event("w", lambda: orientation.adjust(dp=5.0))
-    plotter.add_key_event("W", lambda: orientation.adjust(dp=5.0))
-    plotter.add_key_event("s", lambda: orientation.adjust(dp=-5.0))
-    plotter.add_key_event("S", lambda: orientation.adjust(dp=-5.0))
-    plotter.add_key_event("a", lambda: orientation.adjust(dr=-5.0))
-    plotter.add_key_event("A", lambda: orientation.adjust(dr=-5.0))
-    plotter.add_key_event("d", lambda: orientation.adjust(dr=5.0))
-    plotter.add_key_event("D", lambda: orientation.adjust(dr=5.0))
-    plotter.add_key_event("q", lambda: orientation.adjust(dy=-5.0))
-    plotter.add_key_event("Q", lambda: orientation.adjust(dy=-5.0))
-    plotter.add_key_event("e", lambda: orientation.adjust(dy=5.0))
-    plotter.add_key_event("E", lambda: orientation.adjust(dy=5.0))
+    plotter.add_key_event("w", lambda: adjust_pose(dp=5.0))
+    plotter.add_key_event("W", lambda: adjust_pose(dp=5.0))
+    plotter.add_key_event("s", lambda: adjust_pose(dp=-5.0))
+    plotter.add_key_event("S", lambda: adjust_pose(dp=-5.0))
+    plotter.add_key_event("a", lambda: adjust_pose(dr=-5.0))
+    plotter.add_key_event("A", lambda: adjust_pose(dr=-5.0))
+    plotter.add_key_event("d", lambda: adjust_pose(dr=5.0))
+    plotter.add_key_event("D", lambda: adjust_pose(dr=5.0))
+    plotter.add_key_event("q", lambda: adjust_pose(dy=-5.0))
+    plotter.add_key_event("Q", lambda: adjust_pose(dy=-5.0))
+    plotter.add_key_event("e", lambda: adjust_pose(dy=5.0))
+    plotter.add_key_event("E", lambda: adjust_pose(dy=5.0))
 
     # Preset surgical postures
     plotter.add_key_event("1", lambda: set_pose_preset("supine"))
@@ -1218,13 +1625,37 @@ def main() -> None:
         if plotter.iren.get_interactor_style() is not None:
             plotter.iren.get_interactor_style().RemoveObservers("CharEvent")
 
+    # Start the decoupled background Physics Worker Thread
+    worker_thread = threading.Thread(
+        target=physics_worker_loop,
+        kwargs={
+            "state": navigator_state,
+            "solver": solver,
+            "hyper_model": hyper_model,
+            "contact": contact,
+            "collision_detector": collision_detector,
+            "skull_obstacle": skull_obstacle,
+            "probe_obstacle": probe_obstacle,
+            "lesion_basis": lesion_basis,
+            "m_r_x": m_r_x,
+            "m_r_y": m_r_y,
+            "m_r_z": m_r_z,
+            "h_r_icp": h_r_icp,
+            "dr_tol": args.dr_tol,
+            "dr_max_steps": args.dr_max_steps,
+        },
+        daemon=True,
+    )
+    worker_thread.start()
+
     fps_timer = time.perf_counter()
     fps_frames = 0
     current_fps = 0.0
 
     try:
         while (
-            not getattr(plotter, "_closed", False) and not gui_state["exit_requested"]
+            not getattr(plotter, "_closed", False)
+            and not navigator_state.is_exit_requested()
         ):
             now = time.perf_counter()
             fps_frames += 1
@@ -1233,25 +1664,11 @@ def main() -> None:
                 fps_timer = now
                 fps_frames = 0
 
-            # Update net external load: Gravity + CSF Buoyancy + Hydrostatic Pressure
-            g_loc = orientation.local_gravity
-            f_net = compute_net_external_load(g_loc, csf_state)
-            hyper_model.f_r_base = hyper_model.project_load(f_net)
+            # 1. Thread-safe snapshot fetch from background physics worker
+            snap = navigator_state.get_render_snapshot()
 
-            # Advance via Dynamic Relaxation
-            if gui_state["dr_mode"] == "relax":
-                solver.relax(
-                    hyper_model.f_r_base,
-                    tol=args.dr_tol,
-                    max_steps=args.dr_max_steps,
-                    min_steps=5,
-                )
-            else:
-                for _ in range(gui_state["substeps"]):
-                    solver.step(hyper_model.f_r_base)
-
-            # Instantaneous boundary deformation & head rotation
-            u_surf = hyper_model.reconstruct_surface_displacement(solver.u_r)
+            # 2. Instantaneous boundary deformation & head rotation
+            u_surf = snap["u_surf"]
             R = orientation.rotation_matrix
 
             # Rotate deformed brain
@@ -1266,30 +1683,34 @@ def main() -> None:
             ghost_grid.points = initial_brain_points[surf_nodes] @ R.T
 
             # Deform and rotate lesion
-            u_lesion = lesion_basis.reconstruct_surface_displacements(solver.u_r)
+            u_lesion = snap["u_lesion"]
             lesion_grid.points = (initial_lesion_points + u_lesion) @ R.T
 
             # Telemetry HUD
-            telem = contact.get_telemetry()
-            st = solver.get_stats()
-            l_vec, l_mag, max_sag, _, _ = evaluate_shift_metrics()
-
-            skull_status = "ON " if contact_state["skull_enabled"] else "OFF"
-            probe_status = "ON " if contact_state["probe_enabled"] else "OFF"
+            skull_status = "ON " if snap["skull_contact_enabled"] else "OFF"
+            probe_status = "ON " if snap["probe_contact_enabled"] else "OFF"
             mode_display = (
-                "INSTANT STATIC" if gui_state["dr_mode"] == "relax" else "ANIMATED PATH"
+                "INSTANT STATIC"
+                if snap["dr_mode"] == "relax"
+                else "ANIMATED PATH"
+            )
+
+            physics_status = (
+                f"CONVERGED (Idle, {snap['physics_hz']:3.0f} Hz)"
+                if snap["is_converged"]
+                else f"{snap['physics_hz']:5.0f} Hz ({snap['effective_step_ms']*1000.0:.0f} µs/step)"
             )
 
             hud_lines = [
                 "Simulation 1304: Solid-Shell Brain Shift via Dynamic Relaxation",
-                f"  DR Method [M]        : {solver.damping_type.upper()} ({mode_display} [T])",
-                f"  Formulation [C]      : {contact.formulation.upper()}",
+                f"  DR Method [M]        : {snap['dr_damping'].upper()} ({mode_display} [T])",
+                f"  Formulation [C]      : {snap['contact_formulation'].upper()}",
                 f"  Skull Contact [V]    : {skull_status}",
                 f"  Indenter Contact [P] : {probe_status}",
-                f"  Active Contacts      : {telem.num_active} candidate points",
-                f"  Max Penetration      : {telem.max_penetration:5.3f} mm",
-                f"  Max Contact Force    : {telem.max_contact_force:5.3f} N",
-                f"  Total Force Norm     : {telem.total_contact_force_norm:5.3f} N",
+                f"  Active Contacts      : {snap['num_active_contacts']} candidate points",
+                f"  Max Penetration      : {snap['max_penetration']:5.3f} mm",
+                f"  Max Contact Force    : {snap['max_contact_force']:5.3f} N",
+                f"  Total Force Norm     : {snap['total_force_norm']:5.3f} N",
                 "",
                 "CSF Fluid Mechanics & Intracranial Pressure",
                 f"  CSF State [B]        : {csf_state.mode_name}",
@@ -1297,25 +1718,27 @@ def main() -> None:
                 f"  Hydrostatic ICP      : {csf_state.icp_mpa*1000.0:5.1f} kPa",
                 "",
                 "Dynamic Relaxation Convergence & Performance",
-                f"  Equilibrium Res      : {st.relative_residual:9.2e} (tol = {args.dr_tol:.1e})",
-                f"  Kinetic Peaks        : {st.kinetic_peaks:4d} resets",
-                f"  DR Step Rate         : {st.effective_hz:5.0f} Hz ({st.average_step_ms*1000:.1f} µs/step)",
-                f"  Render Rate          : {current_fps:4.1f} FPS",
+                f"  Equilibrium Res      : {snap['relative_residual']:9.2e} (tol = {args.dr_tol:.1e})",
+                f"  Kinetic Peaks        : {snap['kinetic_peaks']:4d} resets",
+                f"  Physics Rate         : {physics_status}",
+                f"  Render Rate          : {current_fps:4.1f} FPS (Decoupled GUI Thread)",
                 "",
                 "Surgical Shifts & Diagnostics",
-                f"  Max Cortex Sag       : {max_sag:5.2f} mm",
-                f"  Lesion Drift         : {l_mag:5.2f} mm",
+                f"  Max Cortex Sag       : {snap['max_sag']:5.2f} mm",
+                f"  Lesion Drift         : {snap['lesion_drift']:5.2f} mm",
                 f"  Probe Center         : [{probe_center[0]:+5.1f}, {probe_center[1]:+5.1f}, {probe_center[2]:+5.1f}] mm",
                 f"  Head Pose (P/R/Y)    : [{orientation.pitch:+5.1f}°, {orientation.roll:+5.1f}°, {orientation.yaw:+5.1f}°]",
             ]
             hud_actor.set_text(2, "\n".join(hud_lines))
 
             plotter.update()
-            time.sleep(0.002)
+            time.sleep(0.008)
 
     except KeyboardInterrupt:
         pass
     finally:
+        navigator_state.request_exit()
+        worker_thread.join(timeout=1.0)
         if not getattr(plotter, "_closed", False):
             plotter.close()
 
