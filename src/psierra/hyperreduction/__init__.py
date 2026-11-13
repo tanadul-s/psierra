@@ -26,6 +26,14 @@ from psierra.hyperreduction.contact_ecsw import (
     ContactAwareECSWOptimizer,
     ContactAwareHyperReducedModel,
 )
+from psierra.hyperreduction.deim import (
+    greedy_deim,
+    q_deim,
+    DEIMForceBasis,
+    ForceSnapshotManager,
+    HyperReducedDEIMModel,
+    HyperReducedDEIMDynamicSolver,
+)
 from psierra.hyperreduction.model import HyperReducedNonlinearModel
 from psierra.hyperreduction.solver import (
     HyperReducedNonlinearStaticSolver,
@@ -44,6 +52,12 @@ __all__ = [
     "ContactAwareECSWTrainingMatrix",
     "ContactAwareECSWOptimizer",
     "ContactAwareHyperReducedModel",
+    "greedy_deim",
+    "q_deim",
+    "DEIMForceBasis",
+    "ForceSnapshotManager",
+    "HyperReducedDEIMModel",
+    "HyperReducedDEIMDynamicSolver",
     "HyperReducedNonlinearModel",
     "HyperReducedNonlinearStaticSolver",
     "HyperReducedNonlinearDynamicSolver",

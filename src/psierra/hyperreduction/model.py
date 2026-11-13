@@ -241,6 +241,16 @@ class HyperReducedNonlinearModel:
         """Number of retained elements in the reduced integration domain."""
         return self.rid.n_selected
 
+    @property
+    def compression_ratio(self) -> float:
+        """Fraction of total mesh elements retained in the reduced integration domain."""
+        return self.rid.compression_ratio
+
+    @property
+    def speedup_factor(self) -> float:
+        """Theoretical speedup based on reduced element evaluation count."""
+        return self.rid.speedup_factor
+
     def evaluate_forces_and_stiffness(
         self, u_r: np.ndarray
     ) -> tuple[np.ndarray, np.ndarray]:
