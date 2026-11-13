@@ -190,9 +190,9 @@ class HeadOrientationManager:
     SURGICAL_PRESETS = {
         "supine": (0.0, 0.0, 0.0, "Supine (Face Up, Standard Navigation)"),
         "prone": (180.0, 0.0, 0.0, "Prone (Face Down, Suboccipital Approach)"),
-        "right_lateral": (0.0, 0.0, -90.0, "Right Lateral (Left Craniotomy Down)"),
-        "left_lateral": (0.0, 0.0, 90.0, "Left Lateral (Right Craniotomy Down)"),
-        "pterional_30": (-15.0, 0.0, 30.0, "30° Pterional / Frontotemporal Tilt"),
+        "right_lateral": (0.0, -90.0, 0.0, "Right Lateral (Left Craniotomy Down)"),
+        "left_lateral": (0.0, 90.0, 0.0, "Left Lateral (Right Craniotomy Down)"),
+        "pterional_30": (-15.0, 30.0, 0.0, "30° Pterional / Frontotemporal Tilt"),
         "upright": (-90.0, 0.0, 0.0, "Sitting / Upright Posture"),
     }
 
@@ -204,8 +204,14 @@ class HeadOrientationManager:
 
     @property
     def rotation_matrix(self) -> np.ndarray:
-        """Returns 3x3 orthogonal rotation matrix R_head mapping local RAS -> world frame."""
-        r = Rotation.from_euler("xyz", [self.pitch, self.roll, self.yaw], degrees=True)
+        """Returns 3x3 orthogonal rotation matrix R_head mapping local RAS -> world frame.
+
+        Conventions (xzy Euler sequence):
+          - pitch (X axis): Sagittal flexion / extension (nodding up/down)
+          - roll  (Z axis): Coronal lateral tilt (rolling ear-to-shoulder / lateral decubitus)
+          - yaw   (Y axis): Axial rotation (turning head left/right while supine)
+        """
+        r = Rotation.from_euler("xzy", [self.pitch, self.roll, self.yaw], degrees=True)
         return r.as_matrix()
 
     @property
@@ -227,25 +233,22 @@ class HeadOrientationManager:
 
 
 class CSFStateManager:
-    """Manages CSF drainage, Archimedean buoyancy relief, and hydrostatic intracranial pressure."""
+    """Manages CSF drainage and Archimedean buoyancy relief."""
 
     MODES = [
         (
             "Drained (100% Sag)",
-            0.0,
             0.0,
             "Complete CSF drainage upon craniotomy (Full in-air gravity sag)",
         ),
         (
             "Partial (50% Sag)",
             0.5,
-            0.0005,
             "Partial CSF drainage (Moderate buoyancy relief)",
         ),
         (
             "Intact (Neutral Float)",
             1.0,
-            0.0010,
             "Intact cranial CSF (96.2% Archimedean buoyancy relief)",
         ),
     ]
@@ -262,12 +265,8 @@ class CSFStateManager:
         return self.MODES[self.mode_idx][1]
 
     @property
-    def icp_mpa(self) -> float:
-        return self.MODES[self.mode_idx][2]
-
-    @property
     def description(self) -> str:
-        return self.MODES[self.mode_idx][3]
+        return self.MODES[self.mode_idx][2]
 
     def cycle(self) -> str:
         self.mode_idx = (self.mode_idx + 1) % len(self.MODES)
@@ -487,7 +486,6 @@ def physics_worker_loop(
     m_r_x: np.ndarray,
     m_r_y: np.ndarray,
     m_r_z: np.ndarray,
-    h_r_icp: np.ndarray,
     dr_tol: float,
     dr_max_steps: int,
 ) -> None:
@@ -543,22 +541,21 @@ def physics_worker_loop(
             solver.damping_type = inputs["dr_damping"]
             last_damping = inputs["dr_damping"]
 
-        # 5. External force projection (Gravity + CSF Archimedean Buoyancy + Hydrostatic ICP)
+        # 5. External force projection (Gravity + CSF Archimedean Buoyancy)
         r_head = Rotation.from_euler(
-            "xyz", [inputs["pitch"], inputs["roll"], inputs["yaw"]], degrees=True
+            "xzy", [inputs["pitch"], inputs["roll"], inputs["yaw"]], degrees=True
         )
         g_world = np.array([0.0, -9810.0, 0.0], dtype=np.float64)
         g_loc = r_head.as_matrix().T @ g_world
 
-        _, buoy_factor, icp_mpa, _ = csf_modes[
+        _, buoy_factor, _ = csf_modes[
             inputs["csf_mode_idx"] % len(csf_modes)
         ]
         b_ratio = buoy_factor * (1.00e-9 / 1.04e-9)
         f_r_grav = (1.0 - b_ratio) * (
             g_loc[0] * m_r_x + g_loc[1] * m_r_y + g_loc[2] * m_r_z
         )
-        f_r_h = icp_mpa * h_r_icp
-        hyper_model.f_r_base[:] = f_r_grav + f_r_h
+        hyper_model.f_r_base[:] = f_r_grav
 
         # 6. Advance Dynamic Relaxation Steps
         t_start = time.perf_counter()
@@ -770,25 +767,10 @@ def main() -> None:
     def compute_net_external_load(
         g_local: np.ndarray, csf: CSFStateManager
     ) -> np.ndarray:
-        """Assembles net load combining Gravity + Archimedean Buoyancy + Hydrostatic Intracranial Pressure."""
+        """Assembles net load combining Gravity + Archimedean Buoyancy."""
         f_g = GravityLoad(acceleration=tuple(g_local)).compute_force_vector(M_global)
         b_ratio = csf.buoyancy_factor * (1.00e-9 / 1.04e-9)
-        f_b = -b_ratio * f_g
-
-        f_h = np.zeros(coupled_domain.n_dofs, dtype=np.float64)
-        if csf.icp_mpa > 0.0:
-            smesh = mesh.surface
-            normals = smesh.polydata.cell_normals
-            areas = smesh.areas
-            s_conn = smesh.elements
-            g_conn = smesh.node_indices
-            for f_idx in range(len(s_conn)):
-                facet_force = (csf.icp_mpa * areas[f_idx] / 3.0) * normals[f_idx]
-                for sk in s_conn[f_idx]:
-                    gk = g_conn[sk]
-                    f_h[3 * gk : 3 * gk + 3] += facet_force
-
-        return f_g + f_b + f_h
+        return (1.0 - b_ratio) * f_g
 
     f_ext_initial = compute_net_external_load(initial_g, csf_state)
 
@@ -836,30 +818,36 @@ def main() -> None:
         console.print("    [dim]Factorizing K_ff with SuperLU (done once)...[/dim]")
         lu = spspla.splu(K_ff)
 
-        # Symmetric, comprehensive operative head orientations across all 3 anatomical planes
+        # Symmetric, comprehensive operative head orientations across all 3 anatomical planes (pitch, roll, yaw)
         head_poses = [
-            # 1. Primary Sagittal Poses (Pitch)
-            (0.0, 0.0),       # Neutral Supine (Face Up)
-            (180.0, 0.0),     # Prone (Face Down)
-            (-45.0, 0.0),     # Upright / Sitting 45°
-            (45.0, 0.0),      # Trendelenburg (Head Down) 45°
-            (-90.0, 0.0),     # Full Upright Sitting 90°
+            # 1. Primary Sagittal Poses (Pitch: flexion / extension)
+            (0.0, 0.0, 0.0),       # Neutral Supine (Face Up)
+            (180.0, 0.0, 0.0),     # Prone (Face Down)
+            (-45.0, 0.0, 0.0),     # Upright / Sitting 45°
+            (45.0, 0.0, 0.0),      # Trendelenburg (Head Down) 45°
+            (-90.0, 0.0, 0.0),     # Full Upright Sitting 90°
 
-            # 2. Coronal Lateral Poses (Roll - Symmetric Bilateral Pairs)
-            (0.0, -45.0),     # Right Lateral 45°
-            (0.0, 45.0),      # Left Lateral 45°
-            (0.0, -90.0),     # Full Right Lateral 90°
-            (0.0, 90.0),      # Full Left Lateral 90°
+            # 2. Coronal Lateral Poses (Roll: bilateral lateral decubitus pairs)
+            (0.0, -45.0, 0.0),     # Right Lateral 45°
+            (0.0, 45.0, 0.0),      # Left Lateral 45°
+            (0.0, -90.0, 0.0),     # Full Right Lateral 90°
+            (0.0, 90.0, 0.0),      # Full Left Lateral 90°
 
             # 3. Pterional / Frontotemporal Approaches (Symmetric Bilateral Pairs)
-            (-15.0, 30.0),    # Right Pterional 30°
-            (-15.0, -30.0),   # Left Pterional 30°
-            (-30.0, 45.0),    # Deep Right Pterional 45°
-            (-30.0, -45.0),   # Deep Left Pterional 45°
+            (-15.0, -30.0, 0.0),   # Right Pterional 30°
+            (-15.0, 30.0, 0.0),    # Left Pterional 30°
+            (-30.0, -45.0, 0.0),   # Deep Right Pterional 45°
+            (-30.0, 45.0, 0.0),    # Deep Left Pterional 45°
 
             # 4. Retrosigmoid / Suboccipital Poses (Symmetric Bilateral Pairs)
-            (165.0, 30.0),    # Right Retrosigmoid
-            (165.0, -30.0),   # Left Retrosigmoid
+            (165.0, -30.0, 0.0),   # Right Retrosigmoid
+            (165.0, 30.0, 0.0),    # Left Retrosigmoid
+
+            # 5. Axial Yaw Turns while Supine (Symmetric Bilateral Pairs)
+            (0.0, 0.0, -30.0),     # Axial Turn Right 30°
+            (0.0, 0.0, 30.0),      # Axial Turn Left 30°
+            (0.0, 0.0, -60.0),     # Axial Turn Right 60°
+            (0.0, 0.0, 60.0),      # Axial Turn Left 60°
         ]
 
         X = mesh.nodes
@@ -891,9 +879,9 @@ def main() -> None:
             return s_low * u_vec
 
         snapshots_list = []
-        for p, r_ang in head_poses:
+        for p, r_ang, y_ang in head_poses:
             r_mat = Rotation.from_euler(
-                "xyz", [p, r_ang, 0.0], degrees=True
+                "xzy", [p, r_ang, y_ang], degrees=True
             ).as_matrix()
             g_vec = r_mat.T @ orientation.g_world
             f_load = compute_net_external_load(g_vec, csf_state)
@@ -1062,18 +1050,6 @@ def main() -> None:
     m_r_y = basis.basis_matrix.T @ (M_global @ e_y)
     m_r_z = basis.basis_matrix.T @ (M_global @ e_z)
 
-    smesh = mesh.surface
-    normals = smesh.polydata.cell_normals
-    areas = smesh.areas
-    s_conn = smesh.elements
-    g_conn = smesh.node_indices
-    f_h_unit = np.zeros(coupled_domain.n_dofs, dtype=np.float64)
-    for f_idx in range(len(s_conn)):
-        facet_force = (areas[f_idx] / 3.0) * normals[f_idx]
-        for sk in s_conn[f_idx]:
-            gk = g_conn[sk]
-            f_h_unit[3 * gk : 3 * gk + 3] += facet_force
-    h_r_icp = basis.basis_matrix.T @ f_h_unit
 
     initial_brain_points = mesh.nodes.copy()
     initial_lesion_points = mesh.nodes[lesion_node_indices].copy()
@@ -1640,7 +1616,6 @@ def main() -> None:
             "m_r_x": m_r_x,
             "m_r_y": m_r_y,
             "m_r_z": m_r_z,
-            "h_r_icp": h_r_icp,
             "dr_tol": args.dr_tol,
             "dr_max_steps": args.dr_max_steps,
         },
@@ -1712,10 +1687,10 @@ def main() -> None:
                 f"  Max Contact Force    : {snap['max_contact_force']:5.3f} N",
                 f"  Total Force Norm     : {snap['total_force_norm']:5.3f} N",
                 "",
-                "CSF Fluid Mechanics & Intracranial Pressure",
+                "CSF Fluid Mechanics & Archimedean Buoyancy",
                 f"  CSF State [B]        : {csf_state.mode_name}",
                 f"  Buoyant Relief       : {csf_state.buoyancy_factor*96.15:5.1f}% gravity offset",
-                f"  Hydrostatic ICP      : {csf_state.icp_mpa*1000.0:5.1f} kPa",
+                f"  Effective Gravity    : {(1.0 - csf_state.buoyancy_factor*(1.00/1.04))*100.0:5.1f}% dry weight",
                 "",
                 "Dynamic Relaxation Convergence & Performance",
                 f"  Equilibrium Res      : {snap['relative_residual']:9.2e} (tol = {args.dr_tol:.1e})",
