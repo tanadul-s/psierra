@@ -216,16 +216,21 @@ This roadmap is laser-focused on biological soft-tissue mechanics, robust contac
   * Universal continuum modularity verified across `Tet4TotalLagrangian`, `Tet4UpdatedLagrangian`, `Tet4Fbar` (locking-alleviated), `Tet10TotalLagrangian` (quadratic serendipity), `Tet4Corotational`, and rate-dependent `Viscoelastic` wrapper.
   * 30 automated mathematical verification tests in [`tests/test_material_ogden.py`](../tests/test_material_ogden.py) (100% pass rate).
   * Delivered new executable simulation: [`examples/11_advanced_continua/1110_ogden_dynamic_beam.py`](../examples/11_advanced_continua/1110_ogden_dynamic_beam.py) benchmarking dynamic gravitational beam deflection across Ogden Orders 1, 2, and 3 with XDMF and PVD export.
-* [ ] **Anisotropic Hyperelasticity (Holzapfel-Gasser-Ogden - HGO Model, `psierra.material.hgo`)**:
-  * Structural anisotropic continuum mechanics with coupled isotropic matrix and anisotropic collagen fiber bundles:
-    $$W_{\text{HGO}} = \frac{c}{2}(I_1 - 3) + \sum_{k=1}^M \frac{k_1}{2k_2} \left[ \exp\left( k_2 \left(\kappa I_1 + (1 - 3\kappa) I_{4k} - 1\right)^2 \right) - 1 \right] + W_{\text{vol}}(J)$$
-  * Invariant formulation ($I_1 = \operatorname{tr}\boldsymbol{C}$, $I_{4k} = \boldsymbol{a}_{0k} \cdot \boldsymbol{C} \boldsymbol{a}_{0k} = \lambda_{\text{fiber}, k}^2$) eliminating costly eigenvalue decompositions and accelerating ECSW cubature evaluation.
-  * Structural fiber dispersion $\kappa \in [0, 1/3]$ capturing fiber waviness and planar network distribution.
-  * Tension-only activation criterion ($I_{4k} > 1$): Fibers buckle with zero load-bearing under compression and lock up under tension.
-  * Targets:
-    * **Aorta & Arterial Wall**: Two symmetric helical fiber families ($M=2$, $\alpha \approx \pm 30^\circ - 45^\circ$, $I_4, I_6$).
-    * **Falx Cerebri & Tentorium Cerebelli**: Internal dural suspension arches preventing lateral hemispheric shift.
-    * **Anisotropic Skin**: Planar collagen dispersion aligned with physiological Langer's tension lines.
+* [x] **Anisotropic Hyperelasticity (Holzapfel-Gasser-Ogden - HGO Model, `psierra.material.hgo`)**:
+  * Structural anisotropic continuum mechanics with coupled isotropic ground matrix and anisotropic collagen fiber bundles:
+    $$W_{\text{HGO}} = \frac{c}{2}(\bar{I}_1 - 3) + \sum_{k=1}^M \frac{k_1}{2k_2} \left[ \exp\left( k_2 E_k^2 \right) - 1 \right] + W_{\text{vol}}(J)$$
+    where $E_k = \kappa \bar{I}_1 + (1 - 3\kappa) \bar{I}_{4k} - 1$.
+  * Invariant formulation ($\bar{I}_1 = J^{-2/3}\operatorname{tr}\boldsymbol{C}$, $\bar{I}_{4k} = J^{-2/3} \boldsymbol{a}_{0k} \cdot \boldsymbol{C} \boldsymbol{a}_{0k} = \bar{\lambda}_{\text{fiber}, k}^2$) eliminating costly eigenvalue decompositions and accelerating runtime solves.
+  * Structural fiber dispersion $\kappa \in [0, 1/3]$ capturing fiber waviness and 3D orientation distribution ($\kappa = 0$: ideal parallel alignment; $\kappa = 1/3$: isotropic random network).
+  * Physiologically accurate tension-only fiber activation ($E_k > 0$): Collagen fibers buckle with zero load-bearing under compressive strain ($E_k \le 0$) and exponentially stiffen under tensile elongation.
+  * Parameter management via [`HGOParameters`](../src/psierra/material/parameters.py) with validation, arbitrary fiber families, and pre-calibrated physiological presets:
+    * Human aorta layers: `media` (2 symmetric helical families at $\pm 29^\circ$, $\kappa = 0.226$), `adventitia` ($\pm 62^\circ$, $\kappa = 0.060$), `intima` ($\pm 18^\circ$, $\kappa = 0.147$).
+    * Dural membrane: `falx_cerebri` ($\pm 35^\circ$ sagittal reinforcement).
+  * Dual volumetric penalty formulations: logarithmic $W_{\text{vol}} = \frac{K}{2}(\ln J)^2$ and quadratic $W_{\text{vol}} = \frac{K}{2}(J - 1)^2$.
+  * Consistent 2nd Piola-Kirchhoff stress $\boldsymbol{S}$ and symmetric 4th-order tangent elasticity matrix $\mathbb{C}$ verified against numerical finite-difference to $< 2.7 \times 10^{-7}$ relative error.
+  * Universal continuum modularity verified across `Tet4TotalLagrangian`, `Tet4UpdatedLagrangian`, `Tet4Fbar`, `Tet10TotalLagrangian`, and rate-dependent `Viscoelastic` wrapper.
+  * 19 automated mathematical verification tests in [`tests/test_material_hgo.py`](../tests/test_material_hgo.py) (100% pass rate).
+  * Delivered new executable simulation: [`examples/11_advanced_continua/1111_hgo_anisotropic_bending.py`](../examples/11_advanced_continua/1111_hgo_anisotropic_bending.py) benchmarking anisotropic gravity cantilever bending across 4 configurations (Isotropic Elastin baseline, Longitudinal Fibers, Transverse Fibers, and Symmetric Helical Fibers).
 * [ ] **Online Hyper-Reduced Inverse Parameter Identification**:
   * Real-time in-vivo tissue stiffness calibration during active robotic tool contact.
 * [ ] **Multi-Modal Intraoperative Sensor Fusion**:
