@@ -1,4 +1,6 @@
 from __future__ import annotations
+from collections.abc import Sequence
+import numpy as np
 
 
 class IsotropicElasticParameters:
@@ -636,3 +638,280 @@ class YeohParameters:
             f"\n  poissons_ratio   = {self.poissons_ratio:.4f}"
             f"\n  mass_density     = {self.mass_density:.4e} kg/m^3"
         )
+
+
+class OgdenParameters:
+    """
+    Generalized Ogden Hyperelastic Material Parameters.
+
+    Governed by pairs of coefficients (mu_p, alpha_p) for p = 1..N (N in [1, 3]),
+    bulk modulus K, and mass density rho.
+    The strain energy potential is:
+        W_iso = sum_{p=1}^N (mu_p / alpha_p) * (lambda_bar_1^alpha_p + lambda_bar_2^alpha_p + lambda_bar_3^alpha_p - 3)
+
+    In the infinitesimal limit (small strain), the initial shear modulus is:
+        mu_0 = 0.5 * sum_{p=1}^N mu_p * alpha_p
+    """
+
+    def __init__(
+        self,
+        mu: Sequence[float] | None = None,
+        alpha: Sequence[float] | None = None,
+        bulk_modulus: float | None = None,
+        mass_density: float | None = None,
+    ) -> None:
+        self._mu: tuple[float, ...] | None = None
+        self._alpha: tuple[float, ...] | None = None
+        self._bulk_modulus: float | None = None
+        self._mass_density: float | None = None
+
+        if mu is not None or alpha is not None or bulk_modulus is not None or mass_density is not None:
+            if mu is None or alpha is None or bulk_modulus is None or mass_density is None:
+                raise ValueError("All parameters (mu, alpha, bulk_modulus, mass_density) must be provided.")
+            self.set_from_constants(
+                mu=mu,
+                alpha=alpha,
+                bulk_modulus=bulk_modulus,
+                mass_density=mass_density,
+            )
+
+    def set_from_constants(
+        self,
+        mu: Sequence[float],
+        alpha: Sequence[float],
+        bulk_modulus: float,
+        mass_density: float,
+    ) -> None:
+        """Set state directly from Ogden parameters (mu_p, alpha_p), bulk modulus, and mass density."""
+        if len(mu) != len(alpha):
+            raise ValueError(f"Length of mu ({len(mu)}) and alpha ({len(alpha)}) must match.")
+        if len(mu) == 0:
+            raise ValueError("At least one term (mu, alpha) must be provided for Ogden model.")
+
+        mu_tuple = tuple(float(m) for m in mu)
+        alpha_tuple = tuple(float(a) for a in alpha)
+        k_val = float(bulk_modulus)
+        rho_val = float(mass_density)
+
+        for i, a in enumerate(alpha_tuple):
+            if abs(a) < 1e-12:
+                raise ValueError(f"Ogden exponent alpha[{i}] cannot be zero.")
+
+        # Compute initial shear modulus: 2 * mu_0 = sum(mu_p * alpha_p)
+        two_mu0 = sum(m * a for m, a in zip(mu_tuple, alpha_tuple))
+        if two_mu0 <= 0.0:
+            raise ValueError(
+                f"Sum sum(mu_p * alpha_p) must be positive to ensure positive initial shear stiffness. Got {two_mu0:.4e}"
+            )
+        if k_val <= 0.0:
+            raise ValueError(f"Bulk modulus must be positive. Got {k_val}")
+        if rho_val <= 0.0:
+            raise ValueError(f"Mass density must be positive. Got {rho_val}")
+
+        self._mu = mu_tuple
+        self._alpha = alpha_tuple
+        self._bulk_modulus = k_val
+        self._mass_density = rho_val
+
+    def set_from_isotropic(
+        self,
+        params: IsotropicElasticParameters,
+        order: int = 1,
+        alpha: Sequence[float] | None = None,
+        weights: Sequence[float] | None = None,
+    ) -> None:
+        """
+        Derive Ogden parameters from an IsotropicElasticParameters instance.
+        Ensures the initial shear modulus matches mu_0 = params.shear_modulus:
+            2 * mu_0 = sum_{p=1}^N mu_p * alpha_p
+        """
+        mu0 = params.shear_modulus
+        if order < 1:
+            raise ValueError(f"Order must be at least 1, got {order}")
+
+        if alpha is not None:
+            if len(alpha) != order:
+                raise ValueError(f"Length of custom alpha ({len(alpha)}) must match order ({order}).")
+            alphas = tuple(float(a) for a in alpha)
+        elif order == 1:
+            alphas = (2.0,)
+        elif order == 2:
+            alphas = (2.0, -2.0)
+        elif order == 3:
+            alphas = (1.3, 5.0, -2.0)
+        else:
+            alphas = tuple(2.0 * (i + 1) for i in range(order))
+
+        if weights is not None:
+            if len(weights) != order:
+                raise ValueError(f"Length of custom weights ({len(weights)}) must match order ({order}).")
+            w = np.array(weights, dtype=np.float64)
+            w = w / np.sum(w)
+        elif order == 1:
+            w = np.array([1.0], dtype=np.float64)
+        elif order == 2:
+            w = np.array([0.5, 0.5], dtype=np.float64)
+        elif order == 3:
+            w = np.array([0.6, 0.1, 0.3], dtype=np.float64)
+        else:
+            w = np.ones(order, dtype=np.float64) / order
+
+        mus = tuple(float(2.0 * w[p] * mu0 / alphas[p]) for p in range(order))
+        self.set_from_constants(
+            mu=mus,
+            alpha=alphas,
+            bulk_modulus=params.bulk_modulus,
+            mass_density=params.mass_density,
+        )
+
+    @classmethod
+    def from_constants(
+        cls,
+        mu: Sequence[float],
+        alpha: Sequence[float],
+        bulk_modulus: float,
+        mass_density: float,
+    ) -> OgdenParameters:
+        """Convenience factory method creating initialized OgdenParameters."""
+        inst = cls()
+        inst.set_from_constants(mu=mu, alpha=alpha, bulk_modulus=bulk_modulus, mass_density=mass_density)
+        return inst
+
+    @classmethod
+    def from_isotropic(
+        cls,
+        params: IsotropicElasticParameters,
+        order: int = 1,
+        alpha: Sequence[float] | None = None,
+        weights: Sequence[float] | None = None,
+    ) -> OgdenParameters:
+        """Convenience factory method deriving OgdenParameters from isotropic elasticity."""
+        inst = cls()
+        inst.set_from_isotropic(params=params, order=order, alpha=alpha, weights=weights)
+        return inst
+
+    @classmethod
+    def from_brain_parenchyma(
+        cls,
+        bulk_modulus: float,
+        mass_density: float,
+        order: int = 1,
+    ) -> OgdenParameters:
+        """
+        Brain parenchyma soft tissue model (Miller & Chinzei 2002).
+        Captures tension-compression asymmetry: mu1 = -842.0 Pa, alpha1 = -4.7 (mu1 * alpha1 > 0).
+        """
+        if order == 1:
+            return cls.from_constants(
+                mu=[-842.0],
+                alpha=[-4.7],
+                bulk_modulus=bulk_modulus,
+                mass_density=mass_density,
+            )
+        elif order == 2:
+            return cls.from_constants(
+                mu=[-842.0, 420.0],
+                alpha=[-4.7, 2.0],
+                bulk_modulus=bulk_modulus,
+                mass_density=mass_density,
+            )
+        else:
+            return cls.from_constants(
+                mu=[-842.0, 420.0, 100.0],
+                alpha=[-4.7, 2.0, 5.0],
+                bulk_modulus=bulk_modulus,
+                mass_density=mass_density,
+            )
+
+    @classmethod
+    def from_rubber(
+        cls,
+        bulk_modulus: float,
+        mass_density: float,
+    ) -> OgdenParameters:
+        """Classical 3-term Ogden (1972) rubber parameters."""
+        return cls.from_constants(
+            mu=[6.3e5, 1.2e3, -1.0e4],
+            alpha=[1.3, 5.0, -2.0],
+            bulk_modulus=bulk_modulus,
+            mass_density=mass_density,
+        )
+
+    def _check_initialized(self) -> None:
+        if self._mu is None or self._alpha is None:
+            raise ValueError("OgdenParameters instance is uninitialized.")
+
+    @property
+    def order(self) -> int:
+        """Order N of the Ogden model."""
+        self._check_initialized()
+        return len(self._mu)  # type: ignore[arg-type]
+
+    @property
+    def mu(self) -> tuple[float, ...]:
+        """Ogden shear coefficients mu_p (Pa or MPa)."""
+        self._check_initialized()
+        return self._mu  # type: ignore[return-value]
+
+    @property
+    def alpha(self) -> tuple[float, ...]:
+        """Ogden dimensionless exponents alpha_p."""
+        self._check_initialized()
+        return self._alpha  # type: ignore[return-value]
+
+    @property
+    def bulk_modulus(self) -> float:
+        """Bulk modulus K (Pa or MPa)."""
+        self._check_initialized()
+        return self._bulk_modulus  # type: ignore[return-value]
+
+    @property
+    def shear_modulus(self) -> float:
+        """Infinitesimal shear modulus mu_0 = 0.5 * sum(mu_p * alpha_p) (Pa or MPa)."""
+        self._check_initialized()
+        return 0.5 * sum(m * a for m, a in zip(self._mu, self._alpha))  # type: ignore[arg-type]
+
+    @property
+    def youngs_modulus(self) -> float:
+        """Equivalent infinitesimal Young's modulus E (Pa or MPa)."""
+        k = self.bulk_modulus
+        mu = self.shear_modulus
+        return (9.0 * k * mu) / (3.0 * k + mu)
+
+    @property
+    def poissons_ratio(self) -> float:
+        """Equivalent infinitesimal Poisson's ratio nu."""
+        k = self.bulk_modulus
+        mu = self.shear_modulus
+        return (3.0 * k - 2.0 * mu) / (2.0 * (3.0 * k + mu))
+
+    @property
+    def lame_parameter_1(self) -> float:
+        """First Lamé parameter lambda (Pa or MPa)."""
+        return self.bulk_modulus - (2.0 / 3.0) * self.shear_modulus
+
+    @property
+    def lame_parameter_2(self) -> float:
+        """Second Lamé parameter mu (Pa or MPa)."""
+        return self.shear_modulus
+
+    @property
+    def mass_density(self) -> float:
+        """Mass density (kg/m^3 or tonne/mm^3)."""
+        self._check_initialized()
+        return self._mass_density  # type: ignore[return-value]
+
+    def __repr__(self) -> str:
+        if self._mu is None:
+            return "OgdenParameters(uninitialized)"
+        terms_str = ", ".join(f"(μ={m:.2e}, α={a:.2f})" for m, a in zip(self.mu, self.alpha))
+        return (
+            f"OgdenParameters(N={self.order})"
+            f"\n  Terms            = [{terms_str}]"
+            f"\n  shear_modulus    = {self.shear_modulus:.4e}"
+            f"\n  bulk_modulus     = {self.bulk_modulus:.4e}"
+            f"\n  youngs_modulus   = {self.youngs_modulus:.4e}"
+            f"\n  poissons_ratio   = {self.poissons_ratio:.4f}"
+            f"\n  mass_density     = {self.mass_density:.4e}"
+        )
+
