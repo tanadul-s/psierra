@@ -198,8 +198,8 @@ This roadmap is laser-focused on biological soft-tissue mechanics, robust contac
 
 ---
 
-### Phase 4: Clinical Digital Twins, Real-Time Navigation & Grand Showcase
-*Objective*: Advance closed-loop intraoperative clinical navigation, and deliver a comprehensive gallery of executable examples showcasing all capabilities of the library.
+### Phase 4: Clinical Digital Twins, Advanced Biomechanical Constitutive Models & Grand Showcase
+*Objective*: Advance closed-loop intraoperative clinical navigation, implement advanced hyperelastic soft-tissue constitutive models (Ogden and Holzapfel-Gasser-Ogden - HGO) for brain, skin, vascular (aorta), and dural membranes, and deliver a comprehensive gallery of executable examples showcasing all capabilities of the library.
 * [x] **Quasi-Static Analysis & Hyper-Reduced Solver with Viscoelastic Relaxation**:
   * Implemented [`QuasiStaticAnalysis`](../src/psierra/analysis/quasi_static.py) and [`QuasiStaticResult`](../src/psierra/analysis/quasi_static.py) for physical time marching $t_{n+1} = t_n + \Delta t$ without inertia, capturing rate-dependent viscoelastic stress relaxation, creep, and dissipation.
   * Transactional history management (`set_time_step`, `commit_state`, `revert_state`), automatic adaptive time substepping cutback upon Newton divergence, and full Augmented Lagrangian contact integration.
@@ -207,12 +207,28 @@ This roadmap is laser-focused on biological soft-tissue mechanics, robust contac
   * Upgraded [`HyperReducedECSWModel`](../src/psierra/hyperreduction/model.py) with element-indexed constitutive evaluation (`elem_index=entry.elem_idx`) and domain history forwarding (`set_time_step`, `commit_state`, `revert_state`, `reset_state`).
   * 6 automated tests in [`tests/test_analysis_quasi_static.py`](../tests/test_analysis_quasi_static.py) and 3 automated tests in [`tests/test_hyperreduced_quasi_static.py`](../tests/test_hyperreduced_quasi_static.py) (100% pass rate).
   * Delivered comprehensive benchmark demonstration: [`examples/11_advanced_continua/1109_quasi_static_gravity_beam.py`](../examples/11_advanced_continua/1109_quasi_static_gravity_beam.py) directly comparing Static, Dynamic Relaxation, Full-Order Quasi-Static, and Hyper-Reduced Quasi-Static beam deformation under gravity.
+* [ ] **Generalized Ogden Hyperelasticity (`psierra.material.ogden`)**:
+  * Implemented for arbitrary order $N \in [1, 3]$ formulated on principal stretches $\lambda_a$ ($a=1,2,3$):
+    $$W_{\text{Ogden}} = \sum_{p=1}^N \frac{\mu_p}{\alpha_p} \left( \bar{\lambda}_1^{\alpha_p} + \bar{\lambda}_2^{\alpha_p} + \bar{\lambda}_3^{\alpha_p} - 3 \right) + \frac{K}{2}(J - 1)^2$$
+  * Exact spectral decomposition of right Cauchy-Green tensor $\boldsymbol{C} = \sum_{a=1}^3 \lambda_a^2 \boldsymbol{N}_a \otimes \boldsymbol{N}_a$ with closed-form perturbation handling for coalescent/equal eigenvalues ($\lambda_a \approx \lambda_b$).
+  * Consistent 2nd Piola-Kirchhoff stress $\boldsymbol{S}$ and 4th-order spatial/material tangent elasticity tensor $\mathbb{C}$.
+  * Targets:
+    * **Brain Parenchyma** ($N=1$): Monotonic moderate-strain tension-compression asymmetry ($E \approx 1\text{–}3\text{ kPa}$, Miller & Chinzei 2002).
+    * **Skin / Dermis** ($N=2, 3$): Large-strain toe-region followed by sharp collagen recruitment stiffening without requiring explicit fiber vectors.
+* [ ] **Anisotropic Hyperelasticity (Holzapfel-Gasser-Ogden - HGO Model, `psierra.material.hgo`)**:
+  * Structural anisotropic continuum mechanics with coupled isotropic matrix and anisotropic collagen fiber bundles:
+    $$W_{\text{HGO}} = \frac{c}{2}(I_1 - 3) + \sum_{k=1}^M \frac{k_1}{2k_2} \left[ \exp\left( k_2 \left(\kappa I_1 + (1 - 3\kappa) I_{4k} - 1\right)^2 \right) - 1 \right] + W_{\text{vol}}(J)$$
+  * Invariant formulation ($I_1 = \operatorname{tr}\boldsymbol{C}$, $I_{4k} = \boldsymbol{a}_{0k} \cdot \boldsymbol{C} \boldsymbol{a}_{0k} = \lambda_{\text{fiber}, k}^2$) eliminating costly eigenvalue decompositions and accelerating ECSW cubature evaluation.
+  * Structural fiber dispersion $\kappa \in [0, 1/3]$ capturing fiber waviness and planar network distribution.
+  * Tension-only activation criterion ($I_{4k} > 1$): Fibers buckle with zero load-bearing under compression and lock up under tension.
+  * Targets:
+    * **Aorta & Arterial Wall**: Two symmetric helical fiber families ($M=2$, $\alpha \approx \pm 30^\circ - 45^\circ$, $I_4, I_6$).
+    * **Falx Cerebri & Tentorium Cerebelli**: Internal dural suspension arches preventing lateral hemispheric shift.
+    * **Anisotropic Skin**: Planar collagen dispersion aligned with physiological Langer's tension lines.
 * [ ] **Online Hyper-Reduced Inverse Parameter Identification**:
   * Real-time in-vivo tissue stiffness calibration during active robotic tool contact.
 * [ ] **Multi-Modal Intraoperative Sensor Fusion**:
   * Fusing sparse cortical surface optical markers with intraoperative ultrasound (iUS) and stereovision point clouds for enhanced deep-target tracking accuracy.
-* [ ] **Anisotropic Hyperelasticity (Holzapfel-Gasser-Ogden - HGO Model)**:
-  * Fiber-reinforced biological membranes (dura mater, falx cerebri, tentorium).
 * [ ] **Loop 2 Grand Showcase Gallery (All-Capabilities Demonstration)**:
   * Deliver standalone executable, PyVista-visualized examples covering every simulation mode in `pSierra`:
     1. [x] `examples/11_advanced_continua/1101_tet4fbar_incompressibility.py`: 15-step NonlinearStaticAnalysis (Neo-Hookean, $\nu = 0.499, K/\mu = 500$): Tet4TotalLagrangian locking ($0.043\ \text{mm}$) vs. Tet4Fbar compliance ($0.127\ \text{mm}$, $2.99\times$ ratio). Exports `result_tet4_tl.vtu`, `result_tet4_fbar.vtu`, and `.pvd` animations.
