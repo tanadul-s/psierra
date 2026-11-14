@@ -207,14 +207,15 @@ This roadmap is laser-focused on biological soft-tissue mechanics, robust contac
   * Upgraded [`HyperReducedECSWModel`](../src/psierra/hyperreduction/model.py) with element-indexed constitutive evaluation (`elem_index=entry.elem_idx`) and domain history forwarding (`set_time_step`, `commit_state`, `revert_state`, `reset_state`).
   * 6 automated tests in [`tests/test_analysis_quasi_static.py`](../tests/test_analysis_quasi_static.py) and 3 automated tests in [`tests/test_hyperreduced_quasi_static.py`](../tests/test_hyperreduced_quasi_static.py) (100% pass rate).
   * Delivered comprehensive benchmark demonstration: [`examples/11_advanced_continua/1109_quasi_static_gravity_beam.py`](../examples/11_advanced_continua/1109_quasi_static_gravity_beam.py) directly comparing Static, Dynamic Relaxation, Full-Order Quasi-Static, and Hyper-Reduced Quasi-Static beam deformation under gravity.
-* [ ] **Generalized Ogden Hyperelasticity (`psierra.material.ogden`)**:
+* [x] **Generalized Ogden Hyperelasticity (`psierra.material.ogden`)**:
   * Implemented for arbitrary order $N \in [1, 3]$ formulated on principal stretches $\lambda_a$ ($a=1,2,3$):
-    $$W_{\text{Ogden}} = \sum_{p=1}^N \frac{\mu_p}{\alpha_p} \left( \bar{\lambda}_1^{\alpha_p} + \bar{\lambda}_2^{\alpha_p} + \bar{\lambda}_3^{\alpha_p} - 3 \right) + \frac{K}{2}(J - 1)^2$$
-  * Exact spectral decomposition of right Cauchy-Green tensor $\boldsymbol{C} = \sum_{a=1}^3 \lambda_a^2 \boldsymbol{N}_a \otimes \boldsymbol{N}_a$ with closed-form perturbation handling for coalescent/equal eigenvalues ($\lambda_a \approx \lambda_b$).
-  * Consistent 2nd Piola-Kirchhoff stress $\boldsymbol{S}$ and 4th-order spatial/material tangent elasticity tensor $\mathbb{C}$.
-  * Targets:
-    * **Brain Parenchyma** ($N=1$): Monotonic moderate-strain tension-compression asymmetry ($E \approx 1\text{–}3\text{ kPa}$, Miller & Chinzei 2002).
-    * **Skin / Dermis** ($N=2, 3$): Large-strain toe-region followed by sharp collagen recruitment stiffening without requiring explicit fiber vectors.
+    $$W_{\text{Ogden}} = \sum_{p=1}^N \frac{\mu_p}{\alpha_p} \left( \bar{\lambda}_1^{\alpha_p} + \bar{\lambda}_2^{\alpha_p} + \bar{\lambda}_3^{\alpha_p} - 3 \right) + W_{\text{vol}}(J)$$
+  * Dual volumetric penalty support: logarithmic $W_{\text{vol}} = \frac{K}{2}(\ln J)^2$ (preventing inversion) and quadratic polynomial $W_{\text{vol}} = \frac{K}{2}(J - 1)^2$.
+  * Exact spectral decomposition of right Cauchy-Green tensor $\boldsymbol{C} = \sum_{a=1}^3 \lambda_a^2 \boldsymbol{N}_a \otimes \boldsymbol{N}_a$ with closed-form perturbation handling for coalescent/equal eigenvalues ($\lim_{\Lambda_b \to \Lambda_a} \frac{s_a - s_b}{\Lambda_a - \Lambda_b} = \frac{1}{2}(D_{aa} - D_{ab})$).
+  * Consistent 2nd Piola-Kirchhoff stress $\boldsymbol{S}$ and 4th-order spatial/material tangent elasticity tensor $\mathbb{C}$ verified against numerical finite-difference to $< 4 \times 10^{-7}$ relative error.
+  * Universal continuum modularity verified across `Tet4TotalLagrangian`, `Tet4UpdatedLagrangian`, `Tet4Fbar` (locking-alleviated), `Tet10TotalLagrangian` (quadratic serendipity), `Tet4Corotational`, and rate-dependent `Viscoelastic` wrapper.
+  * 30 automated mathematical verification tests in [`tests/test_material_ogden.py`](../tests/test_material_ogden.py) (100% pass rate).
+  * Delivered new executable simulation: [`examples/11_advanced_continua/1110_ogden_dynamic_beam.py`](../examples/11_advanced_continua/1110_ogden_dynamic_beam.py) benchmarking dynamic gravitational beam deflection across Ogden Orders 1, 2, and 3 with XDMF and PVD export.
 * [ ] **Anisotropic Hyperelasticity (Holzapfel-Gasser-Ogden - HGO Model, `psierra.material.hgo`)**:
   * Structural anisotropic continuum mechanics with coupled isotropic matrix and anisotropic collagen fiber bundles:
     $$W_{\text{HGO}} = \frac{c}{2}(I_1 - 3) + \sum_{k=1}^M \frac{k_1}{2k_2} \left[ \exp\left( k_2 \left(\kappa I_1 + (1 - 3\kappa) I_{4k} - 1\right)^2 \right) - 1 \right] + W_{\text{vol}}(J)$$
