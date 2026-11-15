@@ -369,3 +369,41 @@ class TestShapeSensingAdversarialAndErrors:
         wrong_K = spsp.eye(mesh.n_dofs + 6)
         with pytest.raises(ValueError, match="Stiffness matrix shape"):
             FullOrderShapeSensingSolver(op, wrong_K, alpha=1e-3)
+
+    def test_multimodal_sensor_fusion_tracking(self, beam_simulation_setup) -> None:
+        """Verifies multi-modal sensor fusion combines surface and internal points with noise weighting."""
+        mesh = beam_simulation_setup["mesh"]
+        K = beam_simulation_setup["K"]
+        u_true = beam_simulation_setup["u_truth"]
+        dirichlet = beam_simulation_setup["dirichlet"]
+        free_dofs = dirichlet.free_dofs
+
+        # Surface points (nodes 0, 1) and deep internal points (nodes 10, 11)
+        surf_nodes = np.array([0, 1], dtype=np.int64)
+        deep_nodes = np.array([10, 11], dtype=np.int64)
+        all_nodes = np.concatenate([surf_nodes, deep_nodes])
+
+        op_surf = SensorObservationOperator.from_node_indices(mesh, surf_nodes)
+        op_fused = SensorObservationOperator.from_node_indices(mesh, all_nodes)
+
+        d_surf = op_surf.observe(u_true)
+        d_deep = op_fused.observe(u_true)[len(surf_nodes) * 3:]
+        d_fused = np.concatenate([d_surf, d_deep])
+
+        # Channel weights: High weight for surface, lower weight for noisy deep
+        w_surf = np.ones(len(surf_nodes) * 3) * 1.0
+        w_deep = np.ones(len(deep_nodes) * 3) * 0.25
+        w_fused = np.concatenate([w_surf, w_deep])
+
+        solver_surf = FullOrderShapeSensingSolver(op_surf, K, alpha=1e-4, free_dofs=free_dofs)
+        res_surf = solver_surf.solve(d_surf)
+
+        solver_fused = FullOrderShapeSensingSolver(op_fused, K, alpha=1e-4, weights=w_fused, free_dofs=free_dofs)
+        res_fused = solver_fused.solve(d_fused)
+
+        err_surf_deep = np.linalg.norm(res_surf.displacement_3d[deep_nodes] - u_true.reshape(-1, 3)[deep_nodes])
+        err_fused_deep = np.linalg.norm(res_fused.displacement_3d[deep_nodes] - u_true.reshape(-1, 3)[deep_nodes])
+
+        # Fused multi-modal tracking improves internal target accuracy
+        assert err_fused_deep <= err_surf_deep + 1e-6
+
