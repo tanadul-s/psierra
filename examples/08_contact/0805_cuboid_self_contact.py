@@ -226,15 +226,15 @@ def main() -> None:
     cuboid_domain = SolidDomain(cuboid_mesh, mat, elem)
 
     M = cuboid_domain.assemble_mass_matrix()
-    total_mass_tonne = float(np.sum(M.diagonal()) / 3.0)
-    total_mass_kg = total_mass_tonne * 1e3
+    total_mass_g = float(np.sum(M.diagonal()) / 3.0)
+    total_mass_kg = total_mass_g / 1e3
 
     console.print(
-        f"  Material Model: [cyan]NeoHookean[/cyan] (E = {params.youngs_modulus:.1f} MPa, "
-        f"ν = {params.poissons_ratio:.2f}, ρ = {args.density:.2e} tonne/mm³)"
+        f"  Material Model: [cyan]NeoHookean[/cyan] (E = {params.youngs_modulus:.1f} Pa, "
+        f"ν = {params.poissons_ratio:.2f}, ρ = {args.density:.2e} g/mm³)"
     )
     console.print(f"  Element Kinematics: [cyan]Tet4TotalLagrangian[/cyan] (Large-Strain Finite Deformation)")
-    console.print(f"  Total Body Mass   : [green]{total_mass_kg:.2f} kg[/green] ({total_mass_tonne:.4f} tonne)")
+    console.print(f"  Total Body Mass   : [green]{total_mass_kg:.3f} kg[/green] ({total_mass_g:.1f} g)")
 
     # =========================================================================
     # [3/5] Assembly Layer & Autonomous Self-Contact Registration

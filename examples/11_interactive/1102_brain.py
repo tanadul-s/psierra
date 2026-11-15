@@ -208,7 +208,9 @@ def main() -> None:
     )
 
     # 1. Loading Anatomical Meshes
-    console.print("\n[bold yellow][1/6] Loading Anatomical Datasets (Brain, Skull, Lesion)[/bold yellow]")
+    console.print(
+        "\n[bold yellow][1/6] Loading Anatomical Datasets (Brain, Skull, Lesion)[/bold yellow]"
+    )
     brain_mesh_path = _resolve_path("data/mrbraintumor1/mesh/brain.vtk")
     lesion_mesh_path = _resolve_path("data/mrbraintumor1/mesh/lesion.vtk")
     skull_mesh_path = _resolve_path("data/mrbraintumor1/mesh/skull.vtk")
@@ -229,7 +231,9 @@ def main() -> None:
 
     # Upgrade to Tet10 if requested
     if args.element == "tet10":
-        console.print("  • Upgrading brain continuum mesh to [cyan]10-Node Quadratic Tetrahedra (Tet10)[/cyan]...")
+        console.print(
+            "  • Upgrading brain continuum mesh to [cyan]10-Node Quadratic Tetrahedra (Tet10)[/cyan]..."
+        )
         mesh = mesh.to_quadratic()
         console.print(
             f"  • Upgraded Tet10 Mesh: [green]{mesh.n_nodes:,}[/green] nodes | "
@@ -257,7 +261,9 @@ def main() -> None:
     cortical_surface_all = np.unique(surf_point_ids)
 
     # 2. Material & Kinematic Formulation Setup
-    console.print("\n[bold yellow][2/6] Configuring Soft Tissue Constitutive Model[/bold yellow]")
+    console.print(
+        "\n[bold yellow][2/6] Configuring Soft Tissue Constitutive Model[/bold yellow]"
+    )
     E_pa = float(args.youngs_modulus)  # Pa (g/(mm·s²))
     rho_g_mm3 = float(args.mass_density)  # g/mm³
     nu = args.poissons_ratio
@@ -276,8 +282,14 @@ def main() -> None:
         material = Hookean(params)
         mat_desc = "Isotropic Linear Elasticity (Hookean)"
 
-    formulation_type = args.formulation or ("linear" if args.material == "hookean" else "total_lagrangian")
-    is_nonlinear = formulation_type in ["corotational", "total_lagrangian", "updated_lagrangian"]
+    formulation_type = args.formulation or (
+        "linear" if args.material == "hookean" else "total_lagrangian"
+    )
+    is_nonlinear = formulation_type in [
+        "corotational",
+        "total_lagrangian",
+        "updated_lagrangian",
+    ]
 
     if args.element == "tet10":
         if formulation_type == "total_lagrangian":
@@ -300,15 +312,21 @@ def main() -> None:
             formulation_type = "linear"
             is_nonlinear = False
 
-    console.print(f"  • Constitutive Law : [cyan]{material.__class__.__name__}[/cyan] ({mat_desc})")
-    console.print(f"  • Element Class    : [cyan]{element.__class__.__name__}[/cyan] (Formulation: {formulation_type})")
+    console.print(
+        f"  • Constitutive Law : [cyan]{material.__class__.__name__}[/cyan] ({mat_desc})"
+    )
+    console.print(
+        f"  • Element Class    : [cyan]{element.__class__.__name__}[/cyan] (Formulation: {formulation_type})"
+    )
     console.print(
         f"  • Tissue Modulus   : [green]{E_pa:.1f} Pa ({E_pa/1000.0:.2f} kPa)[/green] | "
         f"Poisson's ν: [green]{nu:.2f}[/green] | Density ρ: [green]{rho_g_mm3:.2e} g/mm³[/green]"
     )
 
     # 3. Domain & Boundary Constraints (Skull Base & Posterior Cradle Clamp)
-    console.print("\n[bold yellow][3/6] Setting Up Physical Domain & Cranial Boundary Anchors[/bold yellow]")
+    console.print(
+        "\n[bold yellow][3/6] Setting Up Physical Domain & Cranial Boundary Anchors[/bold yellow]"
+    )
     domain = SolidDomain(mesh=mesh, material=material, element=element)
 
     # Anatomical posterior cranial cradle & skull base support: Y < clamp_y in RAS
@@ -316,29 +334,39 @@ def main() -> None:
     clamped_nodes = np.where(clamped_node_mask)[0]
 
     # Cortical free surface nodes (excluding clamped support)
-    cortical_free_nodes = np.array([idx for idx in cortical_surface_all if idx not in clamped_nodes])
+    cortical_free_nodes = np.array(
+        [idx for idx in cortical_surface_all if idx not in clamped_nodes]
+    )
 
     dirichlet = DirichletManager(domain.n_dofs)
-    dirichlet.add_constraint(DirichletConstraint(clamped_nodes, components=(0, 1, 2), value=0.0))
+    dirichlet.add_constraint(
+        DirichletConstraint(clamped_nodes, components=(0, 1, 2), value=0.0)
+    )
 
     M_global = domain.assemble_mass_matrix()
-    total_mass_tonne = abs(mesh.volume * rho_tonne_mm3)
-    total_mass_kg = total_mass_tonne * 1e3
+    total_mass_g = abs(mesh.volume * rho_g_mm3)
+    total_mass_kg = total_mass_g / 1e3
     total_weight_N = total_mass_kg * 9.81
 
     console.print(
         f"  • Cranial Support Clamp : [green]{len(clamped_nodes):,}[/green] nodes ({len(clamped_nodes)/mesh.n_nodes*100:.1f}%) "
         f"at Y < {args.clamp_y:.1f} mm"
     )
-    console.print(f"  • Free Cortical Surface : [green]{len(cortical_free_nodes):,}[/green] nodes tracked")
+    console.print(
+        f"  • Free Cortical Surface : [green]{len(cortical_free_nodes):,}[/green] nodes tracked"
+    )
     console.print(
         f"  • Total Brain Mass      : [green]{total_mass_kg:.3f} kg[/green] ({total_mass_kg*1e3:.1f} g) | "
         f"Weight: [green]{total_weight_N:.2f} N[/green]"
     )
 
     # 4. Assembling Real-Time Interactive Solver
-    console.print("\n[bold yellow][4/6] Initializing Real-Time Generalized-α Physics Engine[/bold yellow]")
-    rayleigh = RayleighDamping(alpha=4.0, beta=0.002)  # Viscous CSF & soft parenchyma damping
+    console.print(
+        "\n[bold yellow][4/6] Initializing Real-Time Generalized-α Physics Engine[/bold yellow]"
+    )
+    rayleigh = RayleighDamping(
+        alpha=4.0, beta=0.002
+    )  # Viscous CSF & soft parenchyma damping
     orientation = HeadOrientationManager(pitch=0.0, roll=0.0, yaw=0.0)
 
     # Initial gravity load in neutral supine posture (g along -Y)
@@ -367,14 +395,20 @@ def main() -> None:
     snapshot_writer = None
     if args.save_snapshots:
         output_dir.mkdir(parents=True, exist_ok=True)
-        snapshot_writer = SimulationWriter(output_dir / "result.xdmf", mesh=mesh, format="xdmf")
-        console.print(f"  • Snapshot Streaming  : [green]Enabled[/green] -> {output_dir / 'result.xdmf'}")
+        snapshot_writer = SimulationWriter(
+            output_dir / "result.xdmf", mesh=mesh, format="xdmf"
+        )
+        console.print(
+            f"  • Snapshot Streaming  : [green]Enabled[/green] -> {output_dir / 'result.xdmf'}"
+        )
 
     # Helper function to compute shift metrics in real time
     def evaluate_shift_metrics() -> tuple[np.ndarray, float, float, int, np.ndarray]:
         disp = sim.displacement  # (n_nodes, 3) in local RAS
         # 1. Lesion centroid drift
-        current_lesion_center = (mesh.nodes[lesion_node_indices] + disp[lesion_node_indices]).mean(axis=0)
+        current_lesion_center = (
+            mesh.nodes[lesion_node_indices] + disp[lesion_node_indices]
+        ).mean(axis=0)
         lesion_drift_vec = current_lesion_center - lesion_center_ref
         lesion_drift_mag = float(np.linalg.norm(lesion_drift_vec))
 
@@ -385,13 +419,23 @@ def main() -> None:
         max_cortex_mag = float(cortex_disp_norms[max_cortex_idx_local])
         max_cortex_vec = disp[max_cortex_node_idx]
 
-        return lesion_drift_vec, lesion_drift_mag, max_cortex_mag, max_cortex_node_idx, max_cortex_vec
+        return (
+            lesion_drift_vec,
+            lesion_drift_mag,
+            max_cortex_mag,
+            max_cortex_node_idx,
+            max_cortex_vec,
+        )
 
     # 5. Headless Verification Sequence or Interactive 3D GUI
-    is_headless = args.headless or (not os.environ.get("DISPLAY") and not os.environ.get("WAYLAND_DISPLAY"))
+    is_headless = args.headless or (
+        not os.environ.get("DISPLAY") and not os.environ.get("WAYLAND_DISPLAY")
+    )
 
     if is_headless:
-        console.print("\n[bold yellow][5/6] Executing Automated Headless Validation Sequence[/bold yellow]")
+        console.print(
+            "\n[bold yellow][5/6] Executing Automated Headless Validation Sequence[/bold yellow]"
+        )
         angles = [
             (0.0, 0.0, 0.0, "Supine (Neutral)"),
             (0.0, 0.0, 30.0, "Lateral Head Turn +30° (Pterional)"),
@@ -406,8 +450,12 @@ def main() -> None:
         )
         results_table.add_column("Surgical Pose", style="cyan")
         results_table.add_column("Local Gravity Vector g (m/s²)", style="dim")
-        results_table.add_column("Lesion Drift (mm)", style="bold green", justify="right")
-        results_table.add_column("Max Cortical Shift", style="bold yellow", justify="right")
+        results_table.add_column(
+            "Lesion Drift (mm)", style="bold green", justify="right"
+        )
+        results_table.add_column(
+            "Max Cortical Shift", style="bold yellow", justify="right"
+        )
         results_table.add_column("Physics Rate", style="green", justify="right")
 
         for pitch, roll, yaw, pose_name in angles:
@@ -415,7 +463,9 @@ def main() -> None:
             orientation.roll = roll
             orientation.yaw = yaw
             g_local = orientation.local_gravity
-            f_ext_local = GravityLoad(acceleration=tuple(g_local)).compute_force_vector(M_global)
+            f_ext_local = GravityLoad(acceleration=tuple(g_local)).compute_force_vector(
+                M_global
+            )
             sim.set_base_external_force(f_ext_local)
 
             # Advance physics to quasi-steady dynamic equilibrium
@@ -441,8 +491,12 @@ def main() -> None:
 
         # Verification assertion: max brain shift must be physically realistic (3 - 25 mm)
         final_l_vec, final_l_mag, final_c_mag, _, _ = evaluate_shift_metrics()
-        assert 1.0 < final_c_mag < 35.0, f"Unphysical cortical shift: {final_c_mag:.2f} mm"
-        assert 0.5 < final_l_mag < 25.0, f"Unphysical lesion drift: {final_l_mag:.2f} mm"
+        assert (
+            1.0 < final_c_mag < 35.0
+        ), f"Unphysical cortical shift: {final_c_mag:.2f} mm"
+        assert (
+            0.5 < final_l_mag < 25.0
+        ), f"Unphysical lesion drift: {final_l_mag:.2f} mm"
 
         console.print(
             f"\n[bold green]✓ Brain shift verification passed! Max cortical sag: {final_c_mag:.2f} mm | "
@@ -451,16 +505,23 @@ def main() -> None:
         return
 
     # 6. Interactive 3D PyVista Neurosurgical GUI
-    console.print("\n[bold yellow][6/6] Launching Interactive 3D Neurosurgical Suite[/bold yellow]")
+    console.print(
+        "\n[bold yellow][6/6] Launching Interactive 3D Neurosurgical Suite[/bold yellow]"
+    )
     import pyvista as pv
 
-    plotter = pv.Plotter(title="pSierra: Interactive Neurosurgical Brain Shift Simulator", window_size=(1400, 900))
+    plotter = pv.Plotter(
+        title="pSierra: Interactive Neurosurgical Brain Shift Simulator",
+        window_size=(1400, 900),
+    )
     plotter.set_background("#14181f", top="#1f2733")
 
     # Load Skull Mesh for anatomical context (prioritize skull.vtk surface extraction)
     skull_mesh = None
     if skull_mesh_path.exists():
-        console.print("  • Loading cranial skull vault from skull.vtk (surface extraction)...")
+        console.print(
+            "  • Loading cranial skull vault from skull.vtk (surface extraction)..."
+        )
         skull_raw = pv.read(skull_mesh_path)
         skull_poly = skull_raw.extract_surface(algorithm="dataset_surface")
         skull_mesh = skull_poly
@@ -472,7 +533,9 @@ def main() -> None:
         skull_mesh = skull_poly
     else:
         console.print("  • Generating cranial surface bounding shell...")
-        skull_mesh = mesh.ugrid.extract_surface(algorithm="dataset_surface").smooth(n_iter=20)
+        skull_mesh = mesh.ugrid.extract_surface(algorithm="dataset_surface").smooth(
+            n_iter=20
+        )
 
     # Create PyVista Grid for Deformed Brain Mesh
     brain_grid = mesh.ugrid.copy()
@@ -578,7 +641,13 @@ def main() -> None:
     # 5. Add Maximum Shift Arrow Indicator Actor (Toggleable via [V])
     show_ghost = True
     show_vector_arrow = True
-    arrow_source = pv.Arrow(start=(0, 0, 0), direction=(0, 1, 0), tip_length=0.25, tip_radius=0.1, scale=10.0)
+    arrow_source = pv.Arrow(
+        start=(0, 0, 0),
+        direction=(0, 1, 0),
+        tip_length=0.25,
+        tip_radius=0.1,
+        scale=10.0,
+    )
     arrow_actor = plotter.add_mesh(arrow_source, color="#ffeb3b", opacity=1.0)
 
     # 6. Orientation Axes in Anatomical RAS Coordinates (placed in bottom-right corner)
@@ -620,13 +689,21 @@ def main() -> None:
         "  [R]     Reset to Neutral Supine\n"
         "  [X/Esc] Exit Window"
     )
-    plotter.add_text(instructions_text, position="lower_left", font_size=8.5, color="#b0bec5", font="courier")
+    plotter.add_text(
+        instructions_text,
+        position="lower_left",
+        font_size=8.5,
+        color="#b0bec5",
+        font="courier",
+    )
 
     # Reorientation and transform helper
     def apply_current_orientation() -> None:
         R = orientation.rotation_matrix
         g_local = orientation.local_gravity
-        f_ext_local = GravityLoad(acceleration=tuple(g_local)).compute_force_vector(M_global)
+        f_ext_local = GravityLoad(acceleration=tuple(g_local)).compute_force_vector(
+            M_global
+        )
         sim.set_base_external_force(f_ext_local)
 
         # Update ghost mesh coordinates (world rotated)
@@ -644,7 +721,9 @@ def main() -> None:
             plotter.render_window.SetStereoRender(False)
         desc = orientation.set_preset(pose_key)
         apply_current_orientation()
-        console.print(f"[cyan]Surgical Pose Changed:[/cyan] [bold white]{desc}[/bold white]")
+        console.print(
+            f"[cyan]Surgical Pose Changed:[/cyan] [bold white]{desc}[/bold white]"
+        )
 
     def adjust_orientation(dp: float, dr: float, dy: float) -> None:
         orientation.adjust(dp, dr, dy)
@@ -674,13 +753,17 @@ def main() -> None:
         show_ghost = not show_ghost
         ghost_actor.SetVisibility(show_ghost)
         ghost_lesion_actor.SetVisibility(show_ghost)
-        console.print(f"[dim]Ghost reference mesh: {'Visible' if show_ghost else 'Hidden'}[/dim]")
+        console.print(
+            f"[dim]Ghost reference mesh: {'Visible' if show_ghost else 'Hidden'}[/dim]"
+        )
 
     def toggle_vector_arrow() -> None:
         nonlocal show_vector_arrow
         show_vector_arrow = not show_vector_arrow
         arrow_actor.SetVisibility(show_vector_arrow)
-        console.print(f"[dim]Maximum shift vector arrow: {'Visible' if show_vector_arrow else 'Hidden'}[/dim]")
+        console.print(
+            f"[dim]Maximum shift vector arrow: {'Visible' if show_vector_arrow else 'Hidden'}[/dim]"
+        )
 
     def reset_simulation() -> None:
         orientation.pitch, orientation.roll, orientation.yaw = 0.0, 0.0, 0.0
@@ -743,8 +826,8 @@ def main() -> None:
     # Set isometric neurosurgical view: +Y points upward, +Z goes left, +X goes right
     plotter.camera_position = [
         (240.0, 180.0, 240.0),  # Camera eye position in RAS
-        (0.0, 10.0, 10.0),       # Focal point near cranial center
-        (0.0, 1.0, 0.0),         # View up vector (+Y Anterior pointing upward)
+        (0.0, 10.0, 10.0),  # Focal point near cranial center
+        (0.0, 1.0, 0.0),  # View up vector (+Y Anterior pointing upward)
     ]
 
     # Neutralize default VTK CharEvent observers so that:
@@ -757,7 +840,9 @@ def main() -> None:
         if plotter.iren.get_interactor_style() is not None:
             plotter.iren.get_interactor_style().RemoveObservers("CharEvent")
 
-    console.print("[bold green]Neurosurgical GUI launched! Use controls in 3D window.[/bold green]")
+    console.print(
+        "[bold green]Neurosurgical GUI launched! Use controls in 3D window.[/bold green]"
+    )
     plotter.show(interactive_update=True)
 
     # Re-verify and ensure VTK stereo render is off and CharEvent observers are removed
@@ -799,7 +884,9 @@ def main() -> None:
             brain_grid.points = deformed_local_coords @ R.T
 
             # Deform lesion target mesh and update world position
-            deformed_lesion_local = initial_lesion_points + disp_local[lesion_point_to_brain]
+            deformed_lesion_local = (
+                initial_lesion_points + disp_local[lesion_point_to_brain]
+            )
             lesion_grid.points = deformed_lesion_local @ R.T
             if show_ghost:
                 ghost_lesion_grid.points = initial_lesion_points @ R.T
@@ -807,7 +894,9 @@ def main() -> None:
             # Update lesion centroid sphere marker
             cur_lesion_center_local = deformed_lesion_local.mean(axis=0)
             cur_lesion_center_world = cur_lesion_center_local @ R.T
-            centroid_marker_actor.GetMapper().SetInputData(pv.Sphere(radius=3.0, center=cur_lesion_center_world))
+            centroid_marker_actor.GetMapper().SetInputData(
+                pv.Sphere(radius=3.0, center=cur_lesion_center_world)
+            )
 
             # Scalar coloring: displacement magnitude norm
             disp_norms = np.linalg.norm(disp_local, axis=1)
@@ -819,10 +908,15 @@ def main() -> None:
             # Update maximum shift 3D arrow indicator
             if show_vector_arrow and c_mag > 0.05:
                 pt_start = initial_brain_points[c_idx] @ R.T
-                pt_dir = (c_vec @ R.T)
+                pt_dir = c_vec @ R.T
                 norm_dir = np.linalg.norm(pt_dir)
                 if norm_dir > 1e-6:
-                    arrow = pv.Arrow(start=pt_start, direction=pt_dir / norm_dir, scale=c_mag * 1.5, tip_length=0.25)
+                    arrow = pv.Arrow(
+                        start=pt_start,
+                        direction=pt_dir / norm_dir,
+                        scale=c_mag * 1.5,
+                        tip_length=0.25,
+                    )
                     arrow_actor.GetMapper().SetInputData(arrow)
 
             # Update Live Telemetry HUD in Corner 2 (upper_left, clean plain formatting)

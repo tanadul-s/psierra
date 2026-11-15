@@ -177,9 +177,9 @@ def run_single_case(
 
     params = IsotropicElasticParameters()
     # Balanced mass density for large deflection beam benchmark under Earth gravity g=-9810 mm/s^2:
-    # (110e-6 tonne/mm³ * 9810 mm/s² = 1.0791 N/mm³ body force => ~41.5 mm tip sag)
+    # (1100e-6 tonne/mm³ * 9810 mm/s² = 1.0791 N/mm³ body force => ~41.5 mm tip sag)
     params.set_from_youngs_poisson(
-        youngs_modulus=21000.0, poissons_ratio=0.35, mass_density=110e-6
+        youngs_modulus=21000.0, poissons_ratio=0.35, mass_density=1100e-6
     )
 
     mat = build_material(

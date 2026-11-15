@@ -107,7 +107,9 @@ def parse_arguments() -> argparse.Namespace:
 
 def main() -> None:
     args = parse_arguments()
-    is_headless = args.headless or (os.environ.get("DISPLAY") is None and os.environ.get("WAYLAND_DISPLAY") is None)
+    is_headless = args.headless or (
+        os.environ.get("DISPLAY") is None and os.environ.get("WAYLAND_DISPLAY") is None
+    )
 
     console.print(
         Panel.fit(
@@ -142,7 +144,9 @@ def main() -> None:
     # --------------------------------------------------------------------------
     # [2/6] Configuring Material & Element Formulation
     # --------------------------------------------------------------------------
-    console.print("\n[bold yellow][2/6] Configuring Material & Element Formulation[/bold yellow]")
+    console.print(
+        "\n[bold yellow][2/6] Configuring Material & Element Formulation[/bold yellow]"
+    )
     E_pa = float(args.youngs_modulus)  # Pa (g/(mm·s²))
     rho_g_mm3 = float(args.mass_density)  # g/mm³
     nu_raw = float(args.poissons_ratio)
@@ -165,9 +169,11 @@ def main() -> None:
     element = Tet4Linear(material)
     console.print(
         f"  • Material : [cyan]{material.__class__.__name__}[/cyan] "
-        f"(E = {args.youngs_modulus:,.0f} Pa ({E_mpa:.4f} MPa), ν = {nu:.3f}, ρ = {args.mass_density*1e6:.1f} kg/m³)"
+        f"(E = {args.youngs_modulus:,.0f} Pa ({E_pa:.4f} MPa), ν = {nu:.3f}, ρ = {args.mass_density*1e6:.1f} kg/m³)"
     )
-    console.print(f"  • Element  : [cyan]{element.__class__.__name__}[/cyan] (Linear Tetrahedral)")
+    console.print(
+        f"  • Element  : [cyan]{element.__class__.__name__}[/cyan] (Linear Tetrahedral)"
+    )
 
     # --------------------------------------------------------------------------
     # [3/6] Setting Up Physical Domain & Rayleigh Damping
@@ -182,7 +188,9 @@ def main() -> None:
     # --------------------------------------------------------------------------
     # [4/6] Applying Boundary Conditions & Snapshot Management
     # --------------------------------------------------------------------------
-    console.print("\n[bold yellow][4/6] Applying Boundary Conditions & Managing Snapshots[/bold yellow]")
+    console.print(
+        "\n[bold yellow][4/6] Applying Boundary Conditions & Managing Snapshots[/bold yellow]"
+    )
     # Clamping beam root at Z = min(Z) = -30 mm (cross-sectional face)
     fixed_nodes = select_nodes_by_plane(
         mesh,
@@ -200,7 +208,9 @@ def main() -> None:
     console.print(
         f"  • Clamped Root : [green]{len(fixed_nodes)}[/green] nodes constrained at Z = {min_z:.1f} mm"
     )
-    console.print(f"  • Free DOFs    : [green]{len(free_dofs):,}[/green] degrees of freedom")
+    console.print(
+        f"  • Free DOFs    : [green]{len(free_dofs):,}[/green] degrees of freedom"
+    )
 
     # Gravity body force in -Y direction: g = 9810 mm/s² (Earth gravity)
     gravity = GravityLoad(acceleration=(0.0, -9810.0, 0.0))
@@ -208,7 +218,9 @@ def main() -> None:
     f_grav = gravity.compute_force_vector(M_global)
     total_weight = abs(float(f_grav[1::3].sum()))
     total_weight_N = total_weight * 1e-6
-    console.print(f"  • Beam Weight  : [green]{total_weight_N:.2f} N[/green] ({total_weight:.2e} g·mm/s² acting along -Y)")
+    console.print(
+        f"  • Beam Weight  : [green]{total_weight_N:.2f} N[/green] ({total_weight:.2e} g·mm/s² acting along -Y)"
+    )
 
     # Find tip monitoring node at max(Z) = 200 mm
     max_z = np.max(mesh.nodes[:, 2])
@@ -233,7 +245,9 @@ def main() -> None:
 
     def compute_fom_snapshots(mgr: SnapshotManager) -> None:
         """Runs high-fidelity full-order implicit dynamic integration to collect snapshots using InteractiveDynamicSimulation."""
-        console.print(f"    [dim]Executing {n_steps} full-order dynamic steps via InteractiveDynamicSimulation...[/dim]")
+        console.print(
+            f"    [dim]Executing {n_steps} full-order dynamic steps via InteractiveDynamicSimulation...[/dim]"
+        )
         t_fom_start = time.perf_counter()
 
         sim = InteractiveDynamicSimulation(
@@ -275,7 +289,9 @@ def main() -> None:
     # --------------------------------------------------------------------------
     # [5/6] Building POD-Galerkin ROM & Executing Online Solver
     # --------------------------------------------------------------------------
-    console.print("\n[bold yellow][5/6] Building POD-Galerkin ROM & Executing Online Solver[/bold yellow]")
+    console.print(
+        "\n[bold yellow][5/6] Building POD-Galerkin ROM & Executing Online Solver[/bold yellow]"
+    )
     t_svd_start = time.perf_counter()
     basis = snapshot_mgr.compute_basis(energy_threshold=args.energy_threshold)
     t_svd = time.perf_counter() - t_svd_start
@@ -315,14 +331,14 @@ def main() -> None:
     )
 
     # Real-Time Reduced Dynamic Solver
-    rom_solver = ReducedLinearDynamicSolver(
-        model=rom_model, dt=dt, spectral_radius=0.8
-    )
+    rom_solver = ReducedLinearDynamicSolver(model=rom_model, dt=dt, spectral_radius=0.8)
 
     # --------------------------------------------------------------------------
     # [6/6] Real-Time Interactive 3D Visualization & Telemetry
     # --------------------------------------------------------------------------
-    console.print("\n[bold yellow][6/6] Real-Time Interactive 3D Visualization & Telemetry[/bold yellow]")
+    console.print(
+        "\n[bold yellow][6/6] Real-Time Interactive 3D Visualization & Telemetry[/bold yellow]"
+    )
 
     # Impulse perturbation setup for node #tip_node
     f_impulse_full = np.zeros(domain.n_dofs)
@@ -332,7 +348,9 @@ def main() -> None:
     f_impulse_r_up = rom_model.project_load(f_impulse_full)
 
     if is_headless:
-        console.print(f"  • Executing [cyan]{n_steps}[/cyan] reduced time steps online (headless benchmark)...")
+        console.print(
+            f"  • Executing [cyan]{n_steps}[/cyan] reduced time steps online (headless benchmark)..."
+        )
         rom_tip_trajectory: list[float] = []
         t_rom_start = time.perf_counter()
         for step in range(n_steps):
@@ -345,10 +363,16 @@ def main() -> None:
         rom_tip_arr = np.array(rom_tip_trajectory)
         peak_rom_disp = float(np.min(rom_tip_arr))
 
-        summary_table = Table(title="POD-Galerkin Reduced-Order Model Performance", border_style="cyan")
+        summary_table = Table(
+            title="POD-Galerkin Reduced-Order Model Performance", border_style="cyan"
+        )
         summary_table.add_column("Metric / Property", style="bold white", width=36)
-        summary_table.add_column("Full-Order Model (FOM)", style="dim", justify="right", width=24)
-        summary_table.add_column("Reduced-Order Model (ROM)", style="green", justify="right", width=26)
+        summary_table.add_column(
+            "Full-Order Model (FOM)", style="dim", justify="right", width=24
+        )
+        summary_table.add_column(
+            "Reduced-Order Model (ROM)", style="green", justify="right", width=26
+        )
 
         summary_table.add_row(
             "Degrees of Freedom (DOFs)",
@@ -393,7 +417,9 @@ def main() -> None:
         return
 
     # Interactive 3D PyVista Render Loop (Live Animation)
-    console.print("\n[bold green]Launching Interactive 3D Real-Time Reduced Simulation Viewer...[/bold green]")
+    console.print(
+        "\n[bold green]Launching Interactive 3D Real-Time Reduced Simulation Viewer...[/bold green]"
+    )
     import pyvista as pv
 
     plotter = pv.Plotter(
@@ -460,7 +486,13 @@ def main() -> None:
         "  [R] Reset Simulation State\n"
         "  [X/Esc] Exit Simulation"
     )
-    plotter.add_text(instructions, position="lower_left", font_size=8.5, color="#b0bec5", font="courier")
+    plotter.add_text(
+        instructions,
+        position="lower_left",
+        font_size=8.5,
+        color="#b0bec5",
+        font="courier",
+    )
 
     # Interactive Key Bindings
     gui_state = {
@@ -534,7 +566,9 @@ def main() -> None:
     fps_counter = 0
     current_fps = 0.0
 
-    console.print("[bold green]Online simulation running at >20,000 Hz! Watch live oscillation.[/bold green]")
+    console.print(
+        "[bold green]Online simulation running at >20,000 Hz! Watch live oscillation.[/bold green]"
+    )
 
     try:
         while is_window_active():

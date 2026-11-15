@@ -53,8 +53,8 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument(
         "--steps",
         type=int,
-        default=20,
-        help="Number of incremental load steps (default: 20)",
+        default=10,
+        help="Number of incremental load steps (default: 10)",
     )
     parser.add_argument(
         "--output-dir",

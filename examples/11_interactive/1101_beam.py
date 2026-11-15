@@ -237,11 +237,11 @@ def run_bending_simulation(args: argparse.Namespace, is_headless: bool, out_dir:
         for step in range(n_steps):
             current_t = sim.current_time
             if 0.40 <= current_t < 0.50:
-                sim.apply_perturbation_force(tip_center_node, [0.0, -300.0, 0.0])
+                sim.apply_perturbation_force(tip_center_node, [0.0, -3.0e5, 0.0])
             elif 0.50 <= current_t < 0.51:
                 sim.clear_perturbation_forces()
             if 1.00 <= current_t < 1.60:
-                f_harm = 150.0 * np.sin(2.0 * np.pi * 15.0 * (current_t - 1.00))
+                f_harm = 1.5e5 * np.sin(2.0 * np.pi * 15.0 * (current_t - 1.00))
                 sim.clear_perturbation_forces()
                 sim.apply_perturbation_force(tip_center_node, [0.0, f_harm, 0.0])
             elif 1.60 <= current_t < 1.61:
@@ -268,14 +268,153 @@ def run_bending_simulation(args: argparse.Namespace, is_headless: bool, out_dir:
         return {"rate_hz": rate_hz, "speedup": rate_hz * args.dt}
     else:
         console.print("[green]Opening interactive PyVista bending window...[/green]")
-        # PyVista interactive GUI
         import pyvista as pv
-        plotter = pv.Plotter(title="Example 1101: Interactive Beam Bending")
+        plotter = pv.Plotter(title="Example 1101: Interactive Dynamic Beam Bending")
         grid = domain.to_pyvista(factor=1.0)
-        grid["Displacement_Y"] = np.zeros(mesh.n_nodes)
-        actor = plotter.add_mesh(grid, scalars="Displacement_Y", cmap="viridis", show_edges=True)
-        plotter.add_text("Interactive Beam Bending: [W/S] Tip Force • [Space] Harmonic • [Q] Exit", font_size=10)
-        plotter.show()
+        grid.point_data["Displacement_Y"] = np.zeros(mesh.n_nodes, dtype=np.float32)
+        actor = plotter.add_mesh(
+            grid,
+            scalars="Displacement_Y",
+            cmap="viridis",
+            show_edges=True,
+            clim=[-40.0, 5.0],
+            scalar_bar_args={"title": "Tip Deflection Y (mm)", "vertical": True},
+        )
+
+        initial_points = mesh.nodes.copy()
+        f_manual_mag = 3.0e5  # 0.3 N = 300,000 g*mm/s^2, causes ~28 mm tip deflection
+        gui_state = {
+            "exit_requested": False,
+            "harmonic_active": False,
+            "current_force_val": 0.0,
+        }
+
+        hud_text = (
+            "Interactive Beam Bending Controls:\n"
+            "  [I / Up]   Push Downward Force (-0.3 N)\n"
+            "  [K / Down] Pull Upward Force (+0.3 N)\n"
+            "  [Space]    Toggle Harmonic Excitation (10 Hz)\n"
+            "  [C]        Clear Applied Perturbations\n"
+            "  [R]        Reset Dynamic Beam State\n"
+            "  [Q / Esc]  Exit Interactive Simulation"
+        )
+        plotter.add_text(
+            hud_text,
+            position="lower_left",
+            font_size=9,
+            color="#cfd8dc",
+            font="courier",
+        )
+
+        telemetry_actor = plotter.add_text(
+            "Initializing...",
+            position="upper_left",
+            font_size=10,
+            color="#00e676",
+            font="courier",
+        )
+
+        def key_push_down() -> None:
+            gui_state["current_force_val"] = -f_manual_mag * 1e-6
+            sim.apply_perturbation_force(tip_center_node, [0.0, -f_manual_mag, 0.0])
+            console.print("[red]▶ [KEY] Downward tip force applied (-0.3 N)[/red]")
+
+        def key_pull_up() -> None:
+            gui_state["current_force_val"] = f_manual_mag * 1e-6
+            sim.apply_perturbation_force(tip_center_node, [0.0, f_manual_mag, 0.0])
+            console.print("[green]▶ [KEY] Upward tip force applied (+0.3 N)[/green]")
+
+        def key_toggle_harmonic() -> None:
+            gui_state["harmonic_active"] = not gui_state["harmonic_active"]
+            if gui_state["harmonic_active"]:
+                sim.add_harmonic_excitation(
+                    node_idx=tip_center_node,
+                    amplitude=2.0e5,
+                    frequency_hz=10.0,
+                    direction=(0.0, 1.0, 0.0),
+                )
+                console.print("[yellow]▶ [KEY] Harmonic excitation ON (10 Hz, 0.2 N)[/yellow]")
+            else:
+                sim.clear_harmonic_excitations()
+                console.print("[dim]▶ [KEY] Harmonic excitation OFF[/dim]")
+
+        def key_clear() -> None:
+            gui_state["harmonic_active"] = False
+            gui_state["current_force_val"] = 0.0
+            sim.clear_perturbation_forces()
+            sim.clear_harmonic_excitations()
+            console.print("[yellow]▶ [KEY] All perturbations cleared[/yellow]")
+
+        def key_reset() -> None:
+            key_clear()
+            sim.reset()
+            grid.points = initial_points
+            grid.point_data["Displacement_Y"] = np.zeros(mesh.n_nodes, dtype=np.float32)
+            plotter.update()
+            console.print("[cyan]▶ [KEY] Dynamic simulation state reset[/cyan]")
+
+        def key_quit() -> None:
+            gui_state["exit_requested"] = True
+            if not getattr(plotter, "_closed", False):
+                plotter.close()
+
+        # Non-conflicting keys (avoiding VTK defaults)
+        for k in ["i", "I", "Up"]:
+            plotter.add_key_event(k, key_push_down)
+        for k in ["k", "K", "Down"]:
+            plotter.add_key_event(k, key_pull_up)
+        for k in ["space", "Space"]:
+            plotter.add_key_event(k, key_toggle_harmonic)
+        for k in ["c", "C"]:
+            plotter.add_key_event(k, key_clear)
+        for k in ["r", "R"]:
+            plotter.add_key_event(k, key_reset)
+        for k in ["q", "Q", "Escape", "x", "X"]:
+            plotter.add_key_event(k, key_quit)
+
+        # Neutralize default VTK keys
+        if hasattr(plotter, "iren") and plotter.iren is not None:
+            plotter.iren.interactor.RemoveObservers("CharEvent")
+            if plotter.iren.get_interactor_style() is not None:
+                plotter.iren.get_interactor_style().RemoveObservers("CharEvent")
+
+        plotter.show(interactive_update=True)
+
+        fps_timer = time.perf_counter()
+        fps_count = 0
+        current_fps = 0.0
+
+        try:
+            while not getattr(plotter, "_closed", False) and plotter.render_window is not None:
+                if gui_state["exit_requested"]:
+                    break
+
+                sim.step()
+
+                disp = sim.displacement
+                grid.points = initial_points + disp
+                grid.point_data["Displacement_Y"] = disp[:, 1].astype(np.float32)
+
+                fps_count += 1
+                t_now = time.perf_counter()
+                if t_now - fps_timer >= 0.5:
+                    current_fps = fps_count / (t_now - fps_timer)
+                    fps_count = 0
+                    fps_timer = t_now
+
+                tip_y = float(disp[tip_center_node, 1])
+                telemetry = (
+                    f"Time: {sim.current_time:.3f} s | Rate: {1.0/args.dt:.0f} Hz (dt={args.dt*1e3:.1f}ms)\n"
+                    f"Tip Deflection Y: {tip_y:+.2f} mm | FPS: {current_fps:.1f}\n"
+                    f"Harmonic: {'ACTIVE (10 Hz)' if gui_state['harmonic_active'] else 'OFF'} | "
+                    f"Manual Force: {gui_state['current_force_val']:+.2f} N"
+                )
+                telemetry_actor.SetText(2, telemetry)
+
+                plotter.update()
+        except Exception:
+            pass
+
         return {}
 
 
@@ -381,12 +520,152 @@ def run_torsion_simulation(args: argparse.Namespace, is_headless: bool, out_dir:
     else:
         console.print("[green]Opening interactive PyVista torsion window...[/green]")
         import pyvista as pv
-        plotter = pv.Plotter(title="Example 1101: Interactive Beam Torsion")
+        plotter = pv.Plotter(title="Example 1101: Interactive Dynamic Beam Torsion")
         grid = domain.to_pyvista(factor=1.0)
-        grid["Twist_deg"] = np.zeros(mesh.n_nodes)
-        plotter.add_mesh(grid, scalars="Twist_deg", cmap="coolwarm", show_edges=True)
-        plotter.add_text("Interactive Beam Torsion: [T/Y] Torque • [Space] Harmonic • [Q] Exit", font_size=10)
-        plotter.show()
+        grid.point_data["Twist_deg"] = np.zeros(mesh.n_nodes, dtype=np.float32)
+        plotter.add_mesh(
+            grid,
+            scalars="Twist_deg",
+            cmap="coolwarm",
+            show_edges=True,
+            clim=[-30.0, 30.0],
+            scalar_bar_args={"title": "Twist Angle (deg)", "vertical": True},
+        )
+
+        initial_points = mesh.nodes.copy()
+        tau_manual_mag = args.torque if abs(args.torque) > 1e-3 else 5.0e6  # 5 N*mm
+        gui_state = {
+            "exit_requested": False,
+            "harmonic_active": False,
+            "current_torque_val": 0.0,
+        }
+
+        hud_text = (
+            "Interactive Beam Torsion Controls:\n"
+            "  [T / Left]   Apply Counter-Clockwise Torque (+M_z)\n"
+            "  [Y / Right]  Apply Clockwise Torque (-M_z)\n"
+            "  [Space]      Toggle Harmonic Torsion (15 Hz)\n"
+            "  [C]          Clear Applied Perturbations\n"
+            "  [R]          Reset Dynamic Beam State\n"
+            "  [Q / Esc]    Exit Interactive Simulation"
+        )
+        plotter.add_text(
+            hud_text,
+            position="lower_left",
+            font_size=9,
+            color="#cfd8dc",
+            font="courier",
+        )
+
+        telemetry_actor = plotter.add_text(
+            "Initializing...",
+            position="upper_left",
+            font_size=10,
+            color="#00e676",
+            font="courier",
+        )
+
+        def key_twist_ccw() -> None:
+            gui_state["current_torque_val"] = tau_manual_mag
+            set_active_torque(tau_manual_mag)
+            console.print("[cyan]▶ [KEY] Counter-Clockwise torque applied (+M_z)[/cyan]")
+
+        def key_twist_cw() -> None:
+            gui_state["current_torque_val"] = -tau_manual_mag
+            set_active_torque(-tau_manual_mag)
+            console.print("[magenta]▶ [KEY] Clockwise torque applied (-M_z)[/magenta]")
+
+        def key_toggle_harmonic() -> None:
+            gui_state["harmonic_active"] = not gui_state["harmonic_active"]
+            if gui_state["harmonic_active"]:
+                console.print("[yellow]▶ [KEY] Harmonic torsion ON (15 Hz)[/yellow]")
+            else:
+                set_active_torque(0.0)
+                gui_state["current_torque_val"] = 0.0
+                console.print("[dim]▶ [KEY] Harmonic torsion OFF[/dim]")
+
+        def key_clear() -> None:
+            gui_state["harmonic_active"] = False
+            gui_state["current_torque_val"] = 0.0
+            set_active_torque(0.0)
+            console.print("[yellow]▶ [KEY] All torques cleared[/yellow]")
+
+        def key_reset() -> None:
+            key_clear()
+            sim.reset()
+            grid.points = initial_points
+            grid.point_data["Twist_deg"] = np.zeros(mesh.n_nodes, dtype=np.float32)
+            plotter.update()
+            console.print("[cyan]▶ [KEY] Dynamic simulation state reset[/cyan]")
+
+        def key_quit() -> None:
+            gui_state["exit_requested"] = True
+            if not getattr(plotter, "_closed", False):
+                plotter.close()
+
+        # Non-conflicting keys (avoiding VTK defaults)
+        for k in ["t", "T", "Left"]:
+            plotter.add_key_event(k, key_twist_ccw)
+        for k in ["y", "Y", "Right"]:
+            plotter.add_key_event(k, key_twist_cw)
+        for k in ["space", "Space"]:
+            plotter.add_key_event(k, key_toggle_harmonic)
+        for k in ["c", "C"]:
+            plotter.add_key_event(k, key_clear)
+        for k in ["r", "R"]:
+            plotter.add_key_event(k, key_reset)
+        for k in ["q", "Q", "Escape", "x", "X"]:
+            plotter.add_key_event(k, key_quit)
+
+        # Neutralize default VTK keys
+        if hasattr(plotter, "iren") and plotter.iren is not None:
+            plotter.iren.interactor.RemoveObservers("CharEvent")
+            if plotter.iren.get_interactor_style() is not None:
+                plotter.iren.get_interactor_style().RemoveObservers("CharEvent")
+
+        plotter.show(interactive_update=True)
+
+        fps_timer = time.perf_counter()
+        fps_count = 0
+        current_fps = 0.0
+
+        try:
+            while not getattr(plotter, "_closed", False) and plotter.render_window is not None:
+                if gui_state["exit_requested"]:
+                    break
+
+                if gui_state["harmonic_active"]:
+                    m_harm = tau_manual_mag * np.sin(2.0 * np.pi * 15.0 * sim.current_time)
+                    set_active_torque(m_harm)
+                    gui_state["current_torque_val"] = m_harm
+
+                sim.step()
+
+                disp = sim.displacement
+                grid.points = initial_points + disp
+                thetas = compute_twist_angles(mesh.nodes, disp)
+                grid.point_data["Twist_deg"] = thetas.astype(np.float32)
+
+                fps_count += 1
+                t_now = time.perf_counter()
+                if t_now - fps_timer >= 0.5:
+                    current_fps = fps_count / (t_now - fps_timer)
+                    fps_count = 0
+                    fps_timer = t_now
+
+                tip_twist = float(np.mean(thetas[tip_nodes]))
+                telemetry = (
+                    f"Time: {sim.current_time:.3f} s | Rate: {1.0/args.dt:.0f} Hz (dt={args.dt*1e3:.1f}ms)\n"
+                    f"Tip Twist: {tip_twist:+.2f}° | FPS: {current_fps:.1f}\n"
+                    f"Harmonic: {'ACTIVE (15 Hz)' if gui_state['harmonic_active'] else 'OFF'} | "
+                    f"Torque: {gui_state['current_torque_val']:.2e} N*mm"
+                )
+                telemetry_actor.SetText(2, telemetry)
+
+                plotter.update()
+        except Exception:
+            pass
+
         return {}
 
 

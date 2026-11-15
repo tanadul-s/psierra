@@ -86,8 +86,14 @@ def parse_arguments() -> argparse.Namespace:
     parser.add_argument(
         "--steps",
         type=int,
-        default=30,
-        help="Number of online simulation steps (default: 30 steps)",
+        default=100,
+        help="Number of online simulation steps (default: 100 steps)",
+    )
+    parser.add_argument(
+        "--gravity-scale",
+        type=float,
+        default=0.10,
+        help="Gravity scale factor for baseline deflection (default: 0.10 for stable visible contact)",
     )
     parser.add_argument(
         "--kp",
@@ -165,7 +171,9 @@ def main() -> None:
     out_path.mkdir(parents=True, exist_ok=True)
 
     # 1. Load Continuum Mesh and Setup Physical Domain
-    console.print("\n[bold yellow][1/6] Loading Mesh & Setting Up Continuum Domain...[/bold yellow]")
+    console.print(
+        "\n[bold yellow][1/6] Loading Mesh & Setting Up Continuum Domain...[/bold yellow]"
+    )
     mesh_file = _resolve_mesh_path(args.mesh)
     if not mesh_file.exists():
         raise FileNotFoundError(f"Mesh file not found: {mesh_file}")
@@ -175,7 +183,7 @@ def main() -> None:
     params.set_from_youngs_poisson(
         youngs_modulus=21000.0,  # 21 kPa = 21,000 Pa (g/(mm·s²))
         poissons_ratio=0.35,
-        mass_density=1100e-6,   # 1100e-6 g/mm³ = 1100 kg/m³
+        mass_density=1100e-6,  # 1100e-6 g/mm³ = 1100 kg/m³
     )
     mat = NeoHookean(params)
     elem = Tet4TotalLagrangian(mat)
@@ -184,7 +192,9 @@ def main() -> None:
     # Clamped boundary condition at root: Z = min(Z)
     root_nodes = select_nodes_by_plane(mesh, plane="xy", bound="min", tolerance=1e-3)
     dirichlet = DirichletManager(domain.n_dofs)
-    dirichlet.add_constraint(DirichletConstraint(root_nodes, components=(0, 1, 2), value=0.0))
+    dirichlet.add_constraint(
+        DirichletConstraint(root_nodes, components=(0, 1, 2), value=0.0)
+    )
 
     # Candidate contact zone: bottom surface near the free tip (Z > 150 mm, Y < -10 mm)
     tip_bottom_mask = (mesh.nodes[:, 2] > 150.0) & (mesh.nodes[:, 1] < -10.0)
@@ -197,7 +207,9 @@ def main() -> None:
     )
 
     # 2. Offline Snapshot Generation (Bulk Motion & Contact Events)
-    console.print("\n[bold yellow][2/6] Harvesting Offline Displacement & Contact Force Snapshots...[/bold yellow]")
+    console.print(
+        "\n[bold yellow][2/6] Harvesting Offline Displacement & Contact Force Snapshots...[/bold yellow]"
+    )
     t_snap_start = time.perf_counter()
 
     # Base gravity load
@@ -213,7 +225,7 @@ def main() -> None:
     m_bulk = 8
     S_bulk_list = []
     for k in range(m_bulk):
-        scale = 0.01 + 0.04 * (k / max(m_bulk - 1, 1))
+        scale = 0.02 + float(args.gravity_scale) * (k / max(m_bulk - 1, 1))
         f_perturbed = f_grav * scale
         u_k = np.zeros(domain.n_dofs, dtype=np.float64)
         free_dofs = dirichlet.free_dofs
@@ -230,13 +242,13 @@ def main() -> None:
 
     for j in range(m_contact):
         fc_j = np.zeros(domain.n_dofs, dtype=np.float64)
-        fc_val = 3000.0 * (j + 1)
+        fc_val = 10000.0 * (j + 1)
         fc_j[contact_dofs[1::3]] = fc_val  # Upward normal reaction (+Y)
         fc_j[contact_dofs[0::3]] = -fc_val * 0.1  # Tangential friction (-X)
         F_contact_list.append(fc_j)
 
         # Combined deformation under scaled gravity and contact reaction
-        f_net = f_grav * 0.03 + fc_j
+        f_net = f_grav * (float(args.gravity_scale) * 0.8) + fc_j
         u_c = np.zeros(domain.n_dofs, dtype=np.float64)
         u_c[free_dofs] = spspla.spsolve(K_ff, f_net[free_dofs])
         S_contact_list.append(u_c)
@@ -250,7 +262,9 @@ def main() -> None:
     )
 
     # 3. Construct Contact-Enriched Modal Basis (EnrichedPODBasis)
-    console.print("\n[bold yellow][3/6] Constructing Orthonormal Contact-Enriched Basis...[/bold yellow]")
+    console.print(
+        "\n[bold yellow][3/6] Constructing Orthonormal Contact-Enriched Basis...[/bold yellow]"
+    )
     basis = EnrichedPODBasis.from_snapshots_and_contact(
         bulk_snapshots=S_bulk,
         contact_snapshots=S_contact,
@@ -270,7 +284,9 @@ def main() -> None:
     )
 
     # 4. Joint Cubature Training Matrix & Contact-Aware ECSW
-    console.print("\n[bold yellow][4/6] Assembling Joint Cubature Matrix & Clustering Contact Zone...[/bold yellow]")
+    console.print(
+        "\n[bold yellow][4/6] Assembling Joint Cubature Matrix & Clustering Contact Zone...[/bold yellow]"
+    )
     all_snapshots = np.column_stack([S_bulk, S_contact])
 
     A_joint, b_joint, info = ContactAwareECSWTrainingMatrix.build_joint(
@@ -320,7 +336,9 @@ def main() -> None:
     )
 
     # 5. Build ContactAwareHyperReducedModel & Rigid Floor Obstacle
-    console.print("\n[bold yellow][5/6] Instantiating Contact-Aware Hyper-Reduced Model...[/bold yellow]")
+    console.print(
+        "\n[bold yellow][5/6] Instantiating Contact-Aware Hyper-Reduced Model...[/bold yellow]"
+    )
     damping = RayleighDamping(alpha=1.0, beta=0.002)
 
     model = ContactAwareHyperReducedModel(
@@ -329,7 +347,7 @@ def main() -> None:
         rid=rid,
         dirichlet=dirichlet,
         damping=damping,
-        f_ext_base=f_grav * 0.06,
+        f_ext_base=f_grav * float(args.gravity_scale),
         surface_nodes=mesh.surface.node_indices,
     )
 
@@ -348,7 +366,9 @@ def main() -> None:
     model.contact = contact
 
     # 6. Execute Real-Time Online Dynamic Simulation & Stream XDMF/H5 Export
-    console.print("\n[bold yellow][6/6] Launching Real-Time Dynamic Simulation (Generalized-alpha)...[/bold yellow]")
+    console.print(
+        "\n[bold yellow][6/6] Launching Real-Time Dynamic Simulation (Generalized-alpha)...[/bold yellow]"
+    )
     solver = HyperReducedDynamicSolver(
         model=model,
         contact=contact,
@@ -358,7 +378,7 @@ def main() -> None:
         nr_tol=1e-4,
     )
 
-    out_file = out_path / ("contact_aware_ecsw.xdmf" if args.format == "xdmf" else "contact_aware_ecsw.pvd")
+    out_file = out_path / ("result.xdmf" if args.format == "xdmf" else "result.pvd")
     writer = SimulationWriter(
         output_path=out_file,
         mesh=mesh,
@@ -403,7 +423,10 @@ def main() -> None:
             f_contact_nodes = np.zeros((mesh.n_nodes, 3), dtype=np.float64)
 
             if telemetry.num_active > 0 and len(contact.candidate_indices) > 0:
-                x_surf = contact.reference_surface_nodes + contact.surface_basis.reconstruct_surface_displacements(u_r_step)
+                x_surf = (
+                    contact.reference_surface_nodes
+                    + contact.surface_basis.reconstruct_surface_displacements(u_r_step)
+                )
                 x_cand = x_surf[contact.candidate_indices]
                 query = contact.detector.query(x_cand, tolerance=contact.tolerance)
                 gaps = query.gaps
@@ -438,7 +461,8 @@ def main() -> None:
     summary_table.add_column("Method 2 Result Value", style="bold white")
 
     summary_table.add_row(
-        "Solver Status", "[bold green]CONVERGED (All Online Steps Resolved)[/bold green]"
+        "Solver Status",
+        "[bold green]CONVERGED (All Online Steps Resolved)[/bold green]",
     )
     summary_table.add_row("Full Mesh Elements", f"{mesh.n_elements:,} elements")
     summary_table.add_row(
@@ -456,7 +480,8 @@ def main() -> None:
     summary_table.add_row("Subspace Orthonormality Error", f"{ortho_err:.2e}")
     summary_table.add_row("Joint Virtual Work Conservation", f"{conservation_err:.2e}")
     summary_table.add_row(
-        "Average Step Execution Time", f"[bold green]{avg_step_us:.2f} µs[/bold green] ({stats.average_step_ms:.3f} ms)"
+        "Average Step Execution Time",
+        f"[bold green]{avg_step_us:.2f} µs[/bold green] ({stats.average_step_ms:.3f} ms)",
     )
     summary_table.add_row(
         "Effective Simulation Frequency",
@@ -482,6 +507,7 @@ def main() -> None:
     # Save RID archive for future reference
     rid_path = out_path / "contact_aware_rid.npz"
     rid.save(rid_path)
+
     console.print(
         f"\n[bold green]✓ Visualization files ({args.format.upper()}) successfully saved to:[/bold green] [white]{out_path}[/white]"
     )
@@ -489,6 +515,16 @@ def main() -> None:
         console.print(f"  • [cyan]{f.name}[/cyan] ({f.stat().st_size:,} bytes)")
     console.print(
         f"  • [cyan]{rid_path.name}[/cyan] ({rid_path.stat().st_size:,} bytes)"
+    )
+
+    console.print(
+        Panel.fit(
+            "[bold green]ParaView Visualization Guide:[/bold green]\n"
+            "1. Open [cyan]result.xdmf[/cyan] (or [cyan]contact_aware_ecsw.xdmf[/cyan]) in ParaView and click [bold]Apply[/bold].\n"
+            "2. Apply filter: [bold cyan]Filters → Alphabetical → Warp By Vector[/bold cyan] (Vectors: [italic]Displacement[/italic], Scale: [italic]1.0[/italic]).\n"
+            "3. Click [bold]Rescale to data range over all timesteps[/bold] and press [bold]Play[/bold] to inspect dynamic contact impact & rebound.",
+            border_style="cyan",
+        )
     )
 
 

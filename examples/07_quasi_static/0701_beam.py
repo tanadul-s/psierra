@@ -74,6 +74,12 @@ def parse_args() -> argparse.Namespace:
         help="Prony series relaxation time tau1 in seconds (default: 0.2 s)",
     )
     parser.add_argument(
+        "--g-acc",
+        type=float,
+        default=-981.0,
+        help="Gravity acceleration along -Y in mm/s² (default: -981.0, 0.1g for stable large deflection)",
+    )
+    parser.add_argument(
         "--format",
         type=str,
         choices=["xdmf", "pvd"],
@@ -103,6 +109,7 @@ def run_quasistatic_beam(
     fmt: str,
     output_dir: Path,
     mesh_path: Path,
+    g_acc: float = -981.0,
     verbose: bool = True,
 ) -> dict[str, str | float]:
     console = Console()
@@ -127,8 +134,7 @@ def run_quasistatic_beam(
     dirichlet = DirichletManager(domain.mesh.n_dofs)
     dirichlet.add_constraint(clamp)
 
-    # Gravity body force along -Y (1.0g downward)
-    g_acc = -9810.0
+    # Gravity body force along -Y (default: -981.0 mm/s² = 0.1g for stable large deflection)
     gravity = GravityLoad(acceleration=(0.0, g_acc, 0.0))
     M = domain.assemble_mass_matrix()
     f_ext = gravity.compute_force_vector(M)
@@ -158,6 +164,8 @@ def run_quasistatic_beam(
         dt=dt,
         load_schedule=load_schedule,
         nr_iterations=30,
+        adaptive_stepping=True,
+        dt_min=1e-4,
         save_directory=run_out_dir,
         format=fmt,
         verbose=False,
@@ -165,12 +173,21 @@ def run_quasistatic_beam(
     )
     wall_time = time.perf_counter() - t0
 
+    if not res.converged and res.steps_completed == 0:
+        raise RuntimeError(
+            "Quasi-static analysis failed to converge on the initial step. "
+            "Consider reducing dt, increasing ramp_time, or checking load magnitude."
+        )
+
     disp_final = float(np.linalg.norm(domain.displacement, axis=1).max())
     tip_nodes = select_nodes_by_plane(mesh, plane="xy", bound="max", tolerance=1e-3)
     tip_sag_final = float(-domain.displacement[tip_nodes, 1].mean())
 
-    ramp_idx = int(round(ramp_time / dt))
-    disp_ramp = history_disp[ramp_idx] if ramp_idx < len(history_disp) else disp_final
+    ramp_step = int(round(ramp_time / dt))
+    if 0 < ramp_step <= len(history_disp):
+        disp_ramp = history_disp[ramp_step - 1]
+    else:
+        disp_ramp = disp_final
     creep_factor = disp_final / max(disp_ramp, 1e-9)
 
     out_file = run_out_dir / f"result.{fmt}"
@@ -226,6 +243,7 @@ def main() -> None:
                 fmt=args.format,
                 output_dir=base_out,
                 mesh_path=mesh_path,
+                g_acc=args.g_acc,
                 verbose=True,
             )
             results.append(res)
@@ -262,6 +280,7 @@ def main() -> None:
             fmt=args.format,
             output_dir=base_out,
             mesh_path=mesh_path,
+            g_acc=args.g_acc,
             verbose=True,
         )
 

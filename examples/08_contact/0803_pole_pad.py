@@ -128,9 +128,9 @@ def run_pole_pad_case(
     pad_mesh = VolumetricMesh(pad_file)
     pole_mesh = VolumetricMesh(pole_file)
 
-    # Pad material (compliant elastomer E = 1000 Pa, nu = 0.30, rho = 1200e-6 g/mm³)
+    # Pad material (compliant elastomer E = 21000 Pa, nu = 0.35, rho = 1200e-6 g/mm³)
     params_pad = IsotropicElasticParameters()
-    params_pad.set_from_youngs_poisson(1000.0, 0.30, 1200e-6)
+    params_pad.set_from_youngs_poisson(21000.0, 0.35, 1100e-6)
     mat_pad = NeoHookean(params_pad)
     elem_pad = Tet4TotalLagrangian(mat_pad)
     pad_domain = SolidDomain(pad_mesh, mat_pad, elem_pad)
@@ -161,7 +161,9 @@ def run_pole_pad_case(
         M = pad_domain.assemble_mass_matrix()
         f_ext = gravity.compute_force_vector(M)
 
-        solver = NonlinearDynamicAnalysis(pad_domain, damping=damping, spectral_radius=0.8)
+        solver = NonlinearDynamicAnalysis(
+            pad_domain, damping=damping, spectral_radius=0.8
+        )
         sim_target = pad_domain
         run_contact_arg = contact
     else:
@@ -192,7 +194,9 @@ def run_pole_pad_case(
         pole_offset = int(system._dof_offsets[0])
         dirichlet = DirichletManager(system.n_dofs)
         dirichlet.add_constraint(
-            DirichletConstraint(pole_inner_nodes, components=(0, 1, 2), dof_offset=pole_offset)
+            DirichletConstraint(
+                pole_inner_nodes, components=(0, 1, 2), dof_offset=pole_offset
+            )
         )
 
         gravity = GravityLoad(acceleration=(gx, gy, 0.0))
@@ -204,7 +208,9 @@ def run_pole_pad_case(
         run_contact_arg = None  # encapsulated in MultiBodySystem
 
     if verbose:
-        console.print(f"  • Simulating: [bold cyan]{case_tag}[/bold cyan] ({n_steps} steps, mu={mu})")
+        console.print(
+            f"  • Simulating: [bold cyan]{case_tag}[/bold cyan] ({n_steps} steps, mu={mu})"
+        )
 
     t0 = time.perf_counter()
     if run_contact_arg is not None:
@@ -274,7 +280,9 @@ def main() -> None:
     base_out = Path(args.output_dir)
 
     if args.all:
-        console.print("\n[bold yellow]Executing Comparative Pole Compliance Study...[/bold yellow]")
+        console.print(
+            "\n[bold yellow]Executing Comparative Pole Compliance Study...[/bold yellow]"
+        )
         cases = ["rigid", "deformable"]
         results = []
         for p_mode in cases:
@@ -294,7 +302,9 @@ def main() -> None:
             )
             results.append(res)
 
-        table = Table(title="Example 0803: Pole-Pad Contact Benchmark", border_style="cyan")
+        table = Table(
+            title="Example 0803: Pole-Pad Contact Benchmark", border_style="cyan"
+        )
         table.add_column("Case Tag", style="bold white")
         table.add_column("Pole Mode", style="cyan")
         table.add_column("Steps", style="yellow")
@@ -314,7 +324,9 @@ def main() -> None:
         console.print(table)
 
     else:
-        console.print(f"\n[bold yellow]Executing Canonical Contact Run ({args.pole.upper()} POLE)...[/bold yellow]")
+        console.print(
+            f"\n[bold yellow]Executing Canonical Contact Run ({args.pole.upper()} POLE)...[/bold yellow]"
+        )
         res = run_pole_pad_case(
             pole_mode=args.pole,
             mu=args.friction,
@@ -336,13 +348,33 @@ def main() -> None:
         table.add_row("Pole Representation", str(res["pole"]))
         table.add_row("Coulomb Friction Coefficient", f"{res['friction']:.2f}")
         table.add_row("Time Steps Completed", str(res["steps"]))
-        table.add_row("Convergence Status", "[bold green]Converged[/bold green]" if res["converged"] else "[bold red]Diverged[/bold red]")
+        table.add_row(
+            "Convergence Status",
+            (
+                "[bold green]Converged[/bold green]"
+                if res["converged"]
+                else "[bold red]Diverged[/bold red]"
+            ),
+        )
         table.add_row("Max Pad Displacement", f"{res['max_pad_disp_mm']:.4f} mm")
         table.add_row("Axial Sliding Distance", f"{res['axial_sliding_mm']:.4f} mm")
         table.add_row("Solver Runtime", f"{res['runtime_s']:.2f} s")
         table.add_row("ParaView Output Directory", str(res["output_dir"]))
         console.print(table)
-        console.print(f"\n[bold green]✓ Pole-pad contact simulation complete. Dataset saved to:[/bold green] [cyan]{res['output_dir']}[/cyan]\n")
+
+        console.print(
+            f"\n[bold green]✓ Pole-pad contact simulation complete. Dataset saved to:[/bold green] [cyan]{res['output_dir']}[/cyan] and [cyan]{base_out / 'result.xdmf'}[/cyan]\n"
+        )
+
+        console.print(
+            Panel.fit(
+                "[bold green]ParaView Visualization Guide:[/bold green]\n"
+                f"1. Open [cyan]{base_out / 'result.xdmf'}[/cyan] in ParaView and click [bold]Apply[/bold].\n"
+                "2. Apply filter: [bold cyan]Filters → Alphabetical → Warp By Vector[/bold cyan] (Vectors: [italic]Displacement[/italic], Scale: [italic]1.0[/italic]).\n"
+                "3. Click [bold]Rescale to data range over all timesteps[/bold] and press [bold]Play[/bold] to inspect curved sliding contact dynamics.",
+                border_style="cyan",
+            )
+        )
 
 
 if __name__ == "__main__":

@@ -165,7 +165,15 @@ def run_contact_case(
         # Deformable: clamp only bottom boundary of floor
         floor_min_y = float(floor_mesh.bounds[2])
         floor_bottom_nodes = select_nodes_by_bounds(
-            floor_mesh, bounds=(-1000.0, 1000.0, floor_min_y - 1.0, floor_min_y + 1.0, -1000.0, 1000.0)
+            floor_mesh,
+            bounds=(
+                -1000.0,
+                1000.0,
+                floor_min_y - 1.0,
+                floor_min_y + 1.0,
+                -1000.0,
+                1000.0,
+            ),
         )
         clamp_floor = DirichletConstraint(
             floor_bottom_nodes,
@@ -179,13 +187,16 @@ def run_contact_case(
     dirichlet.add_constraint(clamp_floor)
 
     if verbose:
-        console.print(f"  • Running case: [bold cyan]{case_tag}[/bold cyan] ({n_steps} steps, floor={floor_mode})")
+        console.print(
+            f"  • Running case: [bold cyan]{case_tag}[/bold cyan] ({n_steps} steps, floor={floor_mode})"
+        )
 
     t0 = time.perf_counter()
 
     if analysis_mode == "static":
         tip_nodes = select_nodes_by_bounds(
-            beam_mesh, bounds=(-1000.0, 1000.0, -1000.0, 1000.0, max_z - 20.0, max_z + 1.0)
+            beam_mesh,
+            bounds=(-1000.0, 1000.0, -1000.0, 1000.0, max_z - 20.0, max_z + 1.0),
         )
         f_ext = np.zeros(system.n_dofs, dtype=np.float64)
         tip_force_per_node = -tip_load / len(tip_nodes)
@@ -270,7 +281,9 @@ def main() -> None:
     base_out = Path(args.output_dir)
 
     if args.all:
-        console.print("\n[bold yellow]Executing Contact Parametric Matrix...[/bold yellow]")
+        console.print(
+            "\n[bold yellow]Executing Contact Parametric Matrix...[/bold yellow]"
+        )
         cases = [
             ("rigid", "static"),
             ("deformable", "static"),
@@ -292,7 +305,9 @@ def main() -> None:
             )
             results.append(res)
 
-        table = Table(title="Example 0801: Contact Benchmark Summary", border_style="cyan")
+        table = Table(
+            title="Example 0801: Contact Benchmark Summary", border_style="cyan"
+        )
         table.add_column("Case Tag", style="bold white")
         table.add_column("Floor", style="cyan")
         table.add_column("Analysis", style="magenta")
@@ -314,7 +329,9 @@ def main() -> None:
         console.print(table)
 
     else:
-        console.print(f"\n[bold yellow]Executing Canonical Contact Run ({args.analysis.upper()} / {args.floor.upper()} FLOOR)...[/bold yellow]")
+        console.print(
+            f"\n[bold yellow]Executing Canonical Contact Run ({args.analysis.upper()} / {args.floor.upper()} FLOOR)...[/bold yellow]"
+        )
         res = run_contact_case(
             floor_mode=args.floor,
             analysis_mode=args.analysis,
@@ -334,13 +351,37 @@ def main() -> None:
         table.add_row("Floor Boundary Mode", str(res["floor"]))
         table.add_row("Analysis Regime", str(res["analysis"]))
         table.add_row("Contact Steps Completed", str(res["steps"]))
-        table.add_row("Convergence Status", "[bold green]Converged[/bold green]" if res["converged"] else "[bold red]Failed[/bold red]")
-        table.add_row("Max Beam Contact Deflection", f"{res['max_beam_disp_mm']:.4f} mm")
-        table.add_row("Max Floor Foundation Deflection", f"{res['max_floor_disp_mm']:.4f} mm")
+        table.add_row(
+            "Convergence Status",
+            (
+                "[bold green]Converged[/bold green]"
+                if res["converged"]
+                else "[bold red]Failed[/bold red]"
+            ),
+        )
+        table.add_row(
+            "Max Beam Contact Deflection", f"{res['max_beam_disp_mm']:.4f} mm"
+        )
+        table.add_row(
+            "Max Floor Foundation Deflection", f"{res['max_floor_disp_mm']:.4f} mm"
+        )
         table.add_row("Solver Execution Time", f"{res['runtime_s']:.2f} s")
         table.add_row("ParaView Output Directory", str(res["output_dir"]))
         console.print(table)
-        console.print(f"\n[bold green]✓ Contact solve complete. Results written to:[/bold green] [cyan]{res['output_dir']}[/cyan]\n")
+
+        console.print(
+            f"\n[bold green]✓ Contact solve complete. Results written to:[/bold green] [cyan]{res['output_dir']}[/cyan] and [cyan]{base_out / 'result.xdmf'}[/cyan]\n"
+        )
+
+        console.print(
+            Panel.fit(
+                "[bold green]ParaView Visualization Guide:[/bold green]\n"
+                f"1. Open [cyan]{base_out / 'result.xdmf'}[/cyan] (or in [cyan]{run_dir.name}[/cyan]) in ParaView and click [bold]Apply[/bold].\n"
+                "2. Apply filter: [bold cyan]Filters → Alphabetical → Warp By Vector[/bold cyan] (Vectors: [italic]Displacement[/italic], Scale: [italic]1.0[/italic]).\n"
+                "3. Click [bold]Rescale to data range over all timesteps[/bold] and press [bold]Play[/bold] to inspect contact deformation & reaction forces.",
+                border_style="cyan",
+            )
+        )
 
 
 if __name__ == "__main__":

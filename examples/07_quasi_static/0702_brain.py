@@ -63,8 +63,8 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument(
         "--total-time",
         type=float,
-        default=0.5,
-        help="Total observation duration in seconds (default: 0.5 s)",
+        default=0.15,
+        help="Total observation duration in seconds (default: 0.15 s, 3 increments)",
     )
     parser.add_argument(
         "--ramp-time",
@@ -185,12 +185,19 @@ def run_brain_quasistatic(
         dt=dt,
         load_schedule=load_schedule,
         nr_iterations=20,
+        adaptive_stepping=True,
+        dt_min=1e-4,
         save_directory=run_out_dir,
         format=fmt,
         verbose=False,
         callback=callback_step,
     )
     wall_time = time.perf_counter() - t0
+
+    if not res.converged and res.steps_completed == 0:
+        raise RuntimeError(
+            f"Quasi-static brain shift simulation failed to converge on the initial step for posture '{posture_key}'."
+        )
 
     disp = domain.displacement
     max_disp = float(np.linalg.norm(disp, axis=1).max())
@@ -202,8 +209,11 @@ def run_brain_quasistatic(
     else:
         lesion_drift = 0.0
 
-    ramp_idx = int(round(ramp_time / dt))
-    disp_ramp = history_disp[ramp_idx] if ramp_idx < len(history_disp) else max_disp
+    ramp_step = int(round(ramp_time / dt))
+    if 0 < ramp_step <= len(history_disp):
+        disp_ramp = history_disp[ramp_step - 1]
+    else:
+        disp_ramp = max_disp
     creep_factor = max_disp / max(disp_ramp, 1e-9)
 
     out_file = run_out_dir / f"result.{fmt}"

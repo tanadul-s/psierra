@@ -183,9 +183,15 @@ def run_simulation(args: argparse.Namespace) -> None:
     fom_tip_trajectory: list[float] = []
     fom_step_times: list[float] = []
 
-    fom_writer_path = out_dir / (
-        "beam_fom.xdmf" if args.format == "xdmf" else "beam_fom.pvd"
-    )
+    if args.format == "xdmf":
+        fom_writer_path = out_dir / "beam_fom.xdmf"
+        ecsw_writer_path = out_dir / "beam_ecsw.xdmf"
+        deim_writer_path = out_dir / "beam_deim.xdmf"
+    else:
+        fom_writer_path = out_dir / "fom" / "beam_fom.pvd"
+        ecsw_writer_path = out_dir / "ecsw" / "beam_ecsw.pvd"
+        deim_writer_path = out_dir / "deim" / "beam_deim.pvd"
+
     fom_writer = SimulationWriter(
         output_path=fom_writer_path,
         mesh=mesh,
@@ -306,7 +312,9 @@ def run_simulation(args: argparse.Namespace) -> None:
     h5_force_path = out_dir / "deim_force_snapshots.h5"
 
     with ForceSnapshotManager(n_dofs=domain.n_dofs) as force_mgr:
-        force_mgr.enable_hdf5_streaming(h5_force_path, dataset_name="f_int", chunk_size=8)
+        force_mgr.enable_hdf5_streaming(
+            h5_force_path, dataset_name="f_int", chunk_size=8
+        )
         force_mgr.add_snapshots(np.column_stack(f_snapshots))
 
         deim_basis = force_mgr.compute_basis(
@@ -333,9 +341,7 @@ def run_simulation(args: argparse.Namespace) -> None:
         f"({deim_model.compression_ratio * 100:.2f}% sub-mesh, {deim_model.speedup_factor:.1f}x reduction) "
         f"across {deim_model.n_sampled_dofs} sampled interpolation DOFs"
     )
-    console.print(
-        f"  DEIM Submatrix Condition Number: {deim_model.P_Psi_cond:.2e}"
-    )
+    console.print(f"  DEIM Submatrix Condition Number: {deim_model.P_Psi_cond:.2e}")
 
     # =========================================================================
     # Phase 5: Online Dynamic Simulation: ECSW vs. DEIM
@@ -353,9 +359,6 @@ def run_simulation(args: argparse.Namespace) -> None:
         nr_tol=1e-4,
     )
 
-    ecsw_writer_path = out_dir / (
-        "beam_ecsw.xdmf" if args.format == "xdmf" else "beam_ecsw.pvd"
-    )
     ecsw_writer = SimulationWriter(
         output_path=ecsw_writer_path,
         mesh=mesh,
@@ -400,9 +403,6 @@ def run_simulation(args: argparse.Namespace) -> None:
         nr_tol=1e-4,
     )
 
-    deim_writer_path = out_dir / (
-        "beam_deim.xdmf" if args.format == "xdmf" else "beam_deim.pvd"
-    )
     deim_writer = SimulationWriter(
         output_path=deim_writer_path,
         mesh=mesh,
@@ -571,11 +571,22 @@ def run_simulation(args: argparse.Namespace) -> None:
         Panel.fit(
             f"[bold green]✓ Simulation Complete![/bold green]\n"
             f"[cyan]Exported ParaView files in {out_dir}:[/cyan]\n"
-            f"  • FOM  : [white]{fom_writer_path.name}[/white]\n"
-            f"  • ECSW : [white]{ecsw_writer_path.name}[/white]\n"
-            f"  • DEIM : [white]{deim_writer_path.name}[/white]\n"
-            f"  • HDF5 : [white]{h5_force_path.name}[/white] (out-of-core force snapshots)",
+            f"  • Master   : [white]{'result.xdmf' if args.format == 'xdmf' else 'result.pvd'}[/white]\n"
+            f"  • FOM      : [white]{fom_writer_path.name}[/white]\n"
+            f"  • ECSW     : [white]{ecsw_writer_path.name}[/white]\n"
+            f"  • DEIM     : [white]{deim_writer_path.name}[/white]\n"
+            f"  • HDF5     : [white]{h5_force_path.name}[/white] (out-of-core force snapshots)",
             border_style="green",
+        )
+    )
+
+    console.print(
+        Panel.fit(
+            "[bold green]ParaView Visualization Guide:[/bold green]\n"
+            "1. Open [cyan]result.xdmf[/cyan] (or [cyan]beam_fom.xdmf[/cyan], [cyan]beam_ecsw.xdmf[/cyan], [cyan]beam_deim.xdmf[/cyan]) in ParaView and click [bold]Apply[/bold].\n"
+            "2. Apply filter: [bold cyan]Filters → Alphabetical → Warp By Vector[/bold cyan] (Vectors: [italic]Displacement[/italic], Scale: [italic]1.0[/italic]).\n"
+            "3. Click [bold]Rescale to data range over all timesteps[/bold] and press [bold]Play[/bold] to inspect dynamic beam deflection and hyper-reduced fidelity.",
+            border_style="cyan",
         )
     )
 

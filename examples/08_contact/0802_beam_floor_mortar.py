@@ -34,7 +34,7 @@ from psierra.boundary import (
     GravityLoad,
 )
 from psierra.damping import RayleighDamping
-from psierra.analysis import NonlinearDynamicAnalysis
+from psierra.analysis import NonlinearStaticAnalysis, NonlinearDynamicAnalysis
 
 
 def parse_args() -> argparse.Namespace:
@@ -56,10 +56,23 @@ def parse_args() -> argparse.Namespace:
         help="Mortar enforcement formulation: 'penalty' or 'augmented_lagrangian' (default: penalty)",
     )
     parser.add_argument(
+        "--analysis",
+        type=str,
+        choices=["static", "dynamic"],
+        default="static",
+        help="Analysis mode: static or dynamic (default: static)",
+    )
+    parser.add_argument(
+        "--load",
+        type=float,
+        default=2.0e5,
+        help="Total downward tip load in g·mm/s² (1 µN) for static analysis (default: 2.0e5 g·mm/s² = 0.2 N)",
+    )
+    parser.add_argument(
         "--steps",
         type=int,
-        default=25,
-        help="Number of dynamic time steps (default: 25)",
+        default=10,
+        help="Number of static load steps / dynamic time steps (default: 10)",
     )
     parser.add_argument(
         "--dt",
@@ -102,18 +115,20 @@ def parse_args() -> argparse.Namespace:
 def run_mortar_case(
     floor_mode: str,
     formulation: str,
+    analysis_mode: str,
     n_steps: int,
     dt: float,
     gap: float,
     kp: float,
     cdamp: float,
+    tip_load: float,
     base_out: Path,
     beam_mesh_path: Path,
     floor_mesh_path: Path,
     verbose: bool = True,
 ) -> dict[str, str | float]:
     console = Console()
-    case_tag = f"mortar_{floor_mode}_floor"
+    case_tag = f"{analysis_mode}_{floor_mode}_floor"
     run_out_dir = base_out / case_tag
     run_out_dir.mkdir(parents=True, exist_ok=True)
 
@@ -189,28 +204,53 @@ def run_mortar_case(
     dirichlet.add_constraint(clamp_beam)
     dirichlet.add_constraint(clamp_floor)
 
-    gravity = GravityLoad(acceleration=(0.0, -9810.0, 0.0))
-    M = system.assemble_mass_matrix()
-    f_ext = gravity.compute_force_vector(M)
-    damping = RayleighDamping(alpha=1.0, beta=0.002)
-
     if verbose:
-        console.print(f"  • Running Mortar Contact: [bold cyan]{case_tag}[/bold cyan] ({n_steps} steps, dt={dt:.4f}s)")
+        console.print(
+            f"  • Running Mortar Contact: [bold cyan]{case_tag}[/bold cyan] ({n_steps} steps, mode={analysis_mode}, floor={floor_mode})"
+        )
 
     t0 = time.perf_counter()
-    solver = NonlinearDynamicAnalysis(system, damping=damping, spectral_radius=0.8)
-    res = solver.solve(
-        dirichlet=dirichlet,
-        f_ext=f_ext,
-        dt=dt,
-        n_steps=n_steps,
-        nr_iterations=15,
-        nr_tol=1e-3,
-        save_directory=run_out_dir,
-        output_name="result",
-        save_interval=1,
-        verbose=False,
-    )
+    if analysis_mode == "static":
+        max_z = float(beam_mesh.bounds[5])
+        tip_nodes = select_nodes_by_bounds(
+            beam_mesh,
+            bounds=(-1000.0, 1000.0, -1000.0, 1000.0, max_z - 20.0, max_z + 1.0),
+        )
+        f_ext = np.zeros(system.n_dofs, dtype=np.float64)
+        tip_force_per_node = -tip_load / len(tip_nodes)
+        for n in tip_nodes:
+            f_ext[beam_dof_offset + 3 * n + 1] = tip_force_per_node
+
+        solver = NonlinearStaticAnalysis(system)
+        res = solver.solve(
+            dirichlet=dirichlet,
+            f_ext=f_ext,
+            n_steps=n_steps,
+            nr_tol=1e-3,
+            save_directory=run_out_dir,
+            output_name="result",
+            save_interval=1,
+            verbose=False,
+        )
+    else:
+        gravity = GravityLoad(acceleration=(0.0, -9810.0, 0.0))
+        M = system.assemble_mass_matrix()
+        f_ext = gravity.compute_force_vector(M)
+        damping = RayleighDamping(alpha=1.0, beta=0.002)
+
+        solver = NonlinearDynamicAnalysis(system, damping=damping, spectral_radius=0.8)
+        res = solver.solve(
+            dirichlet=dirichlet,
+            f_ext=f_ext,
+            dt=dt,
+            n_steps=n_steps,
+            nr_iterations=15,
+            nr_tol=1e-3,
+            save_directory=run_out_dir,
+            output_name="result",
+            save_interval=1,
+            verbose=False,
+        )
     wall_time = time.perf_counter() - t0
 
     beam_disp = beam_domain.displacement
@@ -252,18 +292,26 @@ def main() -> None:
     base_out = Path(args.output_dir)
 
     if args.all:
-        console.print("\n[bold yellow]Executing Mortar Contact Comparison...[/bold yellow]")
-        cases = ["rigid", "deformable"]
+        console.print(
+            "\n[bold yellow]Executing Mortar Contact Comparison...[/bold yellow]"
+        )
+        cases = [
+            ("rigid", "static"),
+            ("deformable", "static"),
+            ("rigid", "dynamic"),
+        ]
         results = []
-        for fl in cases:
+        for fl, an in cases:
             res = run_mortar_case(
                 floor_mode=fl,
                 formulation=args.formulation,
-                n_steps=min(args.steps, 10),
+                analysis_mode=an,
+                n_steps=min(args.steps, 5),
                 dt=args.dt,
                 gap=args.gap,
                 kp=args.kp,
                 cdamp=args.cdamp,
+                tip_load=args.load,
                 base_out=base_out,
                 beam_mesh_path=beam_path,
                 floor_mesh_path=floor_path,
@@ -271,9 +319,12 @@ def main() -> None:
             )
             results.append(res)
 
-        table = Table(title="Example 0802: Mortar Contact Comparison", border_style="cyan")
+        table = Table(
+            title="Example 0802: Mortar Contact Comparison", border_style="cyan"
+        )
         table.add_column("Case Tag", style="bold white")
         table.add_column("Floor Mode", style="cyan")
+        table.add_column("Analysis", style="magenta")
         table.add_column("Steps Completed", style="yellow")
         table.add_column("Max Beam Disp (mm)", style="green")
         table.add_column("Max Floor Disp (mm)", style="green")
@@ -283,6 +334,7 @@ def main() -> None:
             table.add_row(
                 str(r["case"]),
                 str(r["floor"]),
+                str(r.get("analysis", "Static")),
                 str(r["steps"]),
                 f"{r['max_beam_disp_mm']:.3f}",
                 f"{r['max_floor_disp_mm']:.3f}",
@@ -291,15 +343,19 @@ def main() -> None:
         console.print(table)
 
     else:
-        console.print(f"\n[bold yellow]Executing Canonical Mortar Contact ({args.floor.upper()} FLOOR)...[/bold yellow]")
+        console.print(
+            f"\n[bold yellow]Executing Canonical Mortar Contact ({args.analysis.upper()} / {args.floor.upper()} FLOOR)...[/bold yellow]"
+        )
         res = run_mortar_case(
             floor_mode=args.floor,
             formulation=args.formulation,
+            analysis_mode=args.analysis,
             n_steps=args.steps,
             dt=args.dt,
             gap=args.gap,
             kp=args.kp,
             cdamp=args.cdamp,
+            tip_load=args.load,
             base_out=base_out,
             beam_mesh_path=beam_path,
             floor_mesh_path=floor_path,
@@ -312,13 +368,37 @@ def main() -> None:
         table.add_row("Floor Mode", str(res["floor"]))
         table.add_row("Mortar Formulation", str(res["formulation"]))
         table.add_row("Steps Completed", str(res["steps"]))
-        table.add_row("Convergence Status", "[bold green]Converged[/bold green]" if res["converged"] else "[bold red]Diverged[/bold red]")
-        table.add_row("Max Beam Contact Displacement", f"{res['max_beam_disp_mm']:.4f} mm")
-        table.add_row("Max Floor Foundation Deflection", f"{res['max_floor_disp_mm']:.4f} mm")
+        table.add_row(
+            "Convergence Status",
+            (
+                "[bold green]Converged[/bold green]"
+                if res["converged"]
+                else "[bold red]Diverged[/bold red]"
+            ),
+        )
+        table.add_row(
+            "Max Beam Contact Displacement", f"{res['max_beam_disp_mm']:.4f} mm"
+        )
+        table.add_row(
+            "Max Floor Foundation Deflection", f"{res['max_floor_disp_mm']:.4f} mm"
+        )
         table.add_row("Execution Runtime", f"{res['runtime_s']:.2f} s")
         table.add_row("Output Directory", str(res["output_dir"]))
         console.print(table)
-        console.print(f"\n[bold green]✓ Mortar contact simulation complete. Dataset saved to:[/bold green] [cyan]{res['output_dir']}[/cyan]\n")
+
+        console.print(
+            f"\n[bold green]✓ Mortar contact simulation complete. Dataset saved to:[/bold green] [cyan]{res['output_dir']}[/cyan] and [cyan]{base_out / 'result.xdmf'}[/cyan]\n"
+        )
+
+        console.print(
+            Panel.fit(
+                "[bold green]ParaView Visualization Guide:[/bold green]\n"
+                f"1. Open [cyan]{base_out / 'result.xdmf'}[/cyan] in ParaView and click [bold]Apply[/bold].\n"
+                "2. Apply filter: [bold cyan]Filters → Alphabetical → Warp By Vector[/bold cyan] (Vectors: [italic]Displacement[/italic], Scale: [italic]1.0[/italic]).\n"
+                "3. Click [bold]Rescale to data range over all timesteps[/bold] and press [bold]Play[/bold] to inspect mortar contact deformation.",
+                border_style="cyan",
+            )
+        )
 
 
 if __name__ == "__main__":
