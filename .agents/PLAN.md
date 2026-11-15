@@ -248,6 +248,15 @@ This roadmap is laser-focused on biological soft-tissue mechanics, robust contac
     * Real-time ROM subspace inversion running in $24.7\ \mu\text{s}$ ($40{,}537\text{ Hz}$).
     * Interactive 3D PyVista GUI rendering skull vault, annular bone table collar, green optical surface point cloud, magenta ultrasound target cloud, deformed brain, and reconstructed lesion wireframe.
   * Added automated verification in [`tests/test_ifem_shape_sensing.py`](../tests/test_ifem_shape_sensing.py) (`test_multimodal_sensor_fusion_tracking`).
+* [x] **Interactive Hyper-Reduced Brain Shift Inverse Identification**:
+  * Real-time inverse tracking and dynamic shape sensing of surgical brain shift and subcortical tumor drift.
+  * Delivered [`examples/10_inverse/1010_interactive_hyperreduced_brain_shift_sensing.py`](../examples/10_inverse/1010_interactive_hyperreduced_brain_shift_sensing.py):
+    * Translates floating multi-modal sensor point clouds (cortical optical surface + deep ultrasound iUS) referenced to the anatomical burr hole aperture frame ($\hat{\boldsymbol{n}}, \boldsymbol{t}_1, \boldsymbol{t}_2$).
+    * Interactive PyVista 3D GUI featuring 4 real-time slider widgets (Normal shift $\delta_n \in [-5, 5]\text{ mm}$ for sagging vs. bulging, Tangential shifts $\delta_{t1}, \delta_{t2} \in [-4, 4]\text{ mm}$, and Deep target coupling factor $\gamma$).
+    * Keyboard hotkeys for surgical navigation: `[W]`/`[S]` (normal), `[A]`/`[D]` & `[Up]`/`[Down]` (tangential), `[M]` (cycle Fused/Surface/Deep modality), `[1]`/`[2]`/`[3]` (clinical presets: Sagging $-3.2\text{ mm}$, Bulging $+2.8\text{ mm}$, Compound Shear), `[R]` (reset), `[Q]` (exit).
+    * Solves generalized modal coordinates in $< 70\ \mu\text{s}$ ($> 14{,}000\text{ Hz}$), instantly updating the 3D deformed brain mesh, green optical markers, magenta deep ultrasound feature points, and reconstructed subcortical lesion position at 60 FPS.
+    * Automated headless multi-step verification sequence (`--headless`) exporting `interactive_fused_brain_shift.vtu`.
+  * Added automated unit test in [`tests/test_ifem_shape_sensing.py`](../tests/test_ifem_shape_sensing.py) (`test_interactive_burr_hole_point_cloud_inversion`).
 * [ ] **Loop 2 Grand Showcase Gallery (All-Capabilities Demonstration)**:
   * Deliver standalone executable, PyVista-visualized examples covering every simulation mode in `pSierra`:
     1. [x] `examples/11_advanced_continua/1101_tet4fbar_incompressibility.py`: 15-step NonlinearStaticAnalysis (Neo-Hookean, $\nu = 0.499, K/\mu = 500$): Tet4TotalLagrangian locking ($0.043\ \text{mm}$) vs. Tet4Fbar compliance ($0.127\ \text{mm}$, $2.99\times$ ratio). Exports `result_tet4_tl.vtu`, `result_tet4_fbar.vtu`, and `.pvd` animations.
