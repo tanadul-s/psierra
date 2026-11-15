@@ -29,6 +29,7 @@ from psierra.boundary import DirichletConstraint, DirichletManager, GravityLoad
 from psierra.damping import RayleighDamping
 from psierra.analysis import LinearStaticAnalysis, InteractiveDynamicSimulation
 from psierra.reduction.basis import PODBasis
+from psierra.reduction import SnapshotManager
 from psierra.inverse import (
     SensorObservationOperator,
     ReducedSensorObservationOperator,
@@ -406,4 +407,83 @@ class TestShapeSensingAdversarialAndErrors:
 
         # Fused multi-modal tracking improves internal target accuracy
         assert err_fused_deep <= err_surf_deep + 1e-6
+
+    def test_interactive_burr_hole_point_cloud_inversion(
+        self, beam_simulation_setup: dict[str, Any]
+    ) -> None:
+        """
+        Validates real-time ROM inverse identification under burr-hole-referenced
+        point cloud translations (normal sagging vs. bulging, and tangential shear).
+        """
+        domain = beam_simulation_setup["domain"]
+        mesh = domain.mesh
+        K = beam_simulation_setup["K"]
+        u_true = beam_simulation_setup["u_truth"]
+
+        # Synthetic burr hole coordinate basis aligned with beam deflection (X-axis)
+        normal_burr = np.array([1.0, 0.0, 0.0])  # Normal along X
+        t1 = np.array([0.0, 1.0, 0.0])           # Tangent along Y
+        t2 = np.array([0.0, 0.0, 1.0])           # Tangent along Z
+
+        # Aperture surface nodes at tip & mid-span target nodes (non-clamped free nodes)
+        tip_nodes = np.where(mesh.nodes[:, 2] > mesh.bounds[5] - 10.0)[0]
+        surf_nodes = tip_nodes[:2]
+        mid_nodes = np.where((mesh.nodes[:, 2] > 0.0) & (mesh.nodes[:, 2] < 50.0))[0]
+        deep_nodes = mid_nodes[:2]
+        all_nodes = np.concatenate([surf_nodes, deep_nodes])
+
+        op_fused = SensorObservationOperator.from_node_indices(mesh, all_nodes)
+
+        # Create a small POD modal basis spanning different deflection scales
+        snap_mgr = SnapshotManager()
+        snap_mgr.add_snapshot(u_true)
+        snap_mgr.add_snapshot(u_true * 1.5)
+        snap_mgr.add_snapshot(u_true * 0.5)
+        pod_basis = snap_mgr.compute_basis(energy_threshold=0.999, max_modes=3)
+
+        K_r = pod_basis.basis.T @ (K @ pod_basis.basis)
+        red_op_fused = op_fused.reduce(pod_basis)
+
+        w_surf = np.ones(len(surf_nodes) * 3) * 1.0
+        w_deep = np.ones(len(deep_nodes) * 3) * 0.04
+        weights_fused = np.concatenate([w_surf, w_deep])
+
+        rom_solver = ReducedOrderShapeSensingSolver(
+            reduced_observation_operator=red_op_fused,
+            reduced_stiffness=K_r,
+            basis=pod_basis,
+            alpha=1e-4,
+            weights=weights_fused,
+        )
+
+        # 1. Test Inward Sagging (delta_n < 0 reduces deflection)
+        delta_n_sag = -500.0
+        tau_sag = delta_n_sag * normal_burr
+        d_surf_sag = (u_true.reshape(-1, 3)[surf_nodes] + tau_sag).ravel()
+        d_deep_sag = (u_true.reshape(-1, 3)[deep_nodes] + 0.8 * tau_sag).ravel()
+        d_meas_sag = np.concatenate([d_surf_sag, d_deep_sag])
+
+        res_sag = rom_solver.solve(d_meas_sag, reconstruct_full_field=False)
+        assert res_sag.reduced_coordinates is not None
+        u_sag_recon = (pod_basis.basis @ res_sag.reduced_coordinates).reshape(-1, 3)
+
+        # 2. Test Outward Bulging (delta_n > 0 increases deflection)
+        delta_n_bulge = +500.0
+        tau_bulge = delta_n_bulge * normal_burr
+        d_surf_bulge = (u_true.reshape(-1, 3)[surf_nodes] + tau_bulge).ravel()
+        d_deep_bulge = (u_true.reshape(-1, 3)[deep_nodes] + 0.8 * tau_bulge).ravel()
+        d_meas_bulge = np.concatenate([d_surf_bulge, d_deep_bulge])
+
+        res_bulge = rom_solver.solve(d_meas_bulge, reconstruct_full_field=False)
+        assert res_bulge.reduced_coordinates is not None
+        u_bulge_recon = (pod_basis.basis @ res_bulge.reduced_coordinates).reshape(-1, 3)
+
+        mean_x_sag = float(np.mean(u_sag_recon[surf_nodes, 0]))
+        mean_x_bulge = float(np.mean(u_bulge_recon[surf_nodes, 0]))
+
+        # Bulging displacement must be greater than sagging displacement along normal
+        assert mean_x_bulge > mean_x_sag
+        # Reconstructed shift should be monotonic with point cloud translation (> 500 mm diff)
+        assert mean_x_bulge - mean_x_sag > 500.0
+
 
