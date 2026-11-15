@@ -56,7 +56,12 @@ def main() -> None:
     console.print(f"  • Ingested Native Mesh   : {vmesh.n_nodes} nodes | {vmesh.n_elements} Tet4 elements")
 
     params = IsotropicElasticParameters()
-    params.set_from_youngs_poisson(youngs_modulus=68.0e9, poissons_ratio=0.33, mass_density=2700.0)
+    # Silicone beam in (mm, g, s) units: E = 21000 Pa, nu = 0.35, rho = 1100e-6 g/mm³
+    params.set_from_youngs_poisson(
+        youngs_modulus=21000.0,
+        poissons_ratio=0.35,
+        mass_density=1100e-6,
+    )
     material = Hookean(params)
     element = Tet4Linear(material)
 
@@ -84,9 +89,9 @@ def main() -> None:
     k_rel_asym = np.abs(K - K.T).max() / np.abs(K).max()
     m_rel_asym = np.abs(M - M.T).max() / np.abs(M).max()
 
-    # Consistent mass matrix row sum gives lumped mass
-    mass_exact = (params.mass_density * 1e-9) * vmesh.volume  # tonne/mm³ * mm³ = tonne
-    m_row_sum = np.sum(M.toarray()[::3, ::3])
+    # Consistent mass matrix row sum gives lumped mass in grams
+    mass_exact = params.mass_density * vmesh.volume  # g/mm³ * mm³ = g
+    m_row_sum = float(M.sum() / 3.0)
 
     table = Table(title="Assembled System Matrix Verification", border_style="cyan")
     table.add_column("Verification Metric", style="bold white")
@@ -106,11 +111,12 @@ def main() -> None:
         "< 1.0e-12",
         "PASS" if m_rel_asym < 1e-12 else "FAIL",
     )
+    mass_rel_err = abs(m_row_sum - mass_exact) / mass_exact
     table.add_row(
         "Continuum Mass Summation",
-        f"{m_row_sum:.4e} kg",
-        f"{mass_exact * 1000.0:.4e} kg",
-        "PASS",
+        f"{m_row_sum:.4e} g",
+        f"{mass_exact:.4e} g",
+        "PASS" if mass_rel_err < 1e-10 else "FAIL",
     )
     console.print(table)
     console.print("\n[bold green]✓ High-performance sparse assembly verified successfully.[/bold green]\n")

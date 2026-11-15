@@ -173,7 +173,7 @@ def main() -> None:
     # Create block elevated slightly (y = 0.5 mm) above rigid floor (y = 0.0 mm)
     mesh = create_sliding_block_mesh(origin=(0.0, 0.5, 0.0), size=(20.0, 10.0, 20.0))
     params = IsotropicElasticParameters()
-    params.set_from_youngs_poisson(youngs_modulus=5e4, poissons_ratio=0.25, mass_density=2.7e-6)
+    params.set_from_youngs_poisson(youngs_modulus=5e4, poissons_ratio=0.25, mass_density=2700e-6)
     material = NeoHookean(params)
     element = Tet4TotalLagrangian(material)
     domain = SolidDomain(mesh, material, element)

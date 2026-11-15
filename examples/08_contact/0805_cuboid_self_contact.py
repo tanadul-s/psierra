@@ -64,19 +64,19 @@ def parse_arguments() -> argparse.Namespace:
         "--pinch-force",
         type=float,
         default=25000.0,
-        help="Total bilateral inward pinching force in N (default: 25000.0 N, set 0.0 for pure gravity)",
+        help="Total bilateral inward pinching force in g·mm/s² (1 µN) (default: 25000.0 g·mm/s² = 0.025 N)",
     )
     parser.add_argument(
         "--gravity",
         type=float,
         default=9810.0,
-        help="Gravitational acceleration magnitude in mm/s^2 along -Z (default: 9810.0 mm/s^2, set 0.0 to disable)",
+        help="Gravitational acceleration magnitude in mm/s² along -Z (default: 9810.0 mm/s², set 0.0 to disable)",
     )
     parser.add_argument(
         "--youngs-modulus",
         type=float,
         default=21000.0,
-        help="Young's modulus in MPa (default: 21000.0 MPa matching standard repository material)",
+        help="Young's modulus in Pa (g/(mm·s²)) (default: 21000.0 Pa matching standard silicone)",
     )
     parser.add_argument(
         "--poisson-ratio",
@@ -88,13 +88,13 @@ def parse_arguments() -> argparse.Namespace:
         "--density",
         type=float,
         default=1100e-6,
-        help="Mass density in tonne/mm^3 (default: 1100e-6 tonne/mm^3)",
+        help="Mass density in g/mm³ (default: 1100e-6 g/mm³ = 1.1 g/cm³)",
     )
     parser.add_argument(
         "--kp",
         type=float,
         default=50000.0,
-        help="Normal penalty contact stiffness in N/mm (default: 50000.0 N/mm)",
+        help="Normal penalty contact stiffness in g/s² (default: 50000.0)",
     )
     parser.add_argument(
         "--cdamp",

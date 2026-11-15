@@ -180,9 +180,9 @@ def main() -> None:
     )
     params = IsotropicElasticParameters()
     params.set_from_youngs_poisson(
-        youngs_modulus=0.003,  # 3.0 kPa
+        youngs_modulus=3000.0,  # 3.0 kPa in Pa (g/(mm·s²))
         poissons_ratio=0.45,
-        mass_density=1040e-12,  # 1040 kg/m³
+        mass_density=1040e-6,   # 1040 kg/m³ = 1040e-6 g/mm³
     )
     material = Hookean(params)
     element = Tet4Linear(material)

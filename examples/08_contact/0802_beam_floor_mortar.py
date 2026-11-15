@@ -77,13 +77,13 @@ def parse_args() -> argparse.Namespace:
         "--kp",
         type=float,
         default=50000.0,
-        help="Normal penalty contact stiffness in N/mm (default: 50000.0 N/mm)",
+        help="Normal penalty contact stiffness in g/s² (default: 50000.0)",
     )
     parser.add_argument(
         "--cdamp",
         type=float,
         default=10.0,
-        help="Contact normal damping coefficient in N·s/mm (default: 10.0 N·s/mm)",
+        help="Contact normal damping coefficient in g/s (default: 10.0)",
     )
     parser.add_argument(
         "--output-dir",

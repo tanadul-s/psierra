@@ -94,14 +94,14 @@ def parse_arguments() -> argparse.Namespace:
     parser.add_argument(
         "--density",
         type=float,
-        default=1.0e-6,
-        help="Material density in tonne/mm^3 (default: 1.0e-6 tonne/mm^3 = 1000 kg/m^3)",
+        default=1000e-6,
+        help="Material density in g/mm³ (default: 1000e-6 g/mm³ = 1000 kg/m³)",
     )
     parser.add_argument(
         "--youngs-modulus",
         type=float,
-        default=2.0,
-        help="Young's modulus in N/mm^2 (default: 2.0 N/mm^2 = 2.0 MPa for soft elastomer)",
+        default=2000.0,
+        help="Young's modulus in Pa (g/(mm·s²)) (default: 2000.0 Pa = 2.0 kPa for soft elastomer)",
     )
     parser.add_argument(
         "--poisson-ratio",
@@ -126,8 +126,8 @@ def parse_arguments() -> argparse.Namespace:
     parser.add_argument(
         "--k-penalty",
         type=float,
-        default=20.0,
-        help="Normal self-contact penalty stiffness in N/mm (default: 20.0)",
+        default=20000.0,
+        help="Normal self-contact penalty stiffness in g/s² (default: 20000.0)",
     )
     parser.add_argument(
         "--formulation",
@@ -290,8 +290,8 @@ def main() -> None:
 
     # Compute mass matrix and 3D inclined gravity vector
     M = domain.assemble_mass_matrix()
-    total_mass_tonne = float(np.sum(M.diagonal()) / 3.0)
-    total_mass_kg = total_mass_tonne * 1e3
+    total_mass_g = float(np.sum(M.diagonal()) / 3.0)
+    total_mass_kg = total_mass_g * 1e-3
 
     pitch_rad = np.radians(args.pitch)
     roll_rad = np.radians(args.roll)
@@ -302,18 +302,19 @@ def main() -> None:
 
     gravity = GravityLoad(acceleration=gravity_vec)
     f_ext = gravity.compute_force_vector(M)
-    total_weight_N = float(
+    total_weight_uN = float(
         np.linalg.norm([np.sum(f_ext[0::3]), np.sum(f_ext[1::3]), np.sum(f_ext[2::3])])
     )
+    total_weight_N = total_weight_uN * 1e-6
 
     console.print(
-        f"  Total Bunny Mass : [green]{total_mass_kg:.2f} kg[/green] ({total_mass_tonne:.4f} tonne)"
+        f"  Total Bunny Mass : [green]{total_mass_kg:.3f} kg[/green] ({total_mass_g:.1f} g)"
     )
     console.print(
         f"  Gravity Vector   : [cyan]g = [{gx:+.1f}, {gy:+.1f}, {gz:+.1f}] mm/s²[/cyan] "
         f"(|g| = {args.gravity:.1f} mm/s², Pitch = {args.pitch:+.1f}°, Roll = {args.roll:+.1f}°)"
     )
-    console.print(f"  Resultant Weight : [green]{total_weight_N:.1f} N[/green]")
+    console.print(f"  Resultant Weight : [green]{total_weight_N:.3f} N[/green] ({total_weight_uN:.2e} g·mm/s²)")
 
     # =========================================================================
     # [4/6] Applying Boundary Conditions & Self-Contact Constraints
@@ -370,7 +371,7 @@ def main() -> None:
     )
     console.print(
         f"  SelfContact Formulation: [cyan]{args.formulation.upper()}[/cyan] "
-        f"(k_p = {args.k_penalty:.1e} N/mm, BFS rings = {args.exclusion_rings}, thickness = {args.contact_thickness:.1f} mm)"
+        f"(k_p = {args.k_penalty:.1e} g/s², BFS rings = {args.exclusion_rings}, thickness = {args.contact_thickness:.1f} mm)"
     )
 
     # Initial ear-to-ear minimum distance

@@ -30,7 +30,6 @@ from psierra.domain import SolidDomain
 from psierra.boundary import DirichletConstraint, DirichletManager, GravityLoad
 from psierra.analysis import NonlinearStaticAnalysis
 
-
 SURGICAL_POSTURES = {
     "supine": (0.0, -9810.0, 0.0, "Supine (Posterior sag along -Y)"),
     "prone": (0.0, 9810.0, 0.0, "Prone (Anterior sag along +Y)"),
@@ -54,8 +53,8 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument(
         "--steps",
         type=int,
-        default=1,
-        help="Number of incremental load steps (default: 1)",
+        default=20,
+        help="Number of incremental load steps (default: 20)",
     )
     parser.add_argument(
         "--output-dir",
@@ -69,9 +68,9 @@ def parse_args() -> argparse.Namespace:
 def main() -> None:
     args = parse_args()
     console = Console()
-    
+
     gx, gy, gz, posture_desc = SURGICAL_POSTURES[args.posture]
-    
+
     console.print(
         Panel.fit(
             f"[bold cyan]Example 0402: Static Brain Shift ({args.posture.upper()})[/bold cyan]\n"
@@ -94,28 +93,40 @@ def main() -> None:
     mesh = VolumetricMesh(brain_mesh_path)
     b = mesh.bounds
     console.print(f"  • Source Mesh File  : [cyan]{brain_mesh_path}[/cyan]")
-    console.print(f"  • Nodes / Elements  : [green]{mesh.n_nodes}[/green] nodes | [green]{mesh.n_elements}[/green] Tet4 elements")
-    console.print(f"  • Volume            : [green]{mesh.volume * 1e-3:.1f}[/green] cm³")
+    console.print(
+        f"  • Nodes / Elements  : [green]{mesh.n_nodes}[/green] nodes | [green]{mesh.n_elements}[/green] Tet4 elements"
+    )
+    console.print(
+        f"  • Volume            : [green]{mesh.volume * 1e-3:.1f}[/green] cm³"
+    )
 
     # 2. Material & Element (E = 3.0 kPa, nu = 0.45, rho = 1040 kg/m^3)
-    console.print("\n[bold yellow][2/6] Configuring Hyperelastic Parenchyma Properties[/bold yellow]")
+    console.print(
+        "\n[bold yellow][2/6] Configuring Hyperelastic Parenchyma Properties[/bold yellow]"
+    )
     params = IsotropicElasticParameters()
     params.set_from_youngs_poisson(
-        youngs_modulus=3.0e-3,       # 3.0 kPa in MPa
+        youngs_modulus=3.0e-3,  # 3.0 kPa in MPa
         poissons_ratio=0.45,
-        mass_density=1040.0 * 1e-12, # tonne/mm³
+        mass_density=1040.0 * 1e-12,  # tonne/mm³
     )
     material = NeoHookean(params)
     element = Tet4TotalLagrangian(material)
-    console.print("  • Material : [cyan]Compressible Neo-Hookean[/cyan] (E = 3.0 kPa, nu = 0.45)")
+    console.print(
+        "  • Material : [cyan]Compressible Neo-Hookean[/cyan] (E = 3.0 kPa, nu = 0.45)"
+    )
     console.print("  • Element  : [cyan]Tet4TotalLagrangian[/cyan]")
 
     # 3. Domain
-    console.print("\n[bold yellow][3/6] Setting Up Physical Domain Container[/bold yellow]")
+    console.print(
+        "\n[bold yellow][3/6] Setting Up Physical Domain Container[/bold yellow]"
+    )
     domain = SolidDomain(mesh, material, element)
 
     # 4. Boundary Conditions & Gravitational Vector
-    console.print("\n[bold yellow][4/6] Applying Cranial Base Anchors & Posture Gravity[/bold yellow]")
+    console.print(
+        "\n[bold yellow][4/6] Applying Cranial Base Anchors & Posture Gravity[/bold yellow]"
+    )
     clamped_node_mask = mesh.nodes[:, 1] < -20.0
     clamped_nodes = np.where(clamped_node_mask)[0]
 
@@ -128,12 +139,16 @@ def main() -> None:
     f_ext = gravity.compute_force_vector(M)
 
     console.print(f"  • Cranial Base Fixed Nodes : [green]{len(clamped_nodes)}[/green]")
-    console.print(f"  • Posture Gravity Vector   : gx={gx:.0f}, gy={gy:.0f}, gz={gz:.0f} mm/s²")
+    console.print(
+        f"  • Posture Gravity Vector   : gx={gx:.0f}, gy={gy:.0f}, gz={gz:.0f} mm/s²"
+    )
 
     # 5. Solver
-    console.print("\n[bold yellow][5/6] Executing Incremental Newton-Raphson Solver[/bold yellow]")
+    console.print(
+        "\n[bold yellow][5/6] Executing Incremental Newton-Raphson Solver[/bold yellow]"
+    )
     solver = NonlinearStaticAnalysis(domain)
-    
+
     t0 = time.perf_counter()
     solver.solve(
         dirichlet=dirichlet,
@@ -144,14 +159,19 @@ def main() -> None:
         verbose=True,
     )
     wall_time = time.perf_counter() - t0
-    console.print(f"  [green]✓ Static nonlinear equilibrium reached in {wall_time:.2f} s.[/green]")
+    console.print(
+        f"  [green]✓ Static nonlinear equilibrium reached in {wall_time:.2f} s.[/green]"
+    )
 
     # 6. Verification
     console.print("\n[bold yellow][6/6] Verifying Results & State Export[/bold yellow]")
     disp = domain.displacement
     max_disp = float(np.linalg.norm(disp, axis=1).max())
-    
-    table = Table(title=f"Example 0402: Static Brain Shift ({args.posture.upper()})", border_style="cyan")
+
+    table = Table(
+        title=f"Example 0402: Static Brain Shift ({args.posture.upper()})",
+        border_style="cyan",
+    )
     table.add_column("Quantity", style="bold white")
     table.add_column("Value", style="cyan")
     table.add_row("Surgical Posture", args.posture.upper())
@@ -163,7 +183,9 @@ def main() -> None:
 
     out_file = out_dir / "result.vtu"
     domain.save_state(filepath=out_file)
-    console.print(f"\n[bold green]✓ Deformed anatomical state saved to:[/bold green] [cyan]{out_file}[/cyan]\n")
+    console.print(
+        f"\n[bold green]✓ Deformed anatomical state saved to:[/bold green] [cyan]{out_file}[/cyan]\n"
+    )
 
 
 if __name__ == "__main__":

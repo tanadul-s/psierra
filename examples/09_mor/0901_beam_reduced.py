@@ -143,8 +143,8 @@ def main() -> None:
     # [2/6] Configuring Material & Element Formulation
     # --------------------------------------------------------------------------
     console.print("\n[bold yellow][2/6] Configuring Material & Element Formulation[/bold yellow]")
-    E_mpa = args.youngs_modulus * 1e-6  # Pa -> MPa (N/mm²)
-    rho_tonne_mm3 = args.mass_density * 1e-6  # g/mm³ -> tonne/mm³
+    E_pa = float(args.youngs_modulus)  # Pa (g/(mm·s²))
+    rho_g_mm3 = float(args.mass_density)  # g/mm³
     nu_raw = float(args.poissons_ratio)
     if nu_raw >= 0.5:
         nu = 0.499
@@ -157,9 +157,9 @@ def main() -> None:
 
     params = IsotropicElasticParameters()
     params.set_from_youngs_poisson(
-        youngs_modulus=E_mpa,
+        youngs_modulus=E_pa,
         poissons_ratio=nu,
-        mass_density=rho_tonne_mm3,
+        mass_density=rho_g_mm3,
     )
     material = Hookean(params)
     element = Tet4Linear(material)
@@ -207,7 +207,8 @@ def main() -> None:
     M_global = domain.assemble_mass_matrix()
     f_grav = gravity.compute_force_vector(M_global)
     total_weight = abs(float(f_grav[1::3].sum()))
-    console.print(f"  • Beam Weight  : [green]{total_weight:.2f} N[/green] (acting along -Y)")
+    total_weight_N = total_weight * 1e-6
+    console.print(f"  • Beam Weight  : [green]{total_weight_N:.2f} N[/green] ({total_weight:.2e} g·mm/s² acting along -Y)")
 
     # Find tip monitoring node at max(Z) = 200 mm
     max_z = np.max(mesh.nodes[:, 2])

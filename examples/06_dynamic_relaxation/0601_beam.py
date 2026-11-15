@@ -97,7 +97,7 @@ def run_dr_simulation(
     console = Console()
     mesh = VolumetricMesh(mesh_path)
 
-    # Compliant beam parameters: E = 21,000 MPa, nu = 0.35, rho = 1100e-6 tonne/mm³
+    # Compliant beam parameters: E = 21,000 Pa, nu = 0.35, rho = 1100e-6 g/mm³
     params = IsotropicElasticParameters()
     params.set_from_youngs_poisson(
         youngs_modulus=21000.0,
@@ -120,8 +120,8 @@ def run_dr_simulation(
     dirichlet = DirichletManager(domain.mesh.n_dofs)
     dirichlet.add_constraint(clamp)
 
-    # Gravity body force along -Y (0.1g for stable large deflection)
-    g_acc = -981.0
+    # Gravity body force along -Y (1.0g downward)
+    g_acc = -9810.0
     gravity = GravityLoad(acceleration=(0.0, g_acc, 0.0))
     M = domain.assemble_mass_matrix()
     f_ext = gravity.compute_force_vector(M)

@@ -123,16 +123,16 @@ def main() -> None:
     params.set_from_youngs_poisson(
         youngs_modulus=21000.0,
         poissons_ratio=0.35,
-        mass_density=5.0e-5,  # tonne/mm^3 -> gives realistic ~19 mm soft tissue sag
+        mass_density=50.0e-6,  # g/mm³ -> gives realistic ~19 mm soft tissue sag under linear strain
     )
     material = Hookean(params)
     element = Tet4Linear(material)
     domain_truth = SolidDomain(mesh, material, element)
     console.print(
-        f"  • Constitutive Law : [cyan]{material.__class__.__name__}[/cyan] (E = {params.youngs_modulus:.1f} MPa, ν = {params.poissons_ratio:.2f})"
+        f"  • Constitutive Law : [cyan]{material.__class__.__name__}[/cyan] (E = {params.youngs_modulus:.1f} Pa, ν = {params.poissons_ratio:.2f})"
     )
     console.print(
-        f"  • Mass Density     : [cyan]{params.mass_density:.2e}[/cyan] tonne/mm³"
+        f"  • Mass Density     : [cyan]{params.mass_density:.2e}[/cyan] g/mm³"
     )
 
     # 3. Generating Sagged Scan Geometry (Pre-Operative MRI State)

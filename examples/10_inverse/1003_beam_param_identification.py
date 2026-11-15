@@ -111,9 +111,9 @@ def main() -> None:
     console.print(
         "\n[bold yellow][2/6] Configuring Forward Continuum Physics[/bold yellow]"
     )
-    E_truth = 21000.0  # MPa (Ground Truth Young's modulus)
+    E_truth = 21000.0  # Pa (21.0 kPa, Ground Truth Young's modulus)
     nu = 0.35  # Poisson's ratio
-    rho = 1100e-6  # Mass density
+    rho = 1100e-6  # Mass density in g/mm³
 
     params_truth = IsotropicElasticParameters()
     params_truth.set_from_youngs_poisson(E_truth, nu, rho)
@@ -132,7 +132,7 @@ def main() -> None:
     # Indenter tip node at beam free end
     tip_node = 5
     console.print(
-        f"  • Target Modulus (E_truth) : [green]{E_truth:.1f}[/green] MPa | Poisson's ratio: [green]{nu:.2f}[/green]"
+        f"  • Target Modulus (E_truth) : [green]{E_truth:.1f}[/green] Pa ({E_truth/1000.0:.1f} kPa) | Poisson's ratio: [green]{nu:.2f}[/green]"
     )
     console.print(
         f"  • Indenter Landmark Node   : Node [green]{tip_node}[/green] at coords {tuple(np.round(mesh.nodes[tip_node], 1))} mm"
@@ -166,10 +166,10 @@ def main() -> None:
         exp_forces_arr += rng.normal(0.0, args.noise, size=exp_forces_arr.shape)
     console.print(f"  • Test Indentation Depths  : {test_indentations.tolist()} mm")
     console.print(
-        f"  • Measured Reaction Forces : {[float(f'{f:.1f}') for f in exp_forces_arr]} N"
+        f"  • Measured Reaction Forces : {[float(f'{f:.1f}') for f in exp_forces_arr]} g·mm/s²"
     )
     console.print(
-        f"  • Peak Indentation Force   : [green]{exp_forces_arr[-1]:.1f}[/green] N at delta = {test_indentations[-1]:.1f} mm"
+        f"  • Peak Indentation Force   : [green]{exp_forces_arr[-1]:.1f}[/green] g·mm/s² ({exp_forces_arr[-1]*1e-6:.3f} N) at delta = {test_indentations[-1]:.1f} mm"
     )
 
     # 4. Setting Up Inverse Problem & Perturbed Initial Guess
@@ -178,9 +178,9 @@ def main() -> None:
     )
     E_initial = args.initial_e  # Initial guess
     console.print(
-        f"  • Initial Guess (E_0)      : [red]{E_initial:.1f}[/red] MPa (Initial Error: [red]{abs(E_initial - E_truth)/E_truth*100:.1f}%[/red])"
+        f"  • Initial Guess (E_0)      : [red]{E_initial:.1f}[/red] Pa (Initial Error: [red]{abs(E_initial - E_truth)/E_truth*100:.1f}%[/red])"
     )
-    console.print("  • Parameter Search Bounds  : [1,000.0, 100,000.0] MPa")
+    console.print("  • Parameter Search Bounds  : [1,000.0, 100,000.0] Pa")
 
     # Compute baseline forces with E_initial
     params_base = IsotropicElasticParameters()
@@ -217,7 +217,7 @@ def main() -> None:
     err_cf = abs(E_cf - E_truth) / E_truth * 100.0
     console.print(f"  [cyan]Method 1: Closed-Form Linear Least-Squares[/cyan]")
     console.print(
-        f"    • Calibrated E   : [green]{E_cf:.4f}[/green] MPa (Error: [green]{err_cf:.6f}%[/green])"
+        f"    • Calibrated E   : [green]{E_cf:.1f}[/green] Pa ({E_cf/1000.0:.4f} kPa) (Error: [green]{err_cf:.6f}%[/green])"
     )
     console.print(
         f"    • Evaluation Time: [green]{t_cf*1e6:.2f}[/green] µs ({1.0/t_cf:,.0f} Hz)"
@@ -253,7 +253,7 @@ def main() -> None:
     err_trf = abs(E_trf - E_truth) / E_truth * 100.0
 
     console.print(
-        f"    • Calibrated E   : [green]{E_trf:.4f}[/green] MPa (Error: [green]{err_trf:.6f}%[/green])"
+        f"    • Calibrated E   : [green]{E_trf:.1f}[/green] Pa ({E_trf/1000.0:.4f} kPa) (Error: [green]{err_trf:.6f}%[/green])"
     )
     console.print(
         f"    • Iterations     : [green]{res_trf.iterations}[/green] iterations ({res_trf.n_evaluations} FEM evaluations)"
@@ -274,30 +274,30 @@ def main() -> None:
 
     table.add_row(
         "Ground Truth Target",
-        f"{E_truth:.2f} MPa",
+        f"{E_truth:.1f} Pa ({E_truth/1000.0:.2f} kPa)",
         "0.00% (Baseline)",
-        "0.00 N",
+        "0.00 g·mm/s²",
         "N/A",
     )
     table.add_row(
         "Initial Nominal Guess",
-        f"{E_initial:.2f} MPa",
+        f"{E_initial:.1f} Pa ({E_initial/1000.0:.2f} kPa)",
         f"{abs(E_initial - E_truth)/E_truth*100:.2f}%",
-        f"{float(np.sqrt(np.mean((base_forces_arr - exp_forces_arr)**2))):.1f} N",
+        f"{float(np.sqrt(np.mean((base_forces_arr - exp_forces_arr)**2))):.1f} g·mm/s²",
         "N/A",
     )
     table.add_row(
         "Closed-Form Least-Squares",
-        f"{E_cf:.4f} MPa",
+        f"{E_cf:.1f} Pa ({E_cf/1000.0:.4f} kPa)",
         f"{err_cf:.6f}%",
-        f"{res_closed_form.rms_error:.4e} N",
+        f"{res_closed_form.rms_error:.4e} g·mm/s²",
         f"{t_cf*1e6:.1f} µs",
     )
     table.add_row(
         "Trust-Region Reflective (TRF)",
-        f"{E_trf:.4f} MPa",
+        f"{E_trf:.1f} Pa ({E_trf/1000.0:.4f} kPa)",
         f"{err_trf:.6f}%",
-        f"{res_trf.rms_error:.4e} N",
+        f"{res_trf.rms_error:.4e} g·mm/s²",
         f"{t_trf:.3f} s",
     )
 

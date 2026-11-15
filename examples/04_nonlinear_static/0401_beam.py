@@ -57,7 +57,13 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument(
         "--formulation",
         type=str,
-        choices=["total_lagrangian", "updated_lagrangian", "corotational", "svk", "linear"],
+        choices=[
+            "total_lagrangian",
+            "updated_lagrangian",
+            "corotational",
+            "svk",
+            "linear",
+        ],
         default="total_lagrangian",
         help="Kinematic formulation (default: total_lagrangian)",
     )
@@ -83,8 +89,14 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument(
         "--steps",
         type=int,
-        default=5,
-        help="Number of Newton-Raphson load increments (default: 5)",
+        default=20,
+        help="Number of Newton-Raphson load increments (default: 20)",
+    )
+    parser.add_argument(
+        "--acc",
+        type=float,
+        default=-9810.0,
+        help="Gravitational acceleration along Y in mm/s^2 (default: -9810.0)",
     )
     parser.add_argument(
         "--all",
@@ -106,10 +118,23 @@ def build_material(mat_type: str, params: IsotropicElasticParameters):
     elif mat_type == "neohookean":
         return NeoHookean(params)
     elif mat_type == "ogden":
-        ogden_p = OgdenParameters(mu=[params.shear_modulus], alpha=[2.0], bulk_modulus=params.bulk_modulus, mass_density=params.mass_density)
+        ogden_p = OgdenParameters(
+            mu=[params.shear_modulus],
+            alpha=[2.0],
+            bulk_modulus=params.bulk_modulus,
+            mass_density=params.mass_density,
+        )
         return Ogden(ogden_p)
     elif mat_type == "hgo":
-        hgo_p = HGOParameters(c=0.5 * params.shear_modulus, k1=25.0e3, k2=10.0, kappa=0.1, fiber_directions=np.array([[0.0, 0.0, 1.0]]), bulk_modulus=params.bulk_modulus, mass_density=params.mass_density)
+        hgo_p = HGOParameters(
+            c=0.5 * params.shear_modulus,
+            k1=25.0e3,
+            k2=10.0,
+            kappa=0.1,
+            fiber_directions=np.array([[0.0, 0.0, 1.0]]),
+            bulk_modulus=params.bulk_modulus,
+            mass_density=params.mass_density,
+        )
         return HGO(hgo_p)
     else:
         return NeoHookean(params)
@@ -130,7 +155,17 @@ def build_element(formulation: str, elem_type: str, use_fbar: bool, material):
         return Tet4TotalLagrangian(material)
 
 
-def run_single_case(mesh: VolumetricMesh, formulation: str, elem_type: str, mat_type: str, use_fbar: bool, steps: int, out_base: Path, console: Console):
+def run_single_case(
+    mesh: VolumetricMesh,
+    formulation: str,
+    elem_type: str,
+    mat_type: str,
+    use_fbar: bool,
+    steps: int,
+    acc: float,
+    out_base: Path,
+    console: Console,
+):
     case_name = f"{formulation}_{elem_type}"
     if use_fbar:
         case_name += "_fbar"
@@ -141,10 +176,16 @@ def run_single_case(mesh: VolumetricMesh, formulation: str, elem_type: str, mat_
     out_dir.mkdir(parents=True, exist_ok=True)
 
     params = IsotropicElasticParameters()
-    # High compliance beam (E = 21000 MPa, rho = 1100e-6 tonne/mm³)
-    params.set_from_youngs_poisson(youngs_modulus=21000.0, poissons_ratio=0.35, mass_density=1100e-6)
-    
-    mat = build_material("hookean" if formulation in ("svk", "linear", "corotational") else mat_type, params)
+    # Balanced mass density for large deflection beam benchmark under Earth gravity g=-9810 mm/s^2:
+    # (110e-6 tonne/mm³ * 9810 mm/s² = 1.0791 N/mm³ body force => ~41.5 mm tip sag)
+    params.set_from_youngs_poisson(
+        youngs_modulus=21000.0, poissons_ratio=0.35, mass_density=110e-6
+    )
+
+    mat = build_material(
+        "hookean" if formulation in ("svk", "linear") else mat_type,
+        params,
+    )
     elem = build_element(formulation, elem_type, use_fbar, mat)
 
     domain = SolidDomain(mesh, mat, elem)
@@ -155,20 +196,29 @@ def run_single_case(mesh: VolumetricMesh, formulation: str, elem_type: str, mat_
     dirichlet = DirichletManager(domain.mesh.n_dofs)
     dirichlet.add_constraint(clamp)
 
-    # Transverse gravity along -Y (g_acc = -981.0 mm/s^2 for finite rotation bending)
-    gravity = GravityLoad(acceleration=(0.0, -981.0, 0.0))
+    # Transverse gravity along Y
+    gravity = GravityLoad(acceleration=(0.0, acc, 0.0))
     M = domain.assemble_mass_matrix()
     f_ext = gravity.compute_force_vector(M)
 
     t0 = time.perf_counter()
     if formulation == "linear":
         solver = LinearStaticAnalysis(domain)
-        solver.solve(dirichlet=dirichlet, f_ext=f_ext)
-        avg_iter = 1.0
+        res = solver.solve(dirichlet=dirichlet, f_ext=f_ext)
+        converged = True
+        steps_completed = 1
     else:
         solver = NonlinearStaticAnalysis(domain)
-        solver.solve(dirichlet=dirichlet, f_ext=f_ext, n_steps=steps, nr_iterations=25, nr_tol=1e-4, verbose=False)
-        avg_iter = 3.2
+        res = solver.solve(
+            dirichlet=dirichlet,
+            f_ext=f_ext,
+            n_steps=steps,
+            nr_iterations=25,
+            nr_tol=1e-4,
+            verbose=False,
+        )
+        converged = bool(res.converged)
+        steps_completed = len(res.iteration_history)
 
     wall_time = time.perf_counter() - t0
     tip_sag = float(np.abs(domain.displacement[tip_nodes, 1]).max())
@@ -184,6 +234,9 @@ def run_single_case(mesh: VolumetricMesh, formulation: str, elem_type: str, mat_
         "tip_sag": tip_sag,
         "max_disp": max_disp,
         "time": wall_time,
+        "converged": converged,
+        "steps_completed": steps_completed,
+        "total_steps": steps if formulation != "linear" else 1,
         "out_file": out_file,
     }
 
@@ -206,18 +259,27 @@ def main() -> None:
     mesh_path = Path("data/beam1/mesh/beam1.vtk")
     if not mesh_path.exists():
         raise FileNotFoundError(f"Mesh not found: {mesh_path}")
-    
+
     mesh = VolumetricMesh(mesh_path)
     b = mesh.bounds
     console.print(f"  • Source Mesh File  : [cyan]{mesh_path}[/cyan]")
-    console.print(f"  • Nodes / Elements  : [green]{mesh.n_nodes}[/green] nodes | [green]{mesh.n_elements}[/green] tets")
-    console.print(f"  • Span along Z-axis : [{b[4]:.1f}, {b[5]:.1f}] mm (Span: {b[5] - b[4]:.1f} mm)")
+    console.print(
+        f"  • Nodes / Elements  : [green]{mesh.n_nodes}[/green] nodes | [green]{mesh.n_elements}[/green] tets"
+    )
+    console.print(
+        f"  • Span along Z-axis : [{b[4]:.1f}, {b[5]:.1f}] mm (Span: {b[5] - b[4]:.1f} mm)"
+    )
+    console.print(
+        f"  • Gravity Load (acc): [green]{args.acc:.1f}[/green] mm/s² along Y-axis"
+    )
 
     if args.all:
-        console.print("\n[bold yellow]Executing Full Comparative Formulation Matrix[/bold yellow]")
+        console.print(
+            "\n[bold yellow]Executing Full Comparative Formulation Matrix[/bold yellow]"
+        )
         cases_to_run = [
             ("linear", "tet4", "hookean", False),
-            ("corotational", "tet4", "hookean", False),
+            ("corotational", "tet4", "neohookean", False),
             ("total_lagrangian", "tet4", "neohookean", False),
             ("updated_lagrangian", "tet4", "neohookean", False),
             ("svk", "tet4", "hookean", False),
@@ -227,44 +289,86 @@ def main() -> None:
         for form, el, mt, fb in cases_to_run:
             tag = f"{form}_{el}" + ("_fbar" if fb else "")
             console.print(f"  ▶ Running case: [cyan]{tag}[/cyan]...")
-            res = run_single_case(mesh, form, el, mt, fb, args.steps, out_base, console)
+            res = run_single_case(
+                mesh, form, el, mt, fb, args.steps, args.acc, out_base, console
+            )
             results.append(res)
 
-        table = Table(title="Example 0401: Kinematic Formulations Comparative Benchmark", border_style="cyan")
+        table = Table(
+            title="Example 0401: Kinematic Formulations Comparative Benchmark",
+            border_style="cyan",
+        )
         table.add_column("Formulation", style="bold white")
         table.add_column("Element", justify="center", style="cyan")
+        table.add_column("Status", justify="center")
         table.add_column("Max Tip Sag (mm)", justify="right", style="green")
         table.add_column("Max Disp (mm)", justify="right", style="yellow")
         table.add_column("Runtime (s)", justify="right", style="dim white")
         table.add_column("Output File", style="dim cyan")
 
         for r in results:
+            status_str = (
+                "[green]Converged[/green]"
+                if r["converged"]
+                else f"[red]Partial ({r['steps_completed']}/{r['total_steps']})[/red]"
+            )
             table.add_row(
                 r["formulation"],
                 r["element"],
+                status_str,
                 f"{r['tip_sag']:.2f}",
                 f"{r['max_disp']:.2f}",
                 f"{r['time']:.3f}",
                 f"{r['out_file'].name}",
             )
         console.print("\n", table)
-        console.print(f"\n[bold green]✓ All formulation benchmark cases written into subdirectories under:[/bold green] [cyan]{out_base}[/cyan]\n")
+        console.print(
+            f"\n[bold green]✓ All formulation benchmark cases written into subdirectories under:[/bold green] [cyan]{out_base}[/cyan]\n"
+        )
 
     else:
-        console.print(f"\n[bold yellow]Executing Single Configuration: {args.formulation} ({args.element})[/bold yellow]")
-        res = run_single_case(mesh, args.formulation, args.element, args.material, args.fbar, args.steps, out_base, console)
-        
+        console.print(
+            f"\n[bold yellow]Executing Single Configuration: {args.formulation} ({args.element})[/bold yellow]"
+        )
+        res = run_single_case(
+            mesh,
+            args.formulation,
+            args.element,
+            args.material,
+            args.fbar,
+            args.steps,
+            args.acc,
+            out_base,
+            console,
+        )
+
         table = Table(title=f"Example 0401 Result ({res['case']})", border_style="cyan")
         table.add_column("Metric", style="bold white")
         table.add_column("Value", style="cyan")
         table.add_row("Kinematic Formulation", args.formulation)
         table.add_row("Element Type", res["element"])
+        status_desc = (
+            "[green]Converged (100% Load)[/green]"
+            if res["converged"]
+            else f"[bold red]Incomplete ({res['steps_completed']}/{res['total_steps']} steps converged)[/bold red]"
+        )
+        table.add_row("Solution Status", status_desc)
         table.add_row("Max Tip Sag (u_y)", f"{res['tip_sag']:.4f} mm")
         table.add_row("Max Total Displacement", f"{res['max_disp']:.4f} mm")
         table.add_row("Wall-Clock Time", f"{res['time']:.3f} s")
         table.add_row("Saved VTU Output", str(res["out_file"]))
         console.print("\n", table)
-        console.print(f"\n[bold green]✓ Results written to:[/bold green] [cyan]{res['out_file']}[/cyan]\n")
+
+        if not res["converged"]:
+            console.print(
+                "[bold yellow]⚠ Warning:[/bold yellow] [dim]The solver reached the iteration limit before full load completion. "
+                "The recorded tip sag is at the last converged equilibrium step. "
+                "Corotational kinematics with approximate warped stiffness require smaller step sizes (--steps) or sub-stepping under extreme loads.[/dim]\n"
+            )
+        else:
+            console.print(
+                f"[bold green]✓ Equilibrium state successfully written to:[/bold green] [cyan]{res['out_file']}[/cyan]\n"
+            )
 
 
 if __name__ == "__main__":

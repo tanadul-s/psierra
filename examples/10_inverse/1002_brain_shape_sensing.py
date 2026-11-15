@@ -189,12 +189,12 @@ def main() -> None:
     console.print(
         "\n[bold yellow][2/6] Configuring Soft Tissue Physics & Cranial Base Clamping[/bold yellow]"
     )
-    # Young's modulus E = 3.0 kPa = 0.003 MPa, nu = 0.45, density = 1040 kg/m³ = 1040e-12 tonne/mm³
+    # Young's modulus E = 3.0 kPa = 3000.0 Pa, nu = 0.45, density = 1040 kg/m³ = 1040e-6 g/mm³
     params = IsotropicElasticParameters()
     params.set_from_youngs_poisson(
-        youngs_modulus=0.003,
+        youngs_modulus=3000.0,
         poissons_ratio=0.45,
-        mass_density=1040e-12,
+        mass_density=1040e-6,
     )
     material = Hookean(params)
     element = Tet4Linear(material)

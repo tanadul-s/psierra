@@ -83,8 +83,8 @@ def parse_arguments() -> argparse.Namespace:
     parser.add_argument(
         "--youngs-modulus",
         type=float,
-        default=3.0,
-        help="Brain parenchyma Young's modulus in kPa (default: 3.0 kPa)",
+        default=3000.0,
+        help="Brain parenchyma Young's modulus in Pa (g/(mm·s²)) (default: 3000.0 Pa = 3.0 kPa)",
     )
     parser.add_argument(
         "--poissons-ratio",
@@ -95,8 +95,8 @@ def parse_arguments() -> argparse.Namespace:
     parser.add_argument(
         "--mass-density",
         type=float,
-        default=1040.0,
-        help="Brain tissue mass density in kg/m³ (default: 1040.0 kg/m³)",
+        default=1040e-6,
+        help="Brain tissue mass density in g/mm³ (default: 1040e-6 g/mm³ = 1040 kg/m³)",
     )
     parser.add_argument(
         "--clamp-y",
@@ -237,22 +237,22 @@ def main() -> None:
     console.print(
         "\n[bold yellow][2/6] Configuring Soft Tissue Constitutive Model[/bold yellow]"
     )
-    E_mpa = args.youngs_modulus * 1e-3  # kPa -> MPa (N/mm²)
-    rho_tonne_mm3 = args.mass_density * 1e-12  # kg/m³ -> tonne/mm³
+    E_pa = float(args.youngs_modulus)  # Pa (g/(mm·s²))
+    rho_g_mm3 = float(args.mass_density)  # g/mm³
     nu = args.poissons_ratio
 
     params = IsotropicElasticParameters()
     params.set_from_youngs_poisson(
-        youngs_modulus=E_mpa,
+        youngs_modulus=E_pa,
         poissons_ratio=nu,
-        mass_density=rho_tonne_mm3,
+        mass_density=rho_g_mm3,
     )
     material = Hookean(params)
     element = Tet4Linear(material)
 
     console.print(
-        f"  • Tissue Modulus    : [green]{args.youngs_modulus:.2f} kPa[/green] | "
-        f"Poisson's ν: [green]{nu:.2f}[/green] | Density: [green]{args.mass_density:.1f} kg/m³[/green]"
+        f"  • Tissue Modulus    : [green]{E_pa:.1f} Pa ({E_pa/1000.0:.2f} kPa)[/green] | "
+        f"Poisson's ν: [green]{nu:.2f}[/green] | Density: [green]{rho_g_mm3:.2e} g/mm³[/green]"
     )
     console.print(
         f"  • Formulation       : [cyan]{element.__class__.__name__}[/cyan] (Linear Continuum)"

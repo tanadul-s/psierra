@@ -77,7 +77,7 @@ def parse_args() -> argparse.Namespace:
         "--load",
         type=float,
         default=2.0e5,
-        help="Total downward tip load in N for static analysis (default: 2.0e5 N)",
+        help="Total downward tip load in g·mm/s² (1 µN) for static analysis (default: 2.0e5 g·mm/s² = 0.2 N)",
     )
     parser.add_argument(
         "--output-dir",

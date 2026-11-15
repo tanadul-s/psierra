@@ -207,9 +207,9 @@ def main() -> None:
     console.print("\n[bold yellow][2/5] Configuring Physiological Parenchyma & Fluid Mechanics[/bold yellow]")
     params = IsotropicElasticParameters()
     params.set_from_youngs_poisson(
-        youngs_modulus=0.003,      # 3.0 kPa
+        youngs_modulus=3000.0,     # 3.0 kPa in Pa (g/(mm·s²))
         poissons_ratio=0.45,
-        mass_density=1040e-12,     # tonne/mm³
+        mass_density=1040e-6,      # 1040 kg/m³ = 1040e-6 g/mm³
     )
     mat = Hookean(params)
     elem = Tet4Linear(mat)
@@ -230,7 +230,7 @@ def main() -> None:
     results_table: list[dict[str, str | float]] = []
 
     g_accel = 9810.0
-    rho_csf = 1000e-12
+    rho_csf = 1000e-6  # 1000 kg/m³ = 1000e-6 g/mm³
 
     for scn in scenarios_to_run:
         console.print(f"\n[bold yellow]=== Processing Scenario: {scn.upper()} ===[/bold yellow]")
@@ -250,7 +250,7 @@ def main() -> None:
 
         if scn == "bulging":
             # Scenario 1: Elevated ICP on lesion cavity + full CSF buoyancy
-            p_icp = args.icp_pressure * 1e-3  # kPa to MPa
+            p_icp = args.icp_pressure * 1000.0  # kPa to Pa (g/(mm·s²))
             h_head_icp = p_icp / (rho_csf * g_accel)
             h_fluid_cyst = lesion_pv.bounds[3] + h_head_icp
             icp_load = HydrostaticPressureLoad(
@@ -273,7 +273,7 @@ def main() -> None:
         else:
             # Scenario 2: Partial CSF drainage (fluid level drained to 0.0 mm)
             buoyancy_drain = BuoyancyLoad(
-                fluid_density=1000e-12,
+                fluid_density=rho_csf,
                 acceleration=(0.0, -9810.0, 0.0),
                 fluid_level=0.0,
             )

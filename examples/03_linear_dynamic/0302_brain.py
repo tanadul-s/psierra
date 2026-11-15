@@ -83,13 +83,13 @@ def main() -> None:
     console.print("\n[bold yellow][2/6] Configuring Parenchymal Tissue Properties[/bold yellow]")
     params = IsotropicElasticParameters()
     params.set_from_youngs_poisson(
-        youngs_modulus=3.0e-3,       # 3.0 kPa in MPa (N/mm²)
+        youngs_modulus=3000.0,       # 3.0 kPa in Pa (g/(mm·s²))
         poissons_ratio=0.45,
-        mass_density=1040.0 * 1e-12, # tonne/mm³
+        mass_density=1040e-6,        # 1040 kg/m³ = 1040e-6 g/mm³
     )
     material = Hookean(params)
     element = Tet4Linear(material)
-    console.print("  • Material : [cyan]Hookean Elastic Parenchyma[/cyan] (E = 3.0 kPa, nu = 0.45)")
+    console.print("  • Material : [cyan]Hookean Elastic Parenchyma[/cyan] (E = 3.0 kPa, nu = 0.45, rho = 1040e-6 g/mm³)")
     console.print("  • Element  : [cyan]Tet4Linear[/cyan]")
 
     # 3. Domain

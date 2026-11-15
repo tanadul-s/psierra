@@ -324,23 +324,23 @@ def main() -> None:
     console.print(
         "\n[bold yellow][2/6] Configuring Solid-Shell Biomechanics (Tet4 + Shell3)...[/bold yellow]"
     )
-    # Brain: E = 2.5 kPa = 0.0025 MPa, rho = 1040 kg/m^3 = 1.04e-9 tonne/mm^3
+    # Brain: E = 2.5 kPa = 2500 Pa, rho = 1040 kg/m^3 = 1040e-6 g/mm³
     p_solid = IsotropicElasticParameters()
     p_solid.set_from_youngs_poisson(
-        youngs_modulus=args.brain_youngs * 1e-3,
+        youngs_modulus=args.brain_youngs * 1000.0,
         poissons_ratio=0.45,
-        mass_density=1.04e-9,
+        mass_density=1040e-6,
     )
     mat_solid = NeoHookean(p_solid)
     elem_solid = Tet4TotalLagrangian(mat_solid)
     solid_domain = SolidDomain(mesh, mat_solid, elem_solid)
 
-    # Meninges: E = 0.50 MPa = 500 kPa (compliant pia-arachnoid membrane), nu = 0.45, h = 0.15 mm
+    # Meninges: E = 0.50 MPa = 500,000 Pa (compliant pia-arachnoid membrane), nu = 0.45, h = 0.15 mm
     p_shell = IsotropicElasticParameters()
     p_shell.set_from_youngs_poisson(
-        youngs_modulus=args.shell_youngs,
+        youngs_modulus=args.shell_youngs * 1.0e6,
         poissons_ratio=0.45,
-        mass_density=1.10e-9,
+        mass_density=1100e-6,
     )
     mat_shell = NeoHookean(p_shell)
     elem_shell = Shell3Corotational(mat_shell, thickness=args.shell_thickness)
@@ -393,7 +393,7 @@ def main() -> None:
     f_grav_initial = GravityLoad(acceleration=tuple(initial_g)).compute_force_vector(
         M_global
     )
-    total_weight = abs(float(f_grav_initial[1::3].sum()))
+    total_weight = abs(float(f_grav_initial[1::3].sum())) * 1e-6
     console.print(f"  • Full Gravitational Weight: [green]{total_weight:.2f} N[/green]")
 
     def compute_net_external_load(

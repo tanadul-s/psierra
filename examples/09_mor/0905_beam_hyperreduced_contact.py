@@ -92,8 +92,8 @@ def parse_arguments() -> argparse.Namespace:
     parser.add_argument(
         "--kp",
         type=float,
-        default=2.0,
-        help="Normal penalty stiffness in N/mm (default: 2.0 N/mm)",
+        default=2000.0,
+        help="Normal penalty stiffness in g/s² (default: 2000.0)",
     )
     parser.add_argument(
         "--contact-priority",
@@ -173,9 +173,9 @@ def main() -> None:
     mesh = VolumetricMesh(mesh_file)
     params = IsotropicElasticParameters()
     params.set_from_youngs_poisson(
-        youngs_modulus=0.021,  # 21 kPa = 0.021 MPa (compliant elastomer)
-        poissons_ratio=0.45,
-        mass_density=1.1e-9,  # 1.1e-9 tonne/mm^3 = 1100 kg/m^3
+        youngs_modulus=21000.0,  # 21 kPa = 21,000 Pa (g/(mm·s²))
+        poissons_ratio=0.35,
+        mass_density=1100e-6,   # 1100e-6 g/mm³ = 1100 kg/m³
     )
     mat = NeoHookean(params)
     elem = Tet4TotalLagrangian(mat)
@@ -230,7 +230,7 @@ def main() -> None:
 
     for j in range(m_contact):
         fc_j = np.zeros(domain.n_dofs, dtype=np.float64)
-        fc_val = 0.003 * (j + 1)
+        fc_val = 3000.0 * (j + 1)
         fc_j[contact_dofs[1::3]] = fc_val  # Upward normal reaction (+Y)
         fc_j[contact_dofs[0::3]] = -fc_val * 0.1  # Tangential friction (-X)
         F_contact_list.append(fc_j)

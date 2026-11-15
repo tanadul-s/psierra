@@ -154,9 +154,9 @@ def run_brain_simulation(
     # Physiological material parameters (E = 3.0 kPa, nu = 0.45, rho = 1040 kg/m^3)
     params = IsotropicElasticParameters()
     params.set_from_youngs_poisson(
-        youngs_modulus=3.0e-3,       # MPa
+        youngs_modulus=3000.0,       # Pa (g/(mm·s²))
         poissons_ratio=0.45,
-        mass_density=1040.0 * 1e-12, # tonne/mm³
+        mass_density=1040e-6,        # g/mm³
     )
     base_mat = NeoHookean(params)
 
@@ -187,7 +187,7 @@ def run_brain_simulation(
 
     # Optional CSF fluid buoyancy
     if buoyancy:
-        fluid_density = 1000.0 * 1e-12  # CSF density ~ 1000 kg/m³
+        fluid_density = 1000e-6  # CSF density 1000 kg/m³ = 1000e-6 g/mm³
         buoy = BuoyancyLoad(
             fluid_density=fluid_density,
             acceleration=(gx, gy, gz),

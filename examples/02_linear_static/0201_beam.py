@@ -92,10 +92,15 @@ def main() -> None:
     # 2. Material & Element
     console.print("\n[bold yellow][2/6] Configuring Material & Element Formulation[/bold yellow]")
     params = IsotropicElasticParameters()
-    params.set_from_youngs_poisson(youngs_modulus=68.0e3, poissons_ratio=0.33, mass_density=2700e-6)  # MPa & tonne/mm³
+    # Silicone beam in (mm, g, s) units: E = 21000 Pa, nu = 0.35, rho = 1100e-6 g/mm³
+    params.set_from_youngs_poisson(
+        youngs_modulus=21000.0,
+        poissons_ratio=0.35,
+        mass_density=1100e-6,
+    )
     material = Hookean(params)
     element = Tet4Linear(material)
-    console.print("  • Material : [cyan]Hookean Linear Elasticity[/cyan] (E = 68.0 GPa, nu = 0.33)")
+    console.print("  • Material : [cyan]Hookean Linear Elasticity[/cyan] (E = 21.0 kPa, nu = 0.35, rho = 1100e-6 g/mm³)")
     console.print("  • Element  : [cyan]Tet4Linear[/cyan]")
 
     # 3. Domain
@@ -121,11 +126,11 @@ def main() -> None:
         console.print("  • Body Load Applied         : Self-weight gravity (|g| = 9.81 m/s² along -Y)")
 
     if args.load in ("tip", "both"):
-        tip_force_total = -500.0  # N along Y
+        tip_force_total = -1.0e6  # 1.0 N (-1.0e6 g·mm/s² = 1 µN units) along Y
         tip_force_per_node = tip_force_total / len(tip_nodes)
         tip_load = NodalForce(tip_nodes, component=1, value=tip_force_per_node)
         f_ext += tip_load.compute_force_vector(domain.n_dofs)
-        console.print(f"  • Tip Load Applied          : Total Fy = {tip_force_total:.1f} N across [green]{len(tip_nodes)}[/green] tip nodes")
+        console.print(f"  • Tip Load Applied          : Total Fy = -1.0 N across [green]{len(tip_nodes)}[/green] tip nodes")
 
     # 5. Solver
     console.print("\n[bold yellow][5/6] Executing Linear Static Solver[/bold yellow]")

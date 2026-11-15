@@ -334,9 +334,9 @@ def main() -> None:
 
     params = IsotropicElasticParameters()
     params.set_from_youngs_poisson(
-        youngs_modulus=3.0e-3,  # 3.0 kPa = 0.003 MPa
+        youngs_modulus=3000.0,  # 3.0 kPa = 3000.0 Pa (g/(mm·s²))
         poissons_ratio=0.45,
-        mass_density=1040e-12,  # tonne/mm^3
+        mass_density=1040e-6,   # 1040 kg/m³ = 1040e-6 g/mm³
     )
     material = NeoHookean(params)
     element = Tet4TotalLagrangian(material)

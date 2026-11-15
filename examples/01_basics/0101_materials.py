@@ -46,13 +46,13 @@ def main() -> None:
         )
     )
 
-    # 1. Base Isotropic Parameters (Soft biological tissue benchmark: E = 15.0 kPa, nu = 0.45)
+    # 1. Base Isotropic Parameters (Soft biological tissue benchmark: E = 15.0 kPa = 15000 Pa, nu = 0.45)
     console.print("\n[bold yellow][1/3] Instantiating Base Elastic Constants[/bold yellow]")
     base_iso = IsotropicElasticParameters()
     base_iso.set_from_youngs_poisson(
-        youngs_modulus=15.0e3,  # 15 kPa
+        youngs_modulus=15.0e3,  # 15000 Pa (g/(mm·s²))
         poissons_ratio=0.45,
-        mass_density=1040.0,   # kg/m^3
+        mass_density=1040e-6,   # g/mm³ (1040 kg/m³)
     )
     mu0 = base_iso.shear_modulus
     k0 = base_iso.bulk_modulus

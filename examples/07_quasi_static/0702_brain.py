@@ -138,9 +138,9 @@ def run_brain_quasistatic(
     # Physiological soft tissue properties (Franceschini 2-term viscoelastic spectrum)
     params = IsotropicElasticParameters()
     params.set_from_youngs_poisson(
-        youngs_modulus=3.0e-3,       # 3.0 kPa in MPa
+        youngs_modulus=3000.0,       # 3.0 kPa in Pa (g/(mm·s²))
         poissons_ratio=0.45,
-        mass_density=1040.0 * 1e-12, # tonne/mm³
+        mass_density=1040e-6,        # 1040 kg/m³ = 1040e-6 g/mm³
     )
     base_mat = NeoHookean(params)
     prony_terms = [

@@ -162,7 +162,7 @@ def run_single_simulation(
     console = Console()
     mesh = VolumetricMesh(mesh_path)
 
-    # Material parameters (E = 21,000 MPa, nu = 0.35, rho = 1100e-6 tonne/mm³)
+    # Material parameters (E = 21,000 Pa, nu = 0.35, rho = 1100e-6 g/mm³)
     params = IsotropicElasticParameters()
     params.set_from_youngs_poisson(
         youngs_modulus=21000.0,

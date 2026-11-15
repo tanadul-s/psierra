@@ -115,8 +115,8 @@ def parse_arguments() -> argparse.Namespace:
     parser.add_argument(
         "--youngs-modulus",
         type=float,
-        default=3.0,
-        help="Parenchymal tissue Young's modulus E in kPa (default: 3.0 kPa)",
+        default=3000.0,
+        help="Parenchymal tissue Young's modulus E in Pa (g/(mm·s²)) (default: 3000.0 Pa = 3.0 kPa)",
     )
     parser.add_argument(
         "--poissons-ratio",
@@ -127,8 +127,8 @@ def parse_arguments() -> argparse.Namespace:
     parser.add_argument(
         "--mass-density",
         type=float,
-        default=1040.0,
-        help="Brain tissue density rho in kg/m^3 (default: 1040.0 kg/m^3)",
+        default=1040e-6,
+        help="Brain tissue density rho in g/mm³ (default: 1040e-6 g/mm³ = 1040 kg/m³)",
     )
     parser.add_argument(
         "--clamp-y",
@@ -258,17 +258,15 @@ def main() -> None:
 
     # 2. Material & Kinematic Formulation Setup
     console.print("\n[bold yellow][2/6] Configuring Soft Tissue Constitutive Model[/bold yellow]")
-    # Convert units: E in MPa, rho in tonne/mm^3
-    # 1 tonne = 1000 kg, 1 m^3 = 10^9 mm^3 -> 1 kg/m^3 = 10^-12 tonne/mm^3
-    E_mpa = args.youngs_modulus * 1e-3  # kPa -> MPa (N/mm^2)
-    rho_tonne_mm3 = args.mass_density * 1e-12  # kg/m^3 -> tonne/mm^3 (1040 kg/m^3 = 1.04e-9 tonne/mm^3)
+    E_pa = float(args.youngs_modulus)  # Pa (g/(mm·s²))
+    rho_g_mm3 = float(args.mass_density)  # g/mm³
     nu = args.poissons_ratio
 
     params = IsotropicElasticParameters()
     params.set_from_youngs_poisson(
-        youngs_modulus=E_mpa,
+        youngs_modulus=E_pa,
         poissons_ratio=nu,
-        mass_density=rho_tonne_mm3,
+        mass_density=rho_g_mm3,
     )
 
     if args.material == "neohookean":
@@ -305,8 +303,8 @@ def main() -> None:
     console.print(f"  • Constitutive Law : [cyan]{material.__class__.__name__}[/cyan] ({mat_desc})")
     console.print(f"  • Element Class    : [cyan]{element.__class__.__name__}[/cyan] (Formulation: {formulation_type})")
     console.print(
-        f"  • Tissue Modulus   : [green]{args.youngs_modulus:.2f} kPa[/green] | "
-        f"Poisson's ν: [green]{nu:.2f}[/green] | Density ρ: [green]{args.mass_density:.1f} kg/m³[/green]"
+        f"  • Tissue Modulus   : [green]{E_pa:.1f} Pa ({E_pa/1000.0:.2f} kPa)[/green] | "
+        f"Poisson's ν: [green]{nu:.2f}[/green] | Density ρ: [green]{rho_g_mm3:.2e} g/mm³[/green]"
     )
 
     # 3. Domain & Boundary Constraints (Skull Base & Posterior Cradle Clamp)

@@ -135,9 +135,9 @@ def run_simulation(args: argparse.Namespace) -> None:
 
     # 1. Setup Continuum Domain & Boundary Conditions
     mesh = VolumetricMesh(mesh_path)
-    # Soft rubber parameters: E = 0.05 MPa (50 kPa), nu = 0.45, rho = 1.1e-9 tonne/mm³ (1100 kg/m³)
+    # Silicone beam parameters: E = 21,000 Pa (21 kPa), nu = 0.35, rho = 1100e-6 g/mm³ (1100 kg/m³)
     params = IsotropicElasticParameters()
-    params.set_from_youngs_poisson(0.05, 0.45, 1.1e-9)
+    params.set_from_youngs_poisson(21000.0, 0.35, 1100e-6)
     material = NeoHookean(params)
     elem_form = Tet4TotalLagrangian(material)
     domain = SolidDomain(mesh=mesh, material=material, element=elem_form)

@@ -60,10 +60,10 @@ def main() -> None:
 
     # 2. Material & Element Formulations
     console.print("\n[bold yellow][2/6] Configuring Material & Element Formulation[/bold yellow]")
-    # Soft parenchymal continuum core (representative of soft brain/organ tissue)
-    E_solid = 0.050       # MPa (50 kPa soft tissue)
+    # Soft parenchymal continuum core in (mm, g, s) units: E = 50 kPa = 50000 Pa, rho = 1000e-6 g/mm³
+    E_solid = 50000.0     # Pa (50 kPa soft tissue)
     nu_solid = 0.40       # Poisson's ratio
-    rho_solid = 1.0e-9    # tonne/mm^3 (1000 kg/m^3)
+    rho_solid = 1000e-6   # g/mm³ (1000 kg/m³)
 
     params_solid = IsotropicElasticParameters()
     params_solid.set_from_youngs_poisson(E_solid, nu_solid, rho_solid)
@@ -71,9 +71,9 @@ def main() -> None:
     elem_solid = Tet4Linear(mat_solid)
 
     # Stiff membrane/shell reinforcement (representative of dura mater / fibrous fascia)
-    E_shell = 10.0        # MPa (200x stiffer than parenchymal core)
+    E_shell = 10.0e6      # Pa (10 MPa, 200x stiffer than core)
     nu_shell = 0.30
-    rho_shell = 1.1e-9    # tonne/mm^3 (1100 kg/m^3)
+    rho_shell = 1100e-6   # g/mm³ (1100 kg/m³)
     t_shell = 0.50        # mm (0.5 mm membrane wall thickness)
 
     params_shell = IsotropicElasticParameters()
@@ -81,8 +81,8 @@ def main() -> None:
     mat_shell = Hookean(params_shell)
     elem_shell = Shell3Linear(mat_shell, thickness=t_shell)
 
-    console.print(f"  • Soft Solid Core  : E = [green]{E_solid * 1e3:.1f} kPa[/green] | ν = {nu_solid:.2f} | ρ = {rho_solid * 1e12:.0f} kg/m³")
-    console.print(f"  • Exterior Shell   : E = [green]{E_shell:.1f} MPa[/green] (200x stiffer) | t = [green]{t_shell:.2f} mm[/green] | ν = {nu_shell:.2f}")
+    console.print(f"  • Soft Solid Core  : E = [green]{E_solid * 1e-3:.1f} kPa[/green] | ν = {nu_solid:.2f} | ρ = {rho_solid * 1e6:.0f} kg/m³")
+    console.print(f"  • Exterior Shell   : E = [green]{E_shell * 1e-6:.1f} MPa[/green] (200x stiffer) | t = [green]{t_shell:.2f} mm[/green] | ν = {nu_shell:.2f}")
 
     # 3. Setting Up Physical Domains
     console.print("\n[bold yellow][3/6] Setting Up Physical Continuum Domains[/bold yellow]")

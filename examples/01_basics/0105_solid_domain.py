@@ -50,10 +50,15 @@ def main() -> None:
     # 2. Material & Element
     console.print("\n[bold yellow][2/6] Configuring Material & Element Formulation[/bold yellow]")
     params = IsotropicElasticParameters()
-    params.set_from_youngs_poisson(youngs_modulus=68.0e3, poissons_ratio=0.33, mass_density=2700e-6)  # MPa & tonne/mm³
+    # Silicone beam in (mm, g, s) units: E = 21000 Pa, nu = 0.35, rho = 1100e-6 g/mm³
+    params.set_from_youngs_poisson(
+        youngs_modulus=21000.0,
+        poissons_ratio=0.35,
+        mass_density=1100e-6,
+    )
     material = Hookean(params)
     element = Tet4Linear(material)
-    console.print("  • Material : [cyan]Hookean Linear Elasticity[/cyan] (E = 68.0 GPa, nu = 0.33)")
+    console.print("  • Material : [cyan]Hookean Linear Elasticity[/cyan] (E = 21.0 kPa, nu = 0.35, rho = 1100e-6 g/mm³)")
     console.print("  • Element  : [cyan]Tet4Linear[/cyan] (Constant Strain Tetrahedron)")
 
     # 3. Domain

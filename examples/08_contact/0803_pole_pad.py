@@ -128,9 +128,9 @@ def run_pole_pad_case(
     pad_mesh = VolumetricMesh(pad_file)
     pole_mesh = VolumetricMesh(pole_file)
 
-    # Pad material (compliant elastomer E = 1000 MPa, nu = 0.30, rho = 1.2e-6 tonne/mm³)
+    # Pad material (compliant elastomer E = 1000 Pa, nu = 0.30, rho = 1200e-6 g/mm³)
     params_pad = IsotropicElasticParameters()
-    params_pad.set_from_youngs_poisson(1000.0, 0.30, 1.2e-6)
+    params_pad.set_from_youngs_poisson(1000.0, 0.30, 1200e-6)
     mat_pad = NeoHookean(params_pad)
     elem_pad = Tet4TotalLagrangian(mat_pad)
     pad_domain = SolidDomain(pad_mesh, mat_pad, elem_pad)
@@ -167,7 +167,7 @@ def run_pole_pad_case(
     else:
         # Deformable pole
         params_pole = IsotropicElasticParameters()
-        params_pole.set_from_youngs_poisson(20000.0, 0.30, 7.8e-6)
+        params_pole.set_from_youngs_poisson(20000.0, 0.30, 7800e-6)
         mat_pole = NeoHookean(params_pole)
         elem_pole = Tet4TotalLagrangian(mat_pole)
         pole_domain = SolidDomain(pole_mesh, mat_pole, elem_pole)

@@ -159,9 +159,9 @@ def run_linear_calibration(
     dists = np.linalg.norm(surf_pts - target_site, axis=1)
     indenter_node = surf_nodes[np.argmin(dists)]
 
-    E_true_mpa = E_true_kpa * 1e-3
+    E_true_pa = E_true_kpa * 1000.0
     params_true = IsotropicElasticParameters()
-    params_true.set_from_youngs_poisson(youngs_modulus=E_true_mpa, poissons_ratio=nu, mass_density=1040e-12)
+    params_true.set_from_youngs_poisson(youngs_modulus=E_true_pa, poissons_ratio=nu, mass_density=1040e-6)
     material_true = Hookean(params_true)
     element_true = Tet4Linear(material_true)
     domain_true = SolidDomain(mesh=mesh, material=material_true, element=element_true)
@@ -172,14 +172,14 @@ def run_linear_calibration(
     prescribed_depths = np.array([0.5, 1.0, 1.5, 2.0, 2.5], dtype=np.float64)
     indenter_dof_z = 3 * indenter_node + 2
     f_unit = np.zeros(mesh.n_dofs, dtype=np.float64)
-    f_unit[indenter_dof_z] = -1.0
+    f_unit[indenter_dof_z] = -1.0e6
 
     f_unit_f = f_unit[free_dofs]
     u_unit_f = spspla.spsolve(K_true_ff, f_unit_f)
     u_unit = np.zeros(mesh.n_dofs, dtype=np.float64)
     u_unit[free_dofs] = u_unit_f
 
-    compliance_true = -u_unit[indenter_dof_z]
+    compliance_true = -u_unit[indenter_dof_z] / 1.0e6
     stiffness_true = 1.0 / compliance_true
     F_true = prescribed_depths * stiffness_true
 
@@ -190,9 +190,9 @@ def run_linear_calibration(
         F_exp = F_true
 
     # Baseline with E_0
-    E_0_mpa = E_0_kpa * 1e-3
+    E_0_pa = E_0_kpa * 1000.0
     params_0 = IsotropicElasticParameters()
-    params_0.set_from_youngs_poisson(youngs_modulus=E_0_mpa, poissons_ratio=nu, mass_density=1040e-12)
+    params_0.set_from_youngs_poisson(youngs_modulus=E_0_pa, poissons_ratio=nu, mass_density=1040e-6)
     material_0 = Hookean(params_0)
     domain_0 = SolidDomain(mesh=mesh, material=material_0, element=element_true)
     K_0 = domain_0.assemble_stiffness_matrix()
@@ -201,7 +201,7 @@ def run_linear_calibration(
     u_0_f = spspla.spsolve(K_0_ff, f_unit_f)
     u_0 = np.zeros(mesh.n_dofs, dtype=np.float64)
     u_0[free_dofs] = u_0_f
-    compliance_0 = -u_0[indenter_dof_z]
+    compliance_0 = -u_0[indenter_dof_z] / 1.0e6
     stiffness_0 = 1.0 / compliance_0
     F_baseline_0 = prescribed_depths * stiffness_0
 
@@ -315,7 +315,7 @@ def run_hyperreduced_calibration(
 
     # Indentation load vector in reduced space
     params_true = IsotropicElasticParameters()
-    params_true.set_from_youngs_poisson(youngs_modulus=E_true_kpa * 1e-3, poissons_ratio=nu_true, mass_density=1040e-12)
+    params_true.set_from_youngs_poisson(youngs_modulus=E_true_kpa * 1000.0, poissons_ratio=nu_true, mass_density=1040e-6)
     material_true = NeoHookean(params_true)
     element_true = Tet4TotalLagrangian(material_true)
     domain_true = SolidDomain(mesh=mesh, material=material_true, element=element_true)
@@ -330,7 +330,7 @@ def run_hyperreduced_calibration(
     solver_true = HyperReducedStaticSolver(model=model_true, max_iter=20, tol=1e-6)
 
     f_unit_full = np.zeros(mesh.n_dofs, dtype=np.float64)
-    f_unit_full[3 * indenter_node + 2] = -1.0  # 1.0 N downward
+    f_unit_full[3 * indenter_node + 2] = -1.0e6  # 1.0 N downward in g·mm/s²
     f_unit_r = model_true.project_load(f_unit_full)
 
     test_contact_loads = np.array([0.05, 0.10, 0.15, 0.20], dtype=np.float64)
@@ -348,7 +348,7 @@ def run_hyperreduced_calibration(
 
     # Optimization model with prior initial guess
     params_opt = IsotropicElasticParameters()
-    params_opt.set_from_youngs_poisson(youngs_modulus=E_0_kpa * 1e-3, poissons_ratio=nu_true, mass_density=1040e-12)
+    params_opt.set_from_youngs_poisson(youngs_modulus=E_0_kpa * 1000.0, poissons_ratio=nu_true, mass_density=1040e-6)
     material_opt = NeoHookean(params_opt)
     element_opt = Tet4TotalLagrangian(material_opt)
     domain_opt = SolidDomain(mesh=mesh, material=material_opt, element=element_opt)
@@ -370,7 +370,7 @@ def run_hyperreduced_calibration(
             E_val = float(param_dict[0])
             nu_val = float(param_dict[1]) if calibrate_nu and len(param_dict) > 1 else nu_true
 
-        params_opt.set_from_youngs_poisson(youngs_modulus=E_val * 1e-3, poissons_ratio=nu_val, mass_density=1040e-12)
+        params_opt.set_from_youngs_poisson(youngs_modulus=E_val * 1000.0, poissons_ratio=nu_val, mass_density=1040e-6)
         delta_sim = []
         for f_load in test_contact_loads:
             solver_opt.u_r.fill(0.0)

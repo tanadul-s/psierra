@@ -87,10 +87,10 @@ def main() -> None:
     # 2. Material & Element
     console.print("\n[bold yellow][2/6] Configuring Material & Element Formulation[/bold yellow]")
     params = IsotropicElasticParameters()
-    params.set_from_youngs_poisson(youngs_modulus=70000.0, poissons_ratio=0.35, mass_density=1100e-6)  # MPa & tonne/mm³
+    params.set_from_youngs_poisson(youngs_modulus=21000.0, poissons_ratio=0.35, mass_density=1100e-6)  # Pa & g/mm³
     material = Hookean(params)
     element = Tet4Linear(material)
-    console.print("  • Material : [cyan]Hookean Elasticity[/cyan] (E = 70.0 GPa, nu = 0.35)")
+    console.print("  • Material : [cyan]Hookean Elasticity[/cyan] (E = 21.0 kPa, nu = 0.35, rho = 1100e-6 g/mm³)")
     console.print("  • Element  : [cyan]Tet4Linear[/cyan]")
 
     # 3. Domain
@@ -115,7 +115,7 @@ def main() -> None:
     damping = RayleighDamping(alpha=2.0, beta=0.001)
 
     console.print(f"  • Clamped Root Face (Z_min): [green]{len(root_nodes)}[/green] nodes constrained")
-    console.print(f"  • Transverse Gravity Load  : [green]{np.abs(f_ext[1::3].sum()):.2f}[/green] N along -Y")
+    console.print(f"  • Transverse Gravity Load  : [green]{np.abs(f_ext[1::3].sum()) * 1e-6:.2f}[/green] N ({np.abs(f_ext[1::3].sum()):.2e} g·mm/s²) along -Y")
     console.print(f"  • Rayleigh Damping         : alpha = {damping.alpha}, beta = {damping.beta}")
 
     # 5. Solver
