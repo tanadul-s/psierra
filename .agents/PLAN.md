@@ -231,8 +231,13 @@ This roadmap is laser-focused on biological soft-tissue mechanics, robust contac
   * Universal continuum modularity verified across `Tet4TotalLagrangian`, `Tet4UpdatedLagrangian`, `Tet4Fbar`, `Tet10TotalLagrangian`, and rate-dependent `Viscoelastic` wrapper.
   * 19 automated mathematical verification tests in [`tests/test_material_hgo.py`](../tests/test_material_hgo.py) (100% pass rate).
   * Delivered new executable simulation: [`examples/11_advanced_continua/1111_hgo_anisotropic_bending.py`](../examples/11_advanced_continua/1111_hgo_anisotropic_bending.py) benchmarking anisotropic gravity cantilever bending across 4 configurations (Isotropic Elastin baseline, Longitudinal Fibers, Transverse Fibers, and Symmetric Helical Fibers).
-* [ ] **Online Hyper-Reduced Inverse Parameter Identification**:
+* [x] **Online Hyper-Reduced Inverse Parameter Identification**:
   * Real-time in-vivo tissue stiffness calibration during active robotic tool contact.
+  * Delivered [`examples/10_inverse/1008_hyperreduced_brain_parameter_identification.py`](../examples/10_inverse/1008_hyperreduced_brain_parameter_identification.py):
+    * Coupled ECSW empirical cubature (12 / 90,586 elements, 7549x reduction) with Trust-Region Reflective (TRF) nonlinear least-squares optimizer.
+    * Real-time in-vivo calibration of brain parenchyma Young's modulus $E$ (and joint $E, \nu$) from multi-stage robotic indentation in < 150 ms with < 0.001% error.
+    * Interactive 3D PyVista GUI with live cortical indentation, recalibration hotkey `[Space]`, stiffness perturbation `[P]`, and HUD telemetry.
+  * Added automated test in [`tests/test_ifem_parameter_identification.py`](../tests/test_ifem_parameter_identification.py) (`test_hyperreduced_parameter_identification`).
 * [ ] **Multi-Modal Intraoperative Sensor Fusion**:
   * Fusing sparse cortical surface optical markers with intraoperative ultrasound (iUS) and stereovision point clouds for enhanced deep-target tracking accuracy.
 * [ ] **Loop 2 Grand Showcase Gallery (All-Capabilities Demonstration)**:
