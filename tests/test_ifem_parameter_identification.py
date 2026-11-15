@@ -313,3 +313,79 @@ class TestAdversarialAndErrorHandling:
         res = identifier.identify(exp_data, unstable_forward)
         assert res.success is True
         assert np.isclose(res.parameters["E"], 20.0, rtol=1e-3)
+
+    def test_hyperreduced_parameter_identification(self) -> None:
+        """Verifies online hyper-reduced parameter identification using ECSW cubature."""
+        from psierra.reduction import SnapshotManager
+        from psierra.hyperreduction import (
+            ReducedIntegrationDomain,
+            HyperReducedECSWModel,
+            HyperReducedStaticSolver,
+        )
+        from psierra.boundary import DirichletManager, DirichletConstraint
+
+        # Use precomputed brain or beam MOR cache
+        cache_dir = Path("data/mrbraintumor1/mor/0904_interactive_hyperreduced_brain_shift")
+        if not cache_dir.exists():
+            pytest.skip("Precomputed brain MOR cache not found")
+
+        brain_path = Path("data/mrbraintumor1/mesh/brain.vtk")
+        if not brain_path.exists():
+            pytest.skip("brain.vtk not found")
+
+        mesh = VolumetricMesh(brain_path)
+        params = IsotropicElasticParameters()
+        E_truth = 3.0  # kPa
+        params.set_from_youngs_poisson(youngs_modulus=E_truth * 1e-3, poissons_ratio=0.45, mass_density=1040e-12)
+        material = NeoHookean(params)
+        element = Tet4TotalLagrangian(material)
+        domain = SolidDomain(mesh, material, element)
+
+        # Clamping skull base (Y < -20 mm)
+        clamped_node_mask = mesh.nodes[:, 1] < -20.0
+        clamped_nodes = np.where(clamped_node_mask)[0]
+        dirichlet = DirichletManager(mesh.n_dofs)
+        dirichlet.add_constraint(DirichletConstraint(clamped_nodes, components=(0, 1, 2), value=0.0))
+
+        snap_mgr = SnapshotManager.load(cache_dir / "snapshots.npz")
+        basis = snap_mgr.compute_basis(energy_threshold=0.999, max_modes=5)
+        rid = ReducedIntegrationDomain.load(cache_dir / "ecsw_rid.npz")
+        model = HyperReducedECSWModel(domain, basis, rid, dirichlet)
+
+        # Indentation contact site on exposed cortex
+        surf_nodes = mesh.surface.node_indices
+        surf_pts = mesh.nodes[surf_nodes]
+        target_site = np.array([0.0, 30.0, 58.0], dtype=np.float64)
+        dists = np.linalg.norm(surf_pts - target_site, axis=1)
+        indenter_node = surf_nodes[np.argmin(dists)]
+
+        f_full = np.zeros(mesh.n_dofs)
+        f_full[3 * indenter_node + 2] = -1.0  # 1.0 N load in -Z
+        f_r = model.project_load(f_full)
+
+        # Generate ground truth indentation deflection under 100 mN contact
+        load_contact = 0.10  # 100 mN
+        solver = HyperReducedStaticSolver(model=model, max_iter=15, tol=1e-6)
+        u_r_true = solver.solve(f_ext_r=f_r * load_contact, n_increments=1)
+        u_full_true = model.reconstruct_displacement(u_r_true)
+        depth_true = -float(u_full_true[3 * indenter_node + 2])
+
+        # Callback for parameter optimizer (from initial guess E_0 = 8.0 kPa)
+        def eval_depth(p_dict: dict[str, float]) -> np.ndarray:
+            E_kpa = p_dict["E"]
+            params.set_from_youngs_poisson(youngs_modulus=E_kpa * 1e-3, poissons_ratio=0.45, mass_density=1040e-12)
+            solver.u_r.fill(0.0)
+            u_r_eval = solver.solve(f_ext_r=f_r * load_contact, n_increments=1)
+            u_full_eval = model.reconstruct_displacement(u_r_eval)
+            return np.array([-float(u_full_eval[3 * indenter_node + 2])])
+
+        identifier = MaterialParameterIdentifier.from_bounds(
+            {"E": (8.0, 0.5, 20.0)},
+            method="trf",
+            ftol=1e-6,
+            xtol=1e-6,
+        )
+        res = identifier.identify(np.array([depth_true]), eval_depth)
+        assert res.success is True
+        assert np.isclose(res.parameters["E"], E_truth, rtol=1e-3)
+
