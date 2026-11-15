@@ -13,89 +13,82 @@
 # ------------------------------------------------------------------------------
 # 01_basics: Fundamental Building Blocks (Parameters, Mesh, Assembly, Domain)
 # ------------------------------------------------------------------------------
-0101    # material_parameters.py
-0102    # material_hookean.py
-0103    # material_hyperelastic.py
-0104    # sparse_assembly.py
-0105    # mesh_read.py
-0106    # mesh_assembly.py
-0107    # meshing_toroid.py
-0108    # meshing_beam.py
-0109    # meshing_brain.py
-0110    # solid_domain.py
+0101    # 0101_materials.py (Hookean, Neo-Hookean, Ogden, Mooney-Rivlin, Yeoh, HGO, Viscoelastic)
+0102    # 0102_mesh_io.py (Mesh reading, inspection, XDMF/PVD export, checkpoint resume)
+0103    # 0103_mesh_generation.py (Torus generation, beam STL tet4/tet10 meshing, brain meshing)
+0104    # 0104_sparse_assembly.py (COO triplet to CSC global stiffness assembly)
+0105    # 0105_solid_domain.py (SolidDomain 6-stage lifecycle execution & boundary management)
 
 # ------------------------------------------------------------------------------
 # 02_linear_static: Linear Static Solvers & Coupled Shells
 # ------------------------------------------------------------------------------
-0201    # tip_load_beam.py
-0202    # gravity_beam.py
-0203    # plate_bending_shell.py
-0204    # solid_shell_beam.py
+0201    # 0201_beam.py (Cantilever beam bending under tip and gravity loads)
+0202    # 0202_plate.py (Thin shell plate bending, S3 / DKT triangle kinematics)
+0203    # 0203_beam_shell.py (Coupled solid-shell continuum beam)
 
 # ------------------------------------------------------------------------------
 # 03_linear_dynamic: Linear Dynamic Time Integration
 # ------------------------------------------------------------------------------
-0301    # dynamic_beam.py
+0301    # 0301_beam.py (Transient vibration with Rayleigh damping, 100 steps)
+0302    # 0302_brain.py (Linear transient impulse response of brain tissue, 100 steps)
 
 # ------------------------------------------------------------------------------
 # 04_nonlinear_static: Finite Rotation & Nonlinear Formulations (SVK, TL, CR, UL)
 # ------------------------------------------------------------------------------
-0401    # svk_beam.py
-0402    # tl_beam.py
-0403    # cr_beam.py
-0404    # ul_beam.py
+0401    # 0401_beam.py (Finite-strain beam bending: TL, UL, CR, SVK, Tet4/Tet10, F-bar)
+0402    # 0402_brain.py (Nonlinear static brain gravity sag across surgical postures)
 
 # ------------------------------------------------------------------------------
 # 05_nonlinear_dynamic: Large-Deformation Dynamic Integration
 # ------------------------------------------------------------------------------
-0501    # svk_beam.py
-0502    # tl_beam.py
-0503    # ul_beam.py
+0501    # 0501_beam.py (Dynamic nonlinear beam bending, default 200 steps)
+0502    # 0502_brain.py (Dynamic nonlinear brain shift across postures & CSF buoyancy, default 200 steps)
 
 # ------------------------------------------------------------------------------
-# 06_interactive: Real-Time Dynamic Simulation (defaults to --headless in batch)
+# 06_dynamic_relaxation: Kinetic Peak Damping for Static Equilibrium
 # ------------------------------------------------------------------------------
-0601 --headless    # gravity_beam.py
-0602 --headless    # torsion_beam.py
-0603 --headless    # brain_shift.py
+0601    # 0601_beam.py (Matrix-free static equilibrium under gravity)
+0602    # 0602_brain.py (Clinical burr-hole brain shift resolving cortical bulging vs sagging)
 
 # ------------------------------------------------------------------------------
-# 07_benchmarks: Comparative Verification Studies
+# 07_quasi_static: Rate-Dependent Viscoelastic Time History
 # ------------------------------------------------------------------------------
-0701    # static_beam_tet.py (Tet10 vs Tet4 shear locking)
-0702    # kinematic_formulations.py (Linear vs CR vs TL vs UL)
-0703    # hyperelastic_models.py (Neo-Hookean vs Mooney-Rivlin vs Yeoh)
-0704    # time_integrators.py (Spectral radius comparison)
-0705    # torsion_material.py (Severe axial torsion & Poynting effect)
-0706    # tet10_nonlinear_beam.py (Quadratic finite-strain bending)
+0701    # 0701_beam.py (Viscoelastic rate-dependent beam relaxation under sustained loading)
+0702    # 0702_brain.py (Viscoelastic surgical brain relaxation under sustained gravity)
 
 # ------------------------------------------------------------------------------
 # 08_contact: Rigid, Deformable, and Self-Contact Mechanics
 # ------------------------------------------------------------------------------
-0801    # static_rigid_floor.py
-0802    # dynamic_rigid_floor.py
-0803    # dynamic_deformable_floor.py
-0804    # self_contact_bunny.py
-0805    # self_contact_cuboid.py
+0801    # 0801_beam_floor_penalty.py (Node-to-surface penalty contact on 3D floor)
+0802    # 0802_beam_floor_mortar.py (Segment-to-segment mortar contact on 3D floor)
+0803    # 0803_pole_pad.py (Curved contact between pad and cylindrical pole with Coulomb friction)
+0804    # 0804_bunny_self_contact.py (Stanford bunny self-contact under compound gravity)
+0805    # 0805_cuboid_self_contact.py (Slotted cuboid flexure self-contact under bilateral pinching)
+0806    # 0806_frictional_stick_slip.py (Coulomb stick-slip limit cycles and return mapping)
 
 # ------------------------------------------------------------------------------
 # 09_mor: Model Order Reduction (POD-Galerkin ROM & ECSW Hyper-Reduction)
 # ------------------------------------------------------------------------------
-0901 --headless    # reduced_dynamic_beam.py
-0902 --headless    # interactive_reduced_brain_shift.py
-0903 --headless    # hyperreduced_nonlinear_beam.py
-0904 --headless    # hyperreduced_brain_shift.py
-0905 --headless    # hyperreduced_brain_shift_contact.py
+0901    # 0901_beam_reduced.py (Linear POD-Galerkin ROM on dynamic beam)
+0902    # 0902_brain_reduced.py (POD-Galerkin ROM for multi-axial neurosurgical brain shift)
+0903    # 0903_beam_hyperreduced.py (ECSW vs DEIM nonlinear hyper-reduction benchmark)
+0904    # 0904_brain_hyperreduced.py (Real-time ECSW hyper-reduced brain shift)
+0905    # 0905_beam_hyperreduced_contact.py (Contact-aware ECSW for beam-floor impact)
+0906 --headless    # 0906_brain_hyperreduced_contact.py (ECSW brain shift with skull contact)
 
 # ------------------------------------------------------------------------------
 # 10_inverse: Inverse FEM (iFEM) & Parameter Identification
 # ------------------------------------------------------------------------------
-1001    # beam_shape_sensing.py (Variational shape sensing from sparse surface markers)
-1002    # beam_parameter_identification.py (Calibrating Young's modulus from force-deflection curve)
-1003    # beam_stress_free_inversion.py (Recovering undeformed reference geometry & eliminating double-gravity bias)
-1004    # dynamic_beam_shape_sensing.py (Continuous real-time dynamic shape sensing & deep target tracking at > 30 kHz)
-1005 --headless    # brain_shape_sensing.py (Real-time clinical 3D brain deformation & tumor drift reconstruction from cortical markers)
-1006 --headless    # brain_parameter_identification.py (Patient-specific brain stiffness calibration from surgical indentation probe)
-1007 --headless --max-iters 3    # brain_stress_free_inversion.py (Zero-gravity reference configuration recovery & eliminating double-gravity bias)
+1001    # 1001_beam_shape_sensing.py (Variational shape sensing from sparse surface markers)
+1002    # 1002_brain_shape_sensing.py (Cortical marker tracking & subcortical tumor drift)
+1003    # 1003_beam_param_identification.py (Young's modulus calibration from force-deflection curve)
+1004    # 1004_brain_param_identification.py (Patient-specific stiffness calibration via probe)
+1005    # 1005_beam_stress_free.py (Undeformed reference configuration recovery)
+1006    # 1006_brain_stress_free.py (Zero-gravity pre-op MRI reference configuration recovery)
 
-
+# ------------------------------------------------------------------------------
+# 11_interactive: Real-Time Interactive Physics & Digital Twins
+# ------------------------------------------------------------------------------
+1101 --headless    # 1101_beam.py (Interactive cantilever dynamic bending & axial torsion)
+1102 --headless    # 1102_brain.py (Interactive 3D brain shift with live posture rotation)
+1103 --headless    # 1103_brain_twin.py (Hyper-reduced clinical digital twin with live multi-modal sensing)

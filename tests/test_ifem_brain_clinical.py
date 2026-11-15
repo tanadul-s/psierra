@@ -282,39 +282,39 @@ class TestBrainStressFreeInversion:
 class TestClinicalExamplesHeadlessSmoke:
     """Verifies that all three Phase 5 Tier 2 clinical scripts execute end-to-end via CLI."""
 
-    def test_example_1005_brain_shape_sensing_headless(self) -> None:
-        """Smoke test for 1005_brain_shape_sensing.py."""
+    def test_example_1002_brain_shape_sensing_headless(self) -> None:
+        """Smoke test for 1002_brain_shape_sensing.py."""
         cmd = [
             sys.executable,
-            "examples/10_inverse/1005_brain_shape_sensing.py",
+            "examples/10_inverse/1002_brain_shape_sensing.py",
             "--headless",
             "--n-sensors",
             "12",
         ]
         result = subprocess.run(cmd, capture_output=True, text=True, timeout=120)
-        assert result.returncode == 0, f"Script 1005 failed:\n{result.stderr}\n{result.stdout}"
+        assert result.returncode == 0, f"Script 1002 failed:\n{result.stderr}\n{result.stdout}"
         assert "CLINICAL ACCURACY PASSED" in result.stdout
 
-    def test_example_1006_brain_parameter_identification_headless(self) -> None:
-        """Smoke test for 1006_brain_parameter_identification.py."""
+    def test_example_1004_brain_parameter_identification_headless(self) -> None:
+        """Smoke test for 1004_brain_param_identification.py."""
         cmd = [
             sys.executable,
-            "examples/10_inverse/1006_brain_parameter_identification.py",
+            "examples/10_inverse/1004_brain_param_identification.py",
             "--headless",
         ]
         result = subprocess.run(cmd, capture_output=True, text=True, timeout=60)
-        assert result.returncode == 0, f"Script 1006 failed:\n{result.stderr}\n{result.stdout}"
+        assert result.returncode == 0, f"Script 1004 failed:\n{result.stderr}\n{result.stdout}"
         assert "CLINICAL CALIBRATION PASSED" in result.stdout
 
-    def test_example_1007_brain_stress_free_inversion_headless(self) -> None:
-        """Smoke test for 1007_brain_stress_free_inversion.py."""
+    def test_example_1006_brain_stress_free_inversion_headless(self) -> None:
+        """Smoke test for 1006_brain_stress_free.py."""
         cmd = [
             sys.executable,
-            "examples/10_inverse/1007_brain_stress_free_inversion.py",
+            "examples/10_inverse/1006_brain_stress_free.py",
             "--headless",
             "--max-iters",
             "2",
         ]
         result = subprocess.run(cmd, capture_output=True, text=True, timeout=120)
-        assert result.returncode == 0, f"Script 1007 failed:\n{result.stderr}\n{result.stdout}"
+        assert result.returncode == 0, f"Script 1006 failed:\n{result.stderr}\n{result.stdout}"
         assert "Double-Gravity Bias" in result.stdout or "Double-gravity" in result.stdout

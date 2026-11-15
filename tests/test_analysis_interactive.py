@@ -215,7 +215,9 @@ class TestInteractiveDynamicSimulation:
 
         cmd = [
             sys.executable,
-            "examples/06_interactive/0601_gravity_beam.py",
+            "examples/11_interactive/1101_beam.py",
+            "--mode",
+            "bending",
             "--headless",
             "--duration",
             "0.02",
@@ -324,7 +326,9 @@ class TestInteractiveDynamicSimulation:
 
         cmd = [
             sys.executable,
-            "examples/06_interactive/0602_torsion_beam.py",
+            "examples/11_interactive/1101_beam.py",
+            "--mode",
+            "torsion",
             "--headless",
             "--duration",
             "0.02",

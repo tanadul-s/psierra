@@ -147,7 +147,7 @@ find_scripts() {
 if [[ "${RUN_ALL}" == true ]]; then
     echo "[INFO] Running ALL discovered examples in examples/"
     while IFS= read -r script_path; do
-        if [[ "${script_path}" =~ 06_interactive ]]; then
+        if [[ "${script_path}" =~ (06_interactive|11_interactive) ]]; then
             TARGET_RUNS+=("${script_path} --headless")
         else
             TARGET_RUNS+=("${script_path}")
@@ -161,7 +161,7 @@ elif [[ ${#CLI_TARGETS[@]} -gt 0 ]]; then
         if [[ -n "${resolved_list}" ]]; then
             while IFS= read -r resolved; do
                 [[ -z "${resolved}" ]] && continue
-                if [[ "${resolved}" =~ 06_interactive ]]; then
+                if [[ "${resolved}" =~ (06_interactive|11_interactive) ]]; then
                     TARGET_RUNS+=("${resolved} --headless")
                 else
                     TARGET_RUNS+=("${resolved}")
@@ -201,7 +201,7 @@ else
                 [[ -z "${resolved}" ]] && continue
                 # Ensure interactive scripts default to headless if not specified
                 local_args="${extra_args}"
-                if [[ "${resolved}" =~ 06_interactive ]] && [[ ! "${local_args}" =~ --headless ]]; then
+                if [[ "${resolved}" =~ (06_interactive|11_interactive) ]] && [[ ! "${local_args}" =~ --headless ]]; then
                     local_args="--headless ${local_args}"
                 fi
 

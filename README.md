@@ -43,29 +43,40 @@ uv run pytest -n auto
 The demonstration suite in [`examples/`](examples/) is categorized into clear engineering disciplines:
 
 ```bash
-# Linear static beam bending
-python examples/02_linear_static/0201_tip_load_beam.py
-python examples/02_linear_static/0202_gravity_beam.py
+# Linear static beam bending & shell coupling
+python examples/02_linear_static/0201_beam.py
+python examples/02_linear_static/0202_plate.py
 
 # Linear dynamic transient vibration with Rayleigh damping
-python examples/03_linear_dynamic/0301_dynamic_beam.py
+python examples/03_linear_dynamic/0301_beam.py
 
-# Nonlinear static large deflection (Saint Venant-Kirchhoff & Total Lagrangian Neo-Hookean)
-python examples/04_nonlinear_static/0401_svk_beam.py
-python examples/04_nonlinear_static/0402_tl_beam.py
+# Nonlinear static large deflection (Saint Venant-Kirchhoff, Total/Updated Lagrangian, Corotational)
+python examples/04_nonlinear_static/0401_beam.py
+python examples/04_nonlinear_static/0402_brain.py
 
-# Nonlinear dynamic transient vibration
-python examples/05_nonlinear_dynamic/0501_svk_beam.py
-python examples/05_nonlinear_dynamic/0502_tl_beam.py
+# Nonlinear dynamic transient vibration & brain shift
+python examples/05_nonlinear_dynamic/0501_beam.py
+python examples/05_nonlinear_dynamic/0502_brain.py
 
-# Real-time interactive dynamics
-python examples/06_interactive/0601_online_cantilever.py --headless
+# Matrix-free dynamic relaxation & quasi-static viscoelastic relaxation
+python examples/06_dynamic_relaxation/0601_beam.py
+python examples/07_quasi_static/0701_beam.py
 
-# Comprehensive multi-model benchmarks
-python examples/07_benchmarks/0702_kinematic_formulations.py
+# Penalty & mortar contact mechanics, self-contact
+python examples/08_contact/0801_beam_floor_penalty.py
+python examples/08_contact/0804_bunny_self_contact.py
 
-# Contact mechanics & self-contact
-python examples/08_contact/0803_dynamic_rigid_floor.py
+# POD-Galerkin ROM & ECSW hyper-reduction
+python examples/09_mor/0901_beam_reduced.py
+python examples/09_mor/0904_brain_hyperreduced.py
+
+# Variational shape sensing & inverse parameter identification
+python examples/10_inverse/1001_beam_shape_sensing.py
+python examples/10_inverse/1004_brain_param_identification.py
+
+# Real-time interactive physics & clinical digital twin
+python examples/11_interactive/1101_beam.py --headless
+python examples/11_interactive/1103_brain_twin.py --headless
 ```
 
 ---
