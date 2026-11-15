@@ -238,8 +238,16 @@ This roadmap is laser-focused on biological soft-tissue mechanics, robust contac
     * Real-time in-vivo calibration of brain parenchyma Young's modulus $E$ (and joint $E, \nu$) from multi-stage robotic indentation in < 150 ms with < 0.001% error.
     * Interactive 3D PyVista GUI with live cortical indentation, recalibration hotkey `[Space]`, stiffness perturbation `[P]`, and HUD telemetry.
   * Added automated test in [`tests/test_ifem_parameter_identification.py`](../tests/test_ifem_parameter_identification.py) (`test_hyperreduced_parameter_identification`).
-* [ ] **Multi-Modal Intraoperative Sensor Fusion**:
+* [x] **Multi-Modal Intraoperative Sensor Fusion**:
   * Fusing sparse cortical surface optical markers with intraoperative ultrasound (iUS) and stereovision point clouds for enhanced deep-target tracking accuracy.
+  * Delivered [`examples/10_inverse/1009_multimodal_sensor_fusion.py`](../examples/10_inverse/1009_multimodal_sensor_fusion.py):
+    * Anatomically accurate burr hole trephination matching simulation `1108` ($R = 10.0\text{ mm}$, $\varnothing = 20.0\text{ mm}$, normal $\boldsymbol{n} = [-0.069, 0.654, 0.754]$) with 3D annular bone table collar and aperture perimeter ring.
+    * Physically accurate brain shift under 30° lateral head posture with 85% CSF buoyancy relief (15% net gravity sag), keeping brain anatomically contained inside cranial vault ($\sim 2.18\text{ mm}$ cortical shift, $\sim 2.21\text{ mm}$ deep tumor drift).
+    * Dual heterogeneous point clouds referenced to burr hole: 28 optical surface markers on exposed cortex ($\sigma = 0.05\text{ mm}$, $W = 1.0$) and 24 deep ultrasound (iUS) boundary points on lesion margin ($\sigma = 0.25\text{ mm}$, $W = 0.04$, depth $22.2\text{ mm}$).
+    * Tri-modal comparative benchmark: Surface Optical Only ($0.208\text{ mm}$ error) vs. Deep iUS Only ($0.091\text{ mm}$) vs. Fused Multi-Modal ($0.085\text{ mm}$ FOM, $0.024\text{ mm}$ ROM, $59.4\%$ accuracy gain over surface alone).
+    * Real-time ROM subspace inversion running in $24.7\ \mu\text{s}$ ($40{,}537\text{ Hz}$).
+    * Interactive 3D PyVista GUI rendering skull vault, annular bone table collar, green optical surface point cloud, magenta ultrasound target cloud, deformed brain, and reconstructed lesion wireframe.
+  * Added automated verification in [`tests/test_ifem_shape_sensing.py`](../tests/test_ifem_shape_sensing.py) (`test_multimodal_sensor_fusion_tracking`).
 * [ ] **Loop 2 Grand Showcase Gallery (All-Capabilities Demonstration)**:
   * Deliver standalone executable, PyVista-visualized examples covering every simulation mode in `pSierra`:
     1. [x] `examples/11_advanced_continua/1101_tet4fbar_incompressibility.py`: 15-step NonlinearStaticAnalysis (Neo-Hookean, $\nu = 0.499, K/\mu = 500$): Tet4TotalLagrangian locking ($0.043\ \text{mm}$) vs. Tet4Fbar compliance ($0.127\ \text{mm}$, $2.99\times$ ratio). Exports `result_tet4_tl.vtu`, `result_tet4_fbar.vtu`, and `.pvd` animations.
