@@ -890,3 +890,85 @@ for physiological materials ($\nu \approx 0.35\text{--}0.48$).
   * Robust parameter extraction across `NeoHookean`, `Hookean`, `Yeoh`, `MooneyRivlin`, `Ogden`, `HGO`, duck-types, and fallbacks.
   * Acceptance Gate: Parametric Modulus Sweep ($E = 10\text{ MPa} \to 21\text{ kPa} \to 1\text{ kPa}$) in `NonlinearStaticAnalysis` achieves identical iteration counts (`[3, 2]`, $< 6$ Newton iterations per step) and zero element inversions ($\det \boldsymbol{F} > 0$).
   * Stiffness norm ratio invariance: $\|\boldsymbol{K}_c\| / \|\boldsymbol{K}_{\text{dom}}\|$ invariant across moduli; avoids the 200,000x conditioning degradation of user-guessed rigid penalties.
+
+
+---
+
+## 21. Two-Body Large-Deformation Ironing Benchmark (Milestone 1.3)
+
+### 21.1 Overview & Physical Motivation
+The **Two-Body Large-Deformation Ironing Benchmark** is a standard computational contact mechanics test case (Wriggers, *Computational Contact Mechanics*, Chapter 9) that rigorously probes the stability, robustness, and thermodynamic consistency of finite-sliding deformable-to-deformable contact formulations under large continuum deformations and regularized Coulomb stick-slip friction.
+
+The benchmark models a rounded elastic indenter (slider) pressed vertically into a compliant foundation slab and driven horizontally across multiple element widths:
+1. **Geometric Non-Linearity & Finite Sliding**:
+   Slave contact nodes traverse multiple element boundaries across non-conforming master surface triangulations.
+2. **Dissipative Frictional Mechanics**:
+   Coulomb friction introduces non-conservative, path-dependent energy dissipation with stick-to-slip transitions and algorithmic non-symmetry.
+3. **Spatial Regularization ($C^1$ Continuity)**:
+   Piecewise-planar facet normals exhibit directional jumps $\Delta \boldsymbol{n} = \boldsymbol{n}_B - \boldsymbol{n}_A$ across element edges, triggering artificial force chattering and line-search stalls ("facet-edge snagging"). Angle/area-weighted $C^1$ vertex pseudonormals eliminate facet-edge jumps, yielding smooth, monotonic force profiles and fast Newton convergence.
+
+### 21.2 Mathematical Formulation & Kinematics
+
+#### 1. Two-Body Kinematics & Relative Displacement
+Let $\boldsymbol{x}_s(t) = \boldsymbol{X}_s + \boldsymbol{u}_s(t)$ denote the deformed spatial coordinates of a slave node $S$, and $\boldsymbol{x}_{m, i}(t) = \boldsymbol{X}_{m, i} + \boldsymbol{u}_{m, i}(t)$ the spatial coordinates of the vertices of the master facet closest to $S$.
+The projected contact point on the master surface has barycentric weights $\boldsymbol{\xi} = (\xi_1, \xi_2, \xi_3)$:
+$$\boldsymbol{x}_m^{\text{proj}}(t) = \sum_{i=1}^3 \xi_i \boldsymbol{x}_{m, i}(t)$$
+To properly measure relative motion between deformable bodies during finite sliding without collapsing to the purely normal gap vector, relative displacement is tracked from reference configurations:
+$$\boldsymbol{u}_s(t) = \boldsymbol{x}_s(t) - \boldsymbol{X}_s, \quad \boldsymbol{u}_m^{\text{proj}}(t) = \sum_{i=1}^3 \xi_i (\boldsymbol{x}_{m, i}(t) - \boldsymbol{X}_{m, i})$$
+$$\boldsymbol{u}_{\text{rel}}(t) = \boldsymbol{u}_s(t) - \boldsymbol{u}_m^{\text{proj}}(t)$$
+Relative motion from the anchor point $\boldsymbol{u}_{\text{anchor}}$ where stick contact began is:
+$$\Delta \boldsymbol{u}_{\text{rel}} = \boldsymbol{u}_{\text{rel}}(t) - \boldsymbol{u}_{\text{anchor}}$$
+The tangential slip increment across the contact interface is obtained via tangential projection:
+$$\boldsymbol{P}_T = \boldsymbol{I} - \boldsymbol{n} \otimes \boldsymbol{n}$$
+$$\Delta \boldsymbol{g}_T = \boldsymbol{P}_T \Delta \boldsymbol{u}_{\text{rel}}$$
+
+#### 2. Regularized Coulomb Return Mapping
+Trial tangential force:
+$$\boldsymbol{f}_T^{\text{trial}} = -k_T \Delta \boldsymbol{g}_T + \boldsymbol{\lambda}_T$$
+Yield condition:
+$$\Phi = \|\boldsymbol{f}_T^{\text{trial}}\| - \mu p_N$$
+- **Stick State** ($\Phi \le 0$):
+  $$\boldsymbol{f}_T = \boldsymbol{f}_T^{\text{trial}}, \quad \boldsymbol{K}_{TT} = k_T \boldsymbol{P}_T$$
+- **Slip State** ($\Phi > 0$):
+  $$\boldsymbol{s} = \frac{\boldsymbol{f}_T^{\text{trial}}}{\|\boldsymbol{f}_T^{\text{trial}}\|}, \quad \boldsymbol{f}_T = \mu p_N \boldsymbol{s}$$
+  Algorithmic consistent tangent:
+  $$\boldsymbol{K}_{TT} = \frac{\mu p_N k_T}{\|\boldsymbol{f}_T^{\text{trial}}\|} (\boldsymbol{P}_T - \boldsymbol{s} \otimes \boldsymbol{s})$$
+  Cross-coupling term ($p_N = -k_N g_N$):
+  $$\boldsymbol{K}_{TN} = \mu k_N (\boldsymbol{s} \otimes \boldsymbol{n})$$
+
+#### 3. Second Law of Thermodynamics (Dissipation Consistency)
+Discrete frictional work over step $n$:
+$$\Delta W_f = \boldsymbol{f}_T^n \cdot \Delta \boldsymbol{u}_T^n \le 0$$
+Cumulative dissipation:
+$$D_f = -W_f = -\sum_{n} \Delta W_{f, n} \ge 0$$
+
+#### 4. Curved Indenter Geometric Projection
+For a curved cylindrical slider of radius $R$ undergoing finite sliding, the apparent macroscopic friction ratio is slightly lower than $\mu$ due to curvature projection ($\boldsymbol{n}$ is not strictly vertical across the contact patch):
+$$\frac{|F_x|}{F_z} = \frac{|\sum (p_N n_x + f_T t_x)|}{\sum (p_N n_z + f_T t_z)} \approx \mu \cdot \cos \theta_{\text{contact}} \in [0.70 \mu, 1.05 \mu]$$
+
+### 21.3 Executable Benchmark: `0812_ironing_large_strain.py`
+The standalone executable benchmark [`examples/08_contact/0812_ironing_large_strain.py`](file:///home/tanadul/Workspace/project-sierra/psierra/examples/08_contact/0812_ironing_large_strain.py) provides:
+- **CLI Options**:
+  * `--friction`, `-mu`: Coulomb friction coefficient (default: 0.25).
+  * `--indentation`, `-dz`: Vertical indentation depth in mm (default: 0.15 mm).
+  * `--sliding-distance`, `-dx`: Horizontal sliding distance in mm (default: 3.0 mm).
+  * `--n-indent-steps`, `--n-slip-steps`: Step allocations for Phase 1 and Phase 2.
+  * `--smooth / --no-smooth`: Toggle $C^1$ smoothed pseudonormals.
+  * `--export-pvd`: Export full history to ParaView PVD/VTU datasets.
+  * `--output-dir`: Export target directory (default: `results/ironing`).
+  * `--quiet`: Suppress Newton-Raphson internal solver iteration logs.
+- **Rich Summary Table**: Reports step-by-step $u_x, u_z, F_N, F_T, |F_T/F_N|$, Coulomb error, incremental/cumulative friction work, active/slip node counts, and Newton iterations.
+- **Acceptance Gate Output**: Evaluates steady-state kinetic friction, non-negative thermodynamic dissipation, convergence stability, and zero element inversions.
+
+### 21.4 Verification Test Suite: `test_contact_ironing_benchmark.py`
+[`tests/test_contact_ironing_benchmark.py`](file:///home/tanadul/Workspace/project-sierra/psierra/tests/test_contact_ironing_benchmark.py) contains 5 formal verification tests:
+1. `test_indentation_normal_force_generation`:
+   Phase 1 vertical indentation generates stable positive normal contact force ($F_N > 0.1\text{ N}$) with negligible lateral force ($|F_x| < 0.05 F_N$).
+2. `test_finite_sliding_coulomb_agreement_and_dissipation`:
+   Phase 2 sliding across multiple element widths satisfies the Coulomb limit ($|F_T / F_N| \in [0.70 \mu, 1.05 \mu]$), horizontal force strictly opposes displacement ($F_x < 0$), and friction work is non-positive ($W_f \le 0, D_f \ge 0$).
+3. `test_smoothed_vs_unsmoothed_force_smoothness`:
+   $C^1$ smoothed normals eliminate facet-boundary force chattering and converge in fewer or equal iterations than raw facet normals.
+4. `test_zero_element_inversions_throughout_simulation`:
+   Evaluates deformation gradient $\boldsymbol{F} = \boldsymbol{I} + \nabla \boldsymbol{u}$ across all tetrahedral elements in both bodies; verifies $\det \boldsymbol{F} > 0.01$ throughout finite sliding.
+5. `test_executable_benchmark_runs_cleanly`:
+   End-to-end integration test verifying that CLI arguments, Rich reporting, and ParaView PVD/VTU time series export execute without error.

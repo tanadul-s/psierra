@@ -203,3 +203,20 @@
     * Acceptance Gate: Parametric Modulus Sweep ($E = 10\text{ MPa} \to 21\text{ kPa} \to 1\text{ kPa}$) in `NonlinearStaticAnalysis` achieves identical iteration counts (`[3, 2]`, $< 6$ Newton iterations per step) and zero element inversions ($\det \boldsymbol{F} > 0$).
     * Conditioning robustness: $\|\boldsymbol{K}_c\| / \|\boldsymbol{K}_{\text{dom}}\|$ invariant across moduli, preventing the 200,000x conditioning degradation and element inversion seen with un-adapted rigid penalties ($10^5\text{ N/mm}$).
   - Full contact and collision test suite expanded to **380 tests, 100% passing in 107.55s**. Documented Section 20 in `docs/12_contact_mechanics_contracts_and_baselines.md`. Milestone 1.2 complete!
+- **Milestone 1.3: Two-Body Large-Deformation Ironing Benchmark (Agreed)**:
+  - Formulated and resolved two-body relative tangential sliding kinematics:
+    * Identified and fixed structural gap vector defect in `DeformableContact` and `SelfContact` where `x_rel = s_coord - m_proj` collapsed to the purely normal gap vector $g \boldsymbol{n}$, rendering tangential slip projection zero ($P_T @ (g \boldsymbol{n}) = \mathbf{0}$).
+    * Implemented reference-displacement-based relative sliding $\boldsymbol{u}_{\text{rel}} = \boldsymbol{u}_s - \boldsymbol{u}_{m}^{\text{proj}}$ and anchor tracking, accurately measuring tangential sliding across deforming and sliding finite element meshes.
+  - Delivered standalone executable simulation benchmark: `examples/08_contact/0812_ironing_large_strain.py`, featuring:
+    * Deformable slab ($30 \times 8 \times 5\text{ mm}$, clamped bottom, $E = 1.0\text{ MPa}$) and deformable rounded slider ($R = 3.5\text{ mm}$, $L = 5.0\text{ mm}$, $E = 5.0\text{ MPa}$).
+    * Two-phase loading: Phase 1 indentation ($\delta_z = 0.15\text{ mm}$) and Phase 2 finite sliding ($d_x = 2.0\text{--}4.0\text{ mm}$) across multiple element widths.
+    * CLI flags: `--friction`, `--indentation`, `--sliding-distance`, `--n-indent-steps`, `--n-slip-steps`, `--smooth / --no-smooth`, `--export-pvd`, `--output-dir`, and `--quiet`.
+    * Formatted Rich telemetry table reporting $u_x, u_z, F_N, F_T, |F_T / F_N|$, Coulomb error, incremental/cumulative friction work, active/slip counts, and Newton iterations.
+    * ParaView PVD/VTU time series dataset export (`ironing.pvd`, `step_00001.vtu` ... `step_00010.vtu`).
+  - Authored comprehensive verification test suite: `tests/test_contact_ironing_benchmark.py` (5 tests, 100% passing):
+    * Phase 1 vertical indentation generates stable positive normal contact force ($F_N > 0.1\text{ N}$) with negligible lateral force ($|F_x| < 0.05 F_N$).
+    * Phase 2 finite sliding satisfies the Coulomb limit ($|F_T / F_N| \approx \mu \cdot \cos \theta_{\text{contact}} \in [0.70 \mu, 1.05 \mu]$), horizontal force strictly opposes displacement ($F_x < 0$), and thermodynamic dissipation is non-negative ($W_f = \int \boldsymbol{f}_T \cdot d\boldsymbol{u}_T \le 0, D_f \ge 0$).
+    * Spatial Regularization: $C^1$ smoothed pseudonormals eliminate facet-boundary force chattering and line-search stalls.
+    * Continuum Admissibility: Evaluates deformation gradient $\boldsymbol{F} = \boldsymbol{I} + \nabla \boldsymbol{u}$ across all elements; verifies $\det \boldsymbol{F} > 0.01$ (zero element inversions) throughout finite sliding.
+    * Executable benchmark CLI and dataset export run cleanly and pass acceptance criteria.
+  - Full contact, collision, friction, and benchmark test suite expanded to **385 tests, 100% passing in 102.08s**. Documented Section 21 in `docs/12_contact_mechanics_contracts_and_baselines.md`. Milestone 1.3 complete!

@@ -1265,17 +1265,29 @@ class DeformableContact(ContactMultiplierState):
         if self.friction_state is None or self.friction_state.n_candidates != len(self.slave_nodes):
             self.friction_state = CoulombFrictionState(len(self.slave_nodes))
 
-        s_coord = self.slave.current_nodes[query.slave_node]
-        m_coords = self.master.current_nodes[query.master_nodes]
-        m_proj = geometry.barycentric @ m_coords
-        x_rel = s_coord - m_proj
+        if hasattr(self.slave, "mesh") and hasattr(self.slave.mesh, "nodes"):
+            s_u = self.slave.current_nodes[query.slave_node] - self.slave.mesh.nodes[query.slave_node]
+        elif hasattr(self.slave, "displacement"):
+            s_u = self.slave.displacement.reshape(-1, 3)[query.slave_node]
+        else:
+            s_u = self.slave.current_nodes[query.slave_node]
+
+        if hasattr(self.master, "mesh") and hasattr(self.master.mesh, "nodes"):
+            m_u = self.master.current_nodes[query.master_nodes] - self.master.mesh.nodes[query.master_nodes]
+        elif hasattr(self.master, "displacement"):
+            m_u = self.master.displacement.reshape(-1, 3)[query.master_nodes]
+        else:
+            m_u = self.master.current_nodes[query.master_nodes]
+
+        m_u_proj = geometry.barycentric @ m_u
+        u_rel = s_u - m_u_proj
 
         anchor = self.friction_state.anchors[query.slave_index]
         if np.isnan(anchor[0]):
-            anchor = x_rel.copy()
+            anchor = u_rel.copy()
             self.friction_state.anchors[query.slave_index] = anchor
 
-        delta_u_rel = x_rel - anchor
+        delta_u_rel = u_rel - anchor
         lam_T = self.friction_state.multipliers[query.slave_index]
 
         f_T, _, _, state, s_dir = CoulombFrictionModel.return_mapping(
@@ -1295,7 +1307,7 @@ class DeformableContact(ContactMultiplierState):
 
         if state == StickSlipState.SLIP:
             elastic_slip = -(self.friction * pressure / self.k_tangential) * s_dir
-            self.friction_state.trial_anchors[query.slave_index] = x_rel - elastic_slip
+            self.friction_state.trial_anchors[query.slave_index] = u_rel - elastic_slip
             self.friction_state.trial_slip_increments[query.slave_index] = float(np.linalg.norm(delta_u_rel - elastic_slip))
 
         weights = np.r_[1.0, -geometry.barycentric]
@@ -1309,13 +1321,25 @@ class DeformableContact(ContactMultiplierState):
             return np.zeros((12, 12), dtype=np.float64)
 
         weights = np.r_[1.0, -geometry.barycentric]
-        s_coord = self.slave.current_nodes[query.slave_node]
-        m_coords = self.master.current_nodes[query.master_nodes]
-        m_proj = geometry.barycentric @ m_coords
-        x_rel = s_coord - m_proj
+        if hasattr(self.slave, "mesh") and hasattr(self.slave.mesh, "nodes"):
+            s_u = self.slave.current_nodes[query.slave_node] - self.slave.mesh.nodes[query.slave_node]
+        elif hasattr(self.slave, "displacement"):
+            s_u = self.slave.displacement.reshape(-1, 3)[query.slave_node]
+        else:
+            s_u = self.slave.current_nodes[query.slave_node]
+
+        if hasattr(self.master, "mesh") and hasattr(self.master.mesh, "nodes"):
+            m_u = self.master.current_nodes[query.master_nodes] - self.master.mesh.nodes[query.master_nodes]
+        elif hasattr(self.master, "displacement"):
+            m_u = self.master.displacement.reshape(-1, 3)[query.master_nodes]
+        else:
+            m_u = self.master.current_nodes[query.master_nodes]
+
+        m_u_proj = geometry.barycentric @ m_u
+        u_rel = s_u - m_u_proj
 
         anchor = self.friction_state.anchors[query.slave_index]
-        delta_u_rel = (x_rel - anchor) if not np.isnan(anchor[0]) else np.zeros(3, dtype=np.float64)
+        delta_u_rel = (u_rel - anchor) if not np.isnan(anchor[0]) else np.zeros(3, dtype=np.float64)
         lam_T = self.friction_state.multipliers[query.slave_index]
 
         _, K_TT, K_TN, _, _ = CoulombFrictionModel.return_mapping(
@@ -2033,17 +2057,21 @@ class SelfContact(ContactMultiplierState):
             self.friction_state = CoulombFrictionState(len(self.contact_nodes))
 
         nodes = self._resolve_nodes(current_nodes)
-        s_coord = nodes[query.slave_node]
-        m_coords = nodes[query.master_nodes]
-        m_proj = geometry.barycentric @ m_coords
-        x_rel = s_coord - m_proj
+        if hasattr(self.domain, "mesh") and hasattr(self.domain.mesh, "nodes"):
+            ref_nodes = self.domain.mesh.nodes
+        else:
+            ref_nodes = nodes
+        s_u = nodes[query.slave_node] - ref_nodes[query.slave_node]
+        m_u = nodes[query.master_nodes] - ref_nodes[query.master_nodes]
+        m_u_proj = geometry.barycentric @ m_u
+        u_rel = s_u - m_u_proj
 
         anchor = self.friction_state.anchors[query.slave_index]
         if np.isnan(anchor[0]):
-            anchor = x_rel.copy()
+            anchor = u_rel.copy()
             self.friction_state.anchors[query.slave_index] = anchor
 
-        delta_u_rel = x_rel - anchor
+        delta_u_rel = u_rel - anchor
         lam_T = self.friction_state.multipliers[query.slave_index]
 
         f_T, _, _, state, s_dir = CoulombFrictionModel.return_mapping(
@@ -2063,7 +2091,7 @@ class SelfContact(ContactMultiplierState):
 
         if state == StickSlipState.SLIP:
             elastic_slip = -(self.friction * pressure / self.k_tangential) * s_dir
-            self.friction_state.trial_anchors[query.slave_index] = x_rel - elastic_slip
+            self.friction_state.trial_anchors[query.slave_index] = u_rel - elastic_slip
             self.friction_state.trial_slip_increments[query.slave_index] = float(np.linalg.norm(delta_u_rel - elastic_slip))
 
         weights = np.r_[1.0, -geometry.barycentric]
@@ -2082,13 +2110,17 @@ class SelfContact(ContactMultiplierState):
 
         weights = np.r_[1.0, -geometry.barycentric]
         nodes = self._resolve_nodes(current_nodes)
-        s_coord = nodes[query.slave_node]
-        m_coords = nodes[query.master_nodes]
-        m_proj = geometry.barycentric @ m_coords
-        x_rel = s_coord - m_proj
+        if hasattr(self.domain, "mesh") and hasattr(self.domain.mesh, "nodes"):
+            ref_nodes = self.domain.mesh.nodes
+        else:
+            ref_nodes = nodes
+        s_u = nodes[query.slave_node] - ref_nodes[query.slave_node]
+        m_u = nodes[query.master_nodes] - ref_nodes[query.master_nodes]
+        m_u_proj = geometry.barycentric @ m_u
+        u_rel = s_u - m_u_proj
 
         anchor = self.friction_state.anchors[query.slave_index]
-        delta_u_rel = (x_rel - anchor) if not np.isnan(anchor[0]) else np.zeros(3, dtype=np.float64)
+        delta_u_rel = (u_rel - anchor) if not np.isnan(anchor[0]) else np.zeros(3, dtype=np.float64)
         lam_T = self.friction_state.multipliers[query.slave_index]
 
         _, K_TT, K_TN, _, _ = CoulombFrictionModel.return_mapping(

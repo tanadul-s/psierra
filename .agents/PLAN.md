@@ -225,9 +225,19 @@ The contact overhaul will use a **staged internal replacement**, not a ground-up
 
 #### Milestone 1.3: Two-Body Large-Deformation Ironing Benchmark
 *Objective*: Prove stability of deformable-to-deformable contact and Coulomb stick-slip friction under finite sliding without facet-edge snagging.
-- [ ] **Benchmark Design**: A rounded deformable slider pressed vertically into a deformable slab and driven horizontally across multiple element widths.
-- [ ] Deliver executable: `examples/08_contact/0812_ironing_large_strain.py`.
-- [ ] Verify continuous horizontal contact force, energy dissipation through friction work $W_f = \int \boldsymbol{f}_T \cdot d\boldsymbol{u}_T$, and absence of edge snagging or line-search stalls.
+- [x] **Benchmark Design**: A rounded deformable slider ($R = 3.5\text{ mm}$, $E = 5.0\text{ MPa}$) pressed vertically ($\delta_z = 0.15\text{ mm}$) into a deformable slab ($30 \times 8 \times 5\text{ mm}$, $E = 1.0\text{ MPa}$) and driven horizontally across multiple element widths ($d_x = 2.0\text{--}4.0\text{ mm}$).
+- [x] **Two-Body Relative Tangential Kinematics**:
+  Formulated reference-displacement-based relative sliding $\boldsymbol{u}_{\text{rel}} = \boldsymbol{u}_s - \boldsymbol{u}_{m}^{\text{proj}}$ and anchor tracking in `DeformableContact` and `SelfContact`, resolving the previous bug where $s_{\text{coord}} - m_{\text{proj}}$ collapsed to the normal gap vector.
+- [x] **Executable Benchmark**:
+  Delivered `examples/08_contact/0812_ironing_large_strain.py` with CLI flags (`--friction`, `--indentation`, `--sliding-distance`, `--smooth / --no-smooth`, `--export-pvd`, `--quiet`), Rich telemetry table, and ParaView PVD/VTU time series export.
+- [x] **Verification & Acceptance Criteria**:
+  * Steady-state kinetic friction: $|F_T / F_N| \approx \mu \cdot \cos \theta_{\text{contact}} \in [0.70 \mu, 1.05 \mu]$ across finite sliding.
+  * Thermodynamic dissipation: Cumulative friction work $W_f = \int \boldsymbol{f}_T \cdot d\boldsymbol{u}_T \le 0$ ($D_f = -W_f \ge 0$).
+  * Spatial regularization: $C^1$ smoothed pseudonormals eliminate facet-boundary force chattering and line-search stalls.
+  * Continuum admissibility: Zero element inversions ($\det \boldsymbol{F} > 0.01$) across both bodies throughout finite sliding.
+- [x] **Verification Test Suite**:
+  Authored `tests/test_contact_ironing_benchmark.py` (5 formal tests, 100% passing). Complete regression baseline passes at 385/385 tests in 102s.
+- [x] Documented in `docs/12_contact_mechanics_contracts_and_baselines.md` (Section 21).
 
 #### Milestone 1.4: Mortar Contact Stabilization for Ultra-Soft Continua
 *Objective*: Bring Segment-to-Segment Mortar Contact to robust convergence on soft hyperelastic bodies.
