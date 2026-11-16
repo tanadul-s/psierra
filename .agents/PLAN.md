@@ -132,22 +132,22 @@ The contact overhaul will use a **staged internal replacement**, not a ground-up
   - Implement shared one-body and two-body assembly operators so action-reaction, DOF mapping, and sparse scatter logic are not independently reimplemented by each contact class.
   - Keep collision search tolerances out of the constitutive constraint law.
 
-- [ ] **Stage D — Migrate in Increasing-Risk Order**:
-  1. Unsmoothed deformable node-to-triangle normal contact as the reference kernel.
-  2. Planar rigid contact, followed by exact curved analytical obstacles.
-  3. Self-contact candidate filtering using the same triangle geometry and assembly core.
-  4. Energy-consistent smoothed-normal geometry.
-  5. Frictionless mortar contact with complete geometry linearization.
-  6. Coulomb friction and damping as explicitly dissipative extensions.
+- [x] **Stage D — Migrate in Increasing-Risk Order**:
+  - [x] 1. Unsmoothed deformable node-to-triangle normal contact as the reference kernel (`DeformableContact`).
+  - [x] 2. Planar rigid contact, followed by exact curved analytical obstacles (`RigidContact`).
+  - [x] 3. Self-contact candidate filtering using the same triangle geometry and assembly core (`SelfContact`).
+  - [x] 4. Energy-consistent smoothed-normal geometry (`SmoothedTriangleGeometryProvider`).
+  - [x] 5. Frictionless mortar contact with complete geometry linearization (`MortarContact`).
+  - [x] 6. Coulomb friction and damping as explicitly dissipative extensions.
   - Keep each migration independently releasable and revertible until its acceptance gates pass.
 
-- [ ] **Non-Adhesive Activation and Tolerance Semantics**:
+- [x] **Non-Adhesive Activation and Tolerance Semantics**:
   - Separate proximity/candidate detection from physical force activation.
   - For penalty contact, enforce $p_N = k_p\langle-g_N\rangle_+$ so a separated point with $0 < g_N \le \delta_{\text{search}}$ never receives an attractive normal force.
   - Make force, stiffness, potential energy, active-node reporting, and friction activation use the same projected pressure and active-set definition.
   - Add regression tests with positive gap and nonzero search tolerance for penalty and augmented-Lagrangian contact.
 
-- [ ] **Exact Curved Rigid-Obstacle Linearization**:
+- [x] **Exact Curved Rigid-Obstacle Linearization**:
   - For a signed-distance obstacle, implement
     $$\boldsymbol{K}_c=-\frac{\partial\boldsymbol{f}_c}{\partial\boldsymbol{x}}
       =k_p\left(\boldsymbol{n}\otimes\boldsymbol{n}
@@ -155,7 +155,7 @@ The contact overhaul will use a **staged internal replacement**, not a ground-up
     on a fixed active branch, including sphere and cylinder curvature terms.
   - Verify $\boldsymbol{K}_c=-\partial\boldsymbol{f}_c/\partial\boldsymbol{u}$ by centered finite differences at multiple radii, orientations, and length scales.
 
-- [ ] **Energy-Consistent Smoothed-Normal Contact**:
+- [x] **Energy-Consistent Smoothed-Normal Contact**:
   - For $g_N=\boldsymbol{r}\cdot\boldsymbol{n}(\boldsymbol{\xi})$, include both terms
     $$\frac{\partial g_N}{\partial\boldsymbol{q}}
       =\boldsymbol{W}^{T}\boldsymbol{n}
@@ -163,12 +163,12 @@ The contact overhaul will use a **staged internal replacement**, not a ground-up
     and differentiate the vertex pseudonormals with respect to the current master geometry when they are recomputed from that geometry.
   - Require independent finite-difference agreement among potential energy, contact force, and tangent; symmetry alone is insufficient.
 
-- [ ] **Consistent Frictional Finite-Sliding Tangent**:
+- [x] **Consistent Frictional Finite-Sliding Tangent**:
   - Retain the local Coulomb return mapping, but add derivatives of the tangent projector, evolving normal, closest-point/barycentric projection, normal pressure, and committed/trial history variables required by the selected algorithm.
   - Verify stick and slip branches independently, including facet crossing and curved-master sliding.
   - Check discrete dissipation: frictional work must be non-positive within numerical tolerance.
 
-- [ ] **Complete Mortar Geometry Linearization**:
+- [x] **Complete Mortar Geometry Linearization**:
   - Differentiate the active overlap map, mortar matrices $\boldsymbol{D}$ and $\boldsymbol{M}$, quadrature gaps, projected normals, and master/slave coupling used by the recomputed residual.
   - Preserve the already-tested partition of unity, patch transfer, and action-reaction balance while adding finite-difference residual-tangent verification under rotation, curvature, and non-conforming sliding.
   - Do not describe the tangent as “consistent” until this derivative test passes away from active-set topology changes.

@@ -684,14 +684,23 @@ class TestLegacyDiscrepancies:
         domain = MockGeometryDomain(node)
 
         # Initialize with tolerance = 0.1 mm > gap = 0.05 mm
-        contact = RigidContact(slave=domain, master=plane, k_penalty=1000.0, tolerance=0.1)
+        contact_legacy = RigidContact(slave=domain, master=plane, k_penalty=1000.0, tolerance=0.1)
+        contact_legacy._use_legacy_kernel = True
 
-        forces = contact.evaluate_forces()
+        forces_legacy = contact_legacy.evaluate_forces()
         # In legacy implementation, active_indices includes gap <= tolerance,
         # and computes f_N = -k_penalty * gap = -1000 * 0.05 = -50 N.
         # This creates an unphysical attractive suction pulling the separated node down!
-        assert forces[2] == pytest.approx(-50.0, rel=1e-6), (
+        assert forces_legacy[2] == pytest.approx(-50.0, rel=1e-6), (
             "Legacy discrepancy confirmed: attractive penalty force on positive gap"
+        )
+
+        # In canonical replacement, strict non-adhesion ensures zero force on positive gap:
+        contact_canon = RigidContact(slave=domain, master=plane, k_penalty=1000.0, tolerance=0.1)
+        contact_canon._use_legacy_kernel = False
+        forces_canon = contact_canon.evaluate_forces()
+        assert forces_canon[2] == pytest.approx(0.0, abs=1e-12), (
+            "Canonical replacement confirmed: zero attractive force on positive gap"
         )
 
     def test_legacy_disc_02_curved_rigid_obstacle_tangent_omits_curvature(self) -> None:
@@ -708,8 +717,9 @@ class TestLegacyDiscrepancies:
         domain = MockGeometryDomain(point)
         kp = 1000.0
 
-        contact = RigidContact(slave=domain, master=sphere, k_penalty=kp)
-        K_legacy = contact.evaluate_stiffness().toarray()
+        contact_legacy = RigidContact(slave=domain, master=sphere, k_penalty=kp)
+        contact_legacy._use_legacy_kernel = True
+        K_legacy = contact_legacy.evaluate_stiffness().toarray()
 
         # The legacy stiffness contains ONLY kp * (n outer n) = kp * diag(0, 0, 1)
         expected_legacy_K = np.diag([0.0, 0.0, kp])
@@ -722,8 +732,8 @@ class TestLegacyDiscrepancies:
         for col in range(3):
             delta = np.zeros(3)
             delta[col] = eps
-            f_plus = contact.evaluate_forces(current_nodes=point + delta)
-            f_minus = contact.evaluate_forces(current_nodes=point - delta)
+            f_plus = contact_legacy.evaluate_forces(current_nodes=point + delta)
+            f_minus = contact_legacy.evaluate_forces(current_nodes=point - delta)
             K_fd[:, col] = -(f_plus - f_minus) / (2.0 * eps)
 
         # The transverse stiffness (x and y directions) in finite differences is non-zero:
@@ -733,6 +743,12 @@ class TestLegacyDiscrepancies:
         assert K_fd[1, 1] == pytest.approx(omitted_curvature_stiffness, rel=1e-3)
         # In legacy, K_legacy[0, 0] == 0.0 != K_fd[0, 0]
         assert K_legacy[0, 0] == 0.0
+
+        # In canonical replacement, curvature is included and matches finite differences:
+        contact_canon = RigidContact(slave=domain, master=sphere, k_penalty=kp)
+        contact_canon._use_legacy_kernel = False
+        K_canon = contact_canon.evaluate_stiffness().toarray()
+        np.testing.assert_allclose(K_canon, K_fd, rtol=1e-3, atol=1e-3)
 
     def test_legacy_disc_03_smoothed_normal_omits_vertex_pseudonormal_variation(
         self, triangle_facet_pair: tuple[MockGeometryDomain, MockGeometryDomain]

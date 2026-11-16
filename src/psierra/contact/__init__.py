@@ -16,6 +16,8 @@ from psierra.contact.geometry import (
     SphereGeometryProvider,
     CylinderGeometryProvider,
     TriangleGeometryProvider,
+    SmoothedTriangleGeometryProvider,
+    evaluate_smoothed_triangle_geometry,
 )
 from psierra.contact.law import NormalConstraintLaw
 from psierra.contact.assembly import ContactAssembler
@@ -31,6 +33,8 @@ __all__ = [
     "SphereGeometryProvider",
     "CylinderGeometryProvider",
     "TriangleGeometryProvider",
+    "SmoothedTriangleGeometryProvider",
+    "evaluate_smoothed_triangle_geometry",
     "NormalConstraintLaw",
     "ContactAssembler",
 ]

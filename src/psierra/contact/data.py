@@ -136,6 +136,11 @@ class DifferentiableContactGeometry:
         if not np.allclose(hess, hess.T, atol=1e-10, rtol=1e-8):
             raise ValueError("Hessian matrix must be symmetric")
 
+    @property
+    def feature(self) -> str:
+        """Legacy alias for feature_id."""
+        return self.feature_id
+
 
 @dataclass(frozen=True)
 class NormalLawState:

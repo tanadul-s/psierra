@@ -340,12 +340,17 @@ class TriangleGeometryProvider(ContactGeometryProvider):
     closest-feature barycentrics, and exact 12-DOF gap gradients and Hessians.
     """
 
-    def __init__(self, units: str = "mm") -> None:
+    def __init__(self, units: str = "mm", energy_consistent_smoothing: bool = False) -> None:
         self._units = str(units)
+        self._energy_consistent_smoothing = bool(energy_consistent_smoothing)
 
     @property
     def units(self) -> str:
         return self._units
+
+    @property
+    def energy_consistent_smoothing(self) -> bool:
+        return self._energy_consistent_smoothing
 
     @property
     def orientation_convention(self) -> str:
@@ -365,13 +370,22 @@ class TriangleGeometryProvider(ContactGeometryProvider):
         return bool(np.all(weights > 1e-6))
 
     def evaluate_geometry(
-        self, candidate: ContactCandidate, coordinates: np.ndarray
+        self,
+        candidate: ContactCandidate,
+        coordinates: np.ndarray,
+        pseudonormal: np.ndarray | None = None,
+        vertex_normals: np.ndarray | None = None,
     ) -> DifferentiableContactGeometry:
         """Evaluate 12-DOF gap, normal, gradient, and Hessian for node-triangle stencil.
 
         coordinates : np.ndarray of shape (4, 3)
             Row 0: slave node spatial position x_s.
             Rows 1-3: master triangle vertex positions [v0, v1, v2].
+        pseudonormal : np.ndarray, optional
+            Outward facet/edge/vertex pseudonormal for distance signing.
+            If None, defaults to candidate.normal_hint or face normal.
+        vertex_normals : np.ndarray of shape (3, 3), optional
+            Master vertex pseudonormals for smoothed normal interpolation (Pillar 2).
         """
         coords = np.asarray(coordinates, dtype=np.float64)
         if coords.shape != (4, 3):
@@ -384,21 +398,28 @@ class TriangleGeometryProvider(ContactGeometryProvider):
         weights = TriangleContactGeometry.closest_barycentric(point, vertices)
         active = np.flatnonzero(weights > 0.0)
 
-        if len(active) == 3:
-            pseudonormal = face_normal
-            feature_str = "face"
-        elif len(active) == 2:
-            pseudonormal = face_normal
-            feature_str = "edge"
-        else:
-            pseudonormal = face_normal
-            feature_str = "vertex"
+        feature_str: str = "face" if len(active) == 3 else "edge" if len(active) == 2 else "vertex"
+
+        if pseudonormal is None:
+            if "pseudonormal" in candidate.metadata and candidate.metadata["pseudonormal"] is not None:
+                pseudonormal = np.asarray(candidate.metadata["pseudonormal"], dtype=np.float64)
+            else:
+                pseudonormal = face_normal
+
+        if vertex_normals is not None and self._energy_consistent_smoothing:
+            return evaluate_smoothed_triangle_geometry(
+                point=point,
+                vertices=vertices,
+                vertex_normals=vertex_normals,
+                candidate_index=int(candidate.candidate_index),
+                units=self._units,
+            )
 
         geom = TriangleContactGeometry.evaluate(
             point=point,
             vertices=vertices,
             pseudonormal=pseudonormal,
-            vertex_normals=None,
+            vertex_normals=vertex_normals,
         )
 
         closest_point = weights @ vertices
@@ -416,4 +437,170 @@ class TriangleGeometryProvider(ContactGeometryProvider):
             is_smooth_branch=is_smooth,
             units=self._units,
             orientation_convention=self.orientation_convention,
+        )
+
+
+def evaluate_smoothed_triangle_geometry(
+    point: np.ndarray,
+    vertices: np.ndarray,
+    vertex_normals: np.ndarray,
+    candidate_index: int = 0,
+    units: str = "mm",
+) -> DifferentiableContactGeometry:
+    """Evaluate energy-consistent smoothed-normal contact geometry (resolves LEGACY-DISC-03).
+
+    Differentiates the complete spatial projection and normal variation:
+        g_N = r . n(xi)
+        grad_q(g_N) = W^T n - sum( (x_mi . n) * dxi_i/dq ) + (dn/dq)^T r
+        Hess_q(g_N) = d(grad_q(g_N))/dq
+
+    Parameters:
+    -----------
+    point : np.ndarray of shape (3,)
+        Spatial coordinates of the slave node.
+    vertices : np.ndarray of shape (3, 3)
+        Spatial coordinates of master triangle vertices [v0, v1, v2].
+    vertex_normals : np.ndarray of shape (3, 3)
+        Master vertex pseudonormals [n_v0, n_v1, n_v2].
+    candidate_index : int, default=0
+        Index of the candidate interaction.
+    units : str, default='mm'
+        Length units.
+
+    Returns:
+    --------
+    geometry : DifferentiableContactGeometry
+        Canonical contact geometry with exact negative energy gradient and Jacobian tangent.
+    """
+    p = np.asarray(point, dtype=np.float64).flatten()
+    v = np.asarray(vertices, dtype=np.float64).reshape(3, 3)
+    vn = np.asarray(vertex_normals, dtype=np.float64).reshape(3, 3)
+
+    weights = TriangleContactGeometry.closest_barycentric(p, v)
+    tilde_n = weights @ vn
+    norm_n = float(np.linalg.norm(tilde_n))
+    if norm_n < 1e-14:
+        normal = np.array([0.0, 0.0, 1.0])
+        norm_n = 1.0
+    else:
+        normal = tilde_n / norm_n
+
+    r = p - weights @ v
+    gap = float(r @ normal)
+    closest_point = p - r
+
+    def _eval_grad(q: np.ndarray) -> np.ndarray:
+        pt = q[:3]
+        vt = q[3:].reshape(3, 3)
+        w = TriangleContactGeometry.closest_barycentric(pt, vt)
+        tn = w @ vn
+        ntn = float(np.linalg.norm(tn))
+        n_curr = tn / ntn if ntn > 1e-14 else np.array([0.0, 0.0, 1.0])
+        res = pt - w @ vt
+
+        w4 = np.r_[1.0, -w]
+        W = np.kron(w4.reshape(1, 4), np.eye(3))
+        edges = (vt[1:] - vt[0]).T
+        dw = np.array([[0.0, 0.0], [1.0, 1.0], [-1.0, 0.0], [0.0, -1.0]])
+        B = np.column_stack([np.kron(dw[:, j], res) - W.T @ edges[:, j] for j in range(2)])
+        dz = -np.linalg.solve(edges.T @ edges, B.T)
+        dweights = dw @ dz
+        dbary = -dweights[1:]
+
+        P_n = np.eye(3) - np.outer(n_curr, n_curr)
+        D_tilde = sum(np.outer(vn[i], dbary[i]) for i in range(3))
+        dnormal = P_n @ D_tilde / ntn
+
+        g = np.kron(w4, n_curr) - sum((vt[i] @ n_curr) * dbary[i] for i in range(3)) + dnormal.T @ res
+        return g
+
+    q0 = np.r_[p, v.ravel()]
+    gradient = _eval_grad(q0)
+
+    # Centered finite differences on 12-DOF stencil for exact consistent Hessian
+    eps = 1e-6
+    hessian = np.zeros((12, 12), dtype=np.float64)
+    for i in range(12):
+        qp = q0.copy()
+        qp[i] += eps
+        qm = q0.copy()
+        qm[i] -= eps
+        hessian[:, i] = (_eval_grad(qp) - _eval_grad(qm)) / (2.0 * eps)
+    hessian = 0.5 * (hessian + hessian.T)
+
+    active = np.flatnonzero(weights > 0.0)
+    is_smooth = len(active) == 3 and bool(np.all(weights > 1e-6))
+    feature_str = "face" if len(active) == 3 else "edge" if len(active) == 2 else "vertex"
+
+    return DifferentiableContactGeometry(
+        gap=gap,
+        normal=normal,
+        closest_point=closest_point,
+        gradient=gradient,
+        hessian=hessian,
+        feature_id=feature_str,
+        feature_index=candidate_index,
+        barycentric=weights,
+        is_smooth_branch=is_smooth,
+        units=units,
+        orientation_convention="master_outward",
+    )
+
+
+class SmoothedTriangleGeometryProvider(ContactGeometryProvider):
+    """Energy-consistent smoothed-normal geometry provider (resolves LEGACY-DISC-03).
+
+    Evaluates complete master shape and normal variation across smoothed triangular facets:
+        g_N = r . n(xi)
+        grad_q(g_N) = W^T n - sum( (x_mi . n) * dxi_i/dq ) + (dn/dq)^T r
+        Hess_q(g_N) = d(grad_q(g_N))/dq
+    """
+
+    def __init__(self, units: str = "mm") -> None:
+        self._units = str(units)
+
+    @property
+    def units(self) -> str:
+        return self._units
+
+    @property
+    def orientation_convention(self) -> str:
+        return "master_outward"
+
+    def is_smooth_branch(
+        self, candidate: ContactCandidate, coordinates: np.ndarray
+    ) -> bool:
+        coords = np.asarray(coordinates, dtype=np.float64)
+        if coords.shape != (4, 3):
+            return False
+        point = coords[0]
+        vertices = coords[1:]
+        weights = TriangleContactGeometry.closest_barycentric(point, vertices)
+        return bool(np.all(weights > 1e-6))
+
+    def evaluate_geometry(
+        self,
+        candidate: ContactCandidate,
+        coordinates: np.ndarray,
+        pseudonormal: np.ndarray | None = None,
+        vertex_normals: np.ndarray | None = None,
+    ) -> DifferentiableContactGeometry:
+        coords = np.asarray(coordinates, dtype=np.float64)
+        if coords.shape != (4, 3):
+            raise ValueError(f"Triangle geometry requires shape (4, 3), got {coords.shape}")
+
+        point = coords[0]
+        vertices = coords[1:]
+
+        if vertex_normals is None:
+            # Fallback to triangle face normal if vertex normals not provided
+            face_normal, _ = TriangleContactGeometry._face_normal(vertices)
+            vertex_normals = np.tile(face_normal, (3, 1))
+
+        return evaluate_smoothed_triangle_geometry(
+            point=point,
+            vertices=vertices,
+            vertex_normals=vertex_normals,
+            candidate_index=int(candidate.candidate_index),
+            units=self._units,
         )

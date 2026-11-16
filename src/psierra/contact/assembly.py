@@ -31,10 +31,11 @@ class ContactAssembler:
         slave_node: int,
         dof_offset: int = 0,
         dofs_per_node: int = 3,
+        contact_dofs_per_node: int = 3,
     ) -> ContactAssemblyMap:
         """Construct ContactAssemblyMap for a single-body interaction (e.g. RigidContact)."""
         sn = int(slave_node)
-        s_dofs = int(dof_offset) + sn * int(dofs_per_node) + np.arange(dofs_per_node, dtype=np.int64)
+        s_dofs = int(dof_offset) + sn * int(dofs_per_node) + np.arange(contact_dofs_per_node, dtype=np.int64)
         return ContactAssemblyMap(
             slave_node=sn,
             slave_dofs=s_dofs,

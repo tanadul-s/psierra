@@ -25,6 +25,7 @@ from psierra.collision.mortar import (
     MortarInterfaceIntegrator,
     MortarSegmentData,
 )
+from psierra.contact.law import NormalConstraintLaw
 
 
 class MortarContact(ContactMultiplierState):
@@ -59,6 +60,8 @@ class MortarContact(ContactMultiplierState):
         tolerance: float = 0.0,
         symmetric_tangent: bool = False,
         domain: Domain | None = None,
+        *,
+        complete_linearization: bool = False,
     ) -> None:
         if not np.isfinite(k_penalty) or k_penalty <= 0.0:
             raise ValueError("k_penalty must be finite and positive")
@@ -85,6 +88,12 @@ class MortarContact(ContactMultiplierState):
         self.tolerance = float(tolerance)
         self.symmetric_tangent = bool(symmetric_tangent)
         self.domain = domain
+        self.complete_linearization = bool(complete_linearization)
+        self._normal_law = NormalConstraintLaw(
+            k_penalty=self.k_penalty,
+            c_damping=self.c_damping,
+            formulation=self.formulation,
+        )
 
         # Resolve slave surface geometry
         if slave_nodes is not None:
@@ -162,6 +171,21 @@ class MortarContact(ContactMultiplierState):
         self._cached_weighted_gaps = None
         self._cached_segments = None
         self._cached_average_gaps = None
+
+    @property
+    def _active_normal_law(self) -> NormalConstraintLaw:
+        """Return normal constraint law synchronized with current parameters."""
+        if (
+            self._normal_law.k_penalty != self.k_penalty
+            or self._normal_law.c_damping != self.c_damping
+            or self._normal_law.formulation != self.formulation
+        ):
+            self._normal_law = NormalConstraintLaw(
+                k_penalty=self.k_penalty,
+                c_damping=self.c_damping,
+                formulation=self.formulation,
+            )
+        return self._normal_law
 
     def _integrate_interface(
         self,
@@ -245,10 +269,14 @@ class MortarContact(ContactMultiplierState):
         # Active only where penetration occurs (bar_g < 0) or multiplier > 0
         pressures = np.zeros(len(D_diag), dtype=np.float64)
         active_nodes = np.flatnonzero(np.isfinite(avg_gaps))
+        law = self._active_normal_law
         for node in active_nodes:
             g = avg_gaps[node]
             lam = multipliers_by_node[node]
-            p = max(0.0, lam - self.k_penalty * g)
+            if self.formulation == "augmented_lagrangian":
+                p = max(0.0, lam - law.k_penalty * g)
+            else:
+                p = max(0.0, -law.k_penalty * g)
             pressures[node] = p
 
         # Velocity damping
@@ -407,15 +435,22 @@ class MortarContact(ContactMultiplierState):
 
         pressures = np.zeros(len(D_diag), dtype=np.float64)
         active_nodes = np.flatnonzero(np.isfinite(avg_gaps))
+        law = self._active_normal_law
         for node in active_nodes:
             g = avg_gaps[node]
             lam = multipliers_by_node[node]
-            p = max(0.0, lam - self.k_penalty * g)
+            if self.formulation == "augmented_lagrangian":
+                p = max(0.0, lam - law.k_penalty * g)
+            else:
+                p = max(0.0, -law.k_penalty * g)
             pressures[node] = p
 
         active_p_nodes = np.flatnonzero(pressures > 0.0)
         if len(active_p_nodes) == 0:
             return spsp.csr_matrix((total_dofs, total_dofs), dtype=np.float64)
+
+        if self.complete_linearization:
+            return self._evaluate_complete_linearization(total_dofs, active_p_nodes, a1=a1)
 
         # Average normals
         node_normals = np.zeros((len(D_diag), 3), dtype=np.float64)
@@ -533,6 +568,90 @@ class MortarContact(ContactMultiplierState):
             (vals, (rows, cols)), shape=(total_dofs, total_dofs), dtype=np.float64
         )
         return K_coo.tocsr()
+
+    def _evaluate_complete_linearization(
+        self,
+        total_dofs: int,
+        active_p_nodes: np.ndarray,
+        a1: float = 0.0,
+    ) -> spsp.csr_matrix:
+        """Evaluate complete interface geometry linearization (resolves LEGACY-DISC-04).
+
+        Linearizes the recomputed mortar interface residual with respect to all
+        active interface DOFs:
+            K_c = -df_c/du
+        including domain clipping, dual shape matrix, and normal variations.
+        """
+        assert self._cached_M is not None
+        M_csr = self._cached_M
+
+        active_dofs: list[int] = []
+        for snode in active_p_nodes:
+            s_base = self.slave_offset + 3 * snode
+            active_dofs.extend([s_base, s_base + 1, s_base + 2])
+            if self.is_deformable_master:
+                m_row = M_csr.getrow(snode)
+                for col in m_row.indices:
+                    m_base = self.master_offset + 3 * col
+                    active_dofs.extend([m_base, m_base + 1, m_base + 2])
+
+        active_dofs = sorted(set(d for d in active_dofs if d < total_dofs))
+        if not active_dofs:
+            return spsp.csr_matrix((total_dofs, total_dofs), dtype=np.float64)
+
+        K_mat = np.zeros((total_dofs, total_dofs), dtype=np.float64)
+        eps = 1e-6
+
+        s_u_orig = self.slave.u.copy() if hasattr(self.slave, "u") else None
+        m_u_orig = (
+            self.master.u.copy()
+            if (self.is_deformable_master and hasattr(self.master, "u"))
+            else None
+        )
+
+        for dof in active_dofs:
+            if s_u_orig is not None and self.slave_offset <= dof < self.slave_offset + self.slave.n_dofs:
+                local_s = dof - self.slave_offset
+                u_p = s_u_orig.copy()
+                u_p[local_s] += eps
+                self.slave.update_state(u=u_p)
+                self.invalidate_state()
+                f_p = self.evaluate_forces(n_dofs=total_dofs)
+
+                u_m = s_u_orig.copy()
+                u_m[local_s] -= eps
+                self.slave.update_state(u=u_m)
+                self.invalidate_state()
+                f_m = self.evaluate_forces(n_dofs=total_dofs)
+
+                self.slave.update_state(u=s_u_orig)
+            elif (
+                self.is_deformable_master
+                and m_u_orig is not None
+                and self.master_offset <= dof < self.master_offset + self.master.n_dofs
+            ):
+                local_m = dof - self.master_offset
+                u_p = m_u_orig.copy()
+                u_p[local_m] += eps
+                self.master.update_state(u=u_p)
+                self.invalidate_state()
+                f_p = self.evaluate_forces(n_dofs=total_dofs)
+
+                u_m = m_u_orig.copy()
+                u_m[local_m] -= eps
+                self.master.update_state(u=u_m)
+                self.invalidate_state()
+                f_m = self.evaluate_forces(n_dofs=total_dofs)
+
+                self.master.update_state(u=m_u_orig)
+            else:
+                continue
+
+            K_mat[:, dof] = -(f_p - f_m) / (2.0 * eps)
+
+        self.invalidate_state()
+        K_mat = 0.5 * (K_mat + K_mat.T)
+        return spsp.csr_matrix(K_mat)
 
     def evaluate_potential_energy(
         self, current_nodes: np.ndarray | None = None
