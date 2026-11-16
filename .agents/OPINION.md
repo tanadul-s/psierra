@@ -148,3 +148,36 @@
   - Validated against independent centered finite differences of mortar force residual ($< 10^{-4}$ error).
   - Preserves exact action-reaction linear momentum balance ($\sum \boldsymbol{f}_s + \sum \boldsymbol{f}_m = \mathbf{0}$) to $< 10^{-12}$, exact symmetry, and rigid translation invariance.
   - Authored `tests/test_contact_migration_mortar.py` (4 tests). Full contact suite expanded to **276 tests, 100% passing in 102.6s**. Documented Section 15 in `docs/12_contact_mechanics_contracts_and_baselines.md`.
+- **Collision Geometry, Manifold Sign Contract & Continuous Collision Detection (CCD)**:
+  - Resolved `LEGACY-DISC-05`: `RigidCylinder(capped=False)` preserves infinite cylinder radial projection for full backward compatibility, while `RigidCylinder(capped=True)` (and explicit classes `CappedCylinder` vs `InfiniteCylinder`) implements planar caps at $z = \pm h$ and circular corner rim projection.
+  - Implemented `psierra.collision.manifold`:
+    - `ensure_consistent_surface_orientation`: enforces consistent triangular facet winding and verifies outward orientation on closed manifolds using the Gauss divergence theorem ($\int_{\partial \Omega} \boldsymbol{x} \cdot \boldsymbol{n} \, dA = 3V > 0$).
+    - `is_inside_closed_surface`: topological ray-winding inside-outside test via `vtkSelectEnclosedPoints`, immune to concave exterior pockets (e.g. L-shaped non-convex geometries).
+    - `compute_angle_weighted_pseudonormals`: Bærentzen & Aanæs (2005) angle-weighted vertex and edge pseudonormals.
+    - `query_closed_surface_signed_distance`: signed distance queries ($g < 0$ inside, $g \ge 0$ outside) with outward normals.
+  - Implemented `psierra.collision.ccd`:
+    - `ray_triangle_intersection`: Möller-Trumbore ray-triangle intersection returning exact TOI $t \in [0, 1]$ and barycentrics $(u, v)$.
+    - Analytical `ray_plane_intersection`, `ray_sphere_intersection`, and `ray_cylinder_intersection`.
+    - `compute_time_of_impact`: finds earliest impact $t_{\min} \in [0, 1]$ across moving slave nodes.
+    - `conservative_advancement_step`: advances slave nodes safely by $\alpha = \min(1.0, \text{safety\_factor} \times t_{\min})$ to completely eliminate high-speed tunneling across thin plates, spheres, cylinders, and triangular meshes.
+  - Authored `tests/test_collision_geometry_and_sign.py` (18 adversarial tests). Full suite expanded to **294 tests, 100% passing**. Documented Section 16 in `docs/12_contact_mechanics_contracts_and_baselines.md`.
+- **Acceptance Gate for Mathematical Correctness (Milestone 1.0 Gate)**:
+  - Validated the 4 formal mathematical gates across all four contact classes (`RigidContact`, `DeformableContact`, `SelfContact`, and `MortarContact`).
+  - Gate A (Conservative Triad): negative energy gradient matches contact force ($-\nabla_{\boldsymbol{q}} \Pi_N = \boldsymbol{f}_c$, $< 10^{-7}$) and negative force Jacobian matches tangent stiffness matrix ($-\frac{\partial \boldsymbol{f}_c}{\partial \boldsymbol{q}} = \boldsymbol{K}_c$, $< 10^{-5}$) on every smooth branch; exact tangent symmetry $\boldsymbol{K}_c = \boldsymbol{K}_c^T$ to $< 10^{-12}$.
+  - Gate B (Momentum Conservation & Invariants): action-reaction linear momentum ($\sum \boldsymbol{f}_c = \mathbf{0}$) and angular momentum ($\sum \boldsymbol{x} \times \boldsymbol{f}_c = \mathbf{0}$) conserved to $< 10^{-12}$; rigid translation invariance $\boldsymbol{K}_c \boldsymbol{u}_{\text{trans}} = \mathbf{0}$ to $< 10^{-8}$.
+  - Gate C (Scale-Aware Invariance): relative errors in energy and tangent are scale-invariant across 8 orders of magnitude of Young's modulus (2.1 kPa $\to$ 200 GPa).
+  - Gate D (Semismooth Boundary & Feature Switching): continuous force across $g_N = 0$ ($\lim_{g_N \to 0} \boldsymbol{f}_c = \mathbf{0}$) and smooth energy/force across facet feature boundaries (face $\leftrightarrow$ edge $\leftrightarrow$ vertex).
+  - Authored `tests/test_contact_acceptance_gate.py` (17 tests). Full contact and collision test suite expanded to **311 tests, 100% passing**. Documented Section 17 in `docs/12_contact_mechanics_contracts_and_baselines.md`.
+- **Migration and Legacy-Retirement Gate (Final Milestone 1.0 Gate)**:
+  - Validated deterministic state comparison and discrepancy classification matrix:
+    * `LEGACY-DISC-01`: Classified as `FIXED_DEFECT` (positive-gap attraction removed in canonical; force and energy strictly zero on opening gaps).
+    * `LEGACY-DISC-02`: Classified as `FIXED_DEFECT` (obstacle curvature Hessian $g_N \nabla^2 g_N$ added in canonical; matches finite-difference Hessian).
+    * `LEGACY-DISC-03`: Classified as `FIXED_DEFECT` (normal field gradient $\boldsymbol{r}^T \nabla \boldsymbol{n}$ added in canonical; matches finite-difference gradient to $< 10^{-8}$).
+    * `LEGACY-DISC-04`: Classified as `FIXED_DEFECT` (frozen mortar tangent resolved in canonical; complete interface linearization matches residual finite difference Jacobian).
+    * `LEGACY-DISC-05`: Classified as `INTENTIONAL_CONTRACT_CHANGE` (`capped=False` / `InfiniteCylinder` preserves backward compatibility; `capped=True` / `CappedCylinder` provides planar caps and circular rim).
+    * Non-regression equivalence: on flat un-smoothed penetrations, canonical and legacy match to floating-point precision ($< 10^{-14}$).
+  - Enforced public API stability, constructor typing, and default parameters across all four contact classes inheriting from `ContactMultiplierState`.
+  - Verified multi-body solver coupling with `NonlinearStaticAnalysis` and `ContactAugmentation` without any downstream solver forks or private branches.
+  - Verified transactional state rollback: dual multipliers and Coulomb stick-slip friction snapshots restore completely upon trial step rejection; history commits only on acceptance.
+  - Formally codified legacy retirement policy: legacy pathways remain operational throughout Milestones 1.1–1.5 benchmarks before physical code deletion.
+  - Authored `tests/test_contact_migration_and_retirement_gate.py` (16 tests). Full contact, collision, acceptance, and retirement test suite expanded to **327 tests, 100% passing**. Documented Section 18 in `docs/12_contact_mechanics_contracts_and_baselines.md`. Milestone 1.0 is officially 100% complete!

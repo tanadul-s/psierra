@@ -38,6 +38,7 @@ class RayMeshObstacle(CollisionShape):
         self,
         source: Path | str | SurfaceMesh | pv.PolyData,
         use_embree: bool = True,
+        use_watertight_sign: bool = False,
     ) -> None:
         """
         Parameters:
@@ -46,7 +47,11 @@ class RayMeshObstacle(CollisionShape):
             Path to 3D surface mesh file (VTK format preferred) or an in-memory surface.
         use_embree : bool, default=True
             Whether to initialize the Intel Embree BVH ray-tracing engine (if available).
+        use_watertight_sign : bool, default=False
+            Whether to use topological inside-outside classification (vtkSelectEnclosedPoints)
+            for closed watertight manifolds to guarantee proper signs in concave regions.
         """
+        self._use_watertight_sign = bool(use_watertight_sign)
         if isinstance(source, (str, Path)):
             smesh = SurfaceMesh(Path(source))
             pdata = smesh.polydata
@@ -138,6 +143,10 @@ class RayMeshObstacle(CollisionShape):
         pts = np.asarray(points, dtype=np.float64)
         if pts.ndim != 2 or pts.shape[1] != 3:
             raise ValueError(f"Expected points of shape (N, 3), got {pts.shape}")
+
+        if self._use_watertight_sign:
+            from psierra.collision.manifold import query_closed_surface_signed_distance
+            return query_closed_surface_signed_distance(pts, self._polydata, locator=self._locator)
 
         n_pts = pts.shape[0]
         gaps = np.zeros(n_pts, dtype=np.float64)

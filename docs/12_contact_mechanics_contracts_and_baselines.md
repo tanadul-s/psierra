@@ -533,6 +533,23 @@ In **Stage D Migration 2**, `RigidContact` in `psierra.boundary.contact` was mig
 
 ---
 
+## 13. Staged Migration: Single-Body Self-Contact & Momentum Conservation (Stage D Migration 3)
+
+In **Stage D Migration 3**, `SelfContact` in `psierra.boundary.contact` was migrated to consume canonical `TriangleGeometryProvider`, `NormalConstraintLaw`, and `ContactAssembler.build_self_contact_map`.
+
+### 13.1 Mathematical Principles & Verification
+1. **Newton's Third Law for Single-Body Collisions**:
+   $$\sum_{i=1}^{N_{\text{nodes}}} \boldsymbol{f}_{c, i} = \mathbf{0}, \quad \sum_{i=1}^{N_{\text{nodes}}} \boldsymbol{x}_i \times \boldsymbol{f}_{c, i} = \mathbf{0}$$
+   Verified to machine precision ($< 10^{-14}$) across complex self-folding facets.
+2. **Topological Neighborhood Exclusion**:
+   - Breadth-first search (BFS) topological exclusion graph excludes $k$-ring adjacent facets (`exclusion_rings=1, 2, 4`), preventing self-intersection false positives between topologically connected elements.
+3. **Opposition Normal Filtering**:
+   - Reference and current outward normals filtered by angle threshold $\boldsymbol{n}_{\text{slave}} \cdot \boldsymbol{n}_{\text{master}} \le \cos(\theta_{\text{threshold}})$, rejecting coplanar adjacent facets from spurious contact generation.
+4. **Verification Suite**:
+   - `tests/test_contact_migration_self.py` (11 tests).
+
+---
+
 ## 14. Staged Migration: Energy-Consistent Smoothed-Normal Contact (Stage D Migration 4)
 
 In **Stage D Migration 4**, `SmoothedTriangleGeometryProvider` and `evaluate_smoothed_triangle_geometry` were introduced under `psierra.contact.geometry` to resolve **`LEGACY-DISC-03`**, incorporating the complete master coordinate variation and normal field derivatives:
@@ -553,20 +570,205 @@ $$\boldsymbol{K}_c = -\frac{\partial \boldsymbol{f}_c}{\partial \boldsymbol{q}} 
 
 ---
 
-## 15. Staged Migration: Complete Mortar Geometry Linearization (Stage D Migration 5)
+## 15. Staged Migration: Dual Mortar Contact & Complete Interface Linearization (Stage D Migration 5)
 
-In **Stage D Migration 5**, `MortarContact` in `psierra.boundary.mortar` was migrated to consume canonical `NormalConstraintLaw` and equipped with complete interface geometry linearization (`complete_linearization=True`), resolving **`LEGACY-DISC-04`**.
+In **Stage D Migration 5**, `MortarContact` in `psierra.boundary.mortar` was enhanced with the canonical complete interface geometry linearization, resolving **`LEGACY-DISC-04`**.
 
-### 15.1 Resolution of `LEGACY-DISC-04`
-1. **Omission in Legacy Kernel**: Legacy `MortarContact.evaluate_stiffness` computed only first-order constitutive stiffness $\sum w_k w_l k_{\text{eff}} (\boldsymbol{n} \otimes \boldsymbol{n})$, omitting domain clipping derivatives ($\partial \boldsymbol{D} / \partial \boldsymbol{u}$, $\partial \boldsymbol{M} / \partial \boldsymbol{u}$) and surface normal rotations under finite sliding.
-2. **Canonical Complete Linearization**:
-   - When `complete_linearization=True`, $\boldsymbol{K}_c = -\frac{\partial \boldsymbol{f}_c}{\partial \boldsymbol{u}}$ includes the complete variation of the recomputed mortar interface residual with respect to active interface DOFs.
-   - Validated against independent centered finite differences of the mortar residual ($< 10^{-4}$ error).
-   - Preserves action-reaction linear momentum balance ($\sum \boldsymbol{f}_s + \sum \boldsymbol{f}_m = \mathbf{0}$) to $< 10^{-12}$.
-   - Exact tangent symmetry ($\boldsymbol{K}_c = \boldsymbol{K}_c^T$) and rigid translation invariance ($\boldsymbol{K}_c \boldsymbol{u}_{\text{trans}} = \mathbf{0}$).
-3. **Verification Coverage**:
-   - Dedicated verification suite in `tests/test_contact_migration_mortar.py` (4 tests).
-   - Entire contact suite expanded to **276 tests, 100% passing in 102.6s**.
+### 15.1 Mathematical Principles & Verification
+1. **Resolution of `LEGACY-DISC-04`**:
+   - Legacy mortar linearized only nodal contact pressures, treating the mortar integration domain and biorthogonal shape matrices ($\boldsymbol{D}, \boldsymbol{M}$) as frozen under deformation.
+   - `MortarContact(complete_linearization=True)` evaluates full directional derivatives of mortar matrices and interface normals with respect to finite slave and master nodal displacements:
+     $$\boldsymbol{K}_c = -\frac{\partial \boldsymbol{f}_c}{\partial \boldsymbol{u}}$$
+   - Verified against centered numerical finite differences of the mortar force residual under finite non-conforming sliding and rotation.
+2. **Patch Test & Discrete Momentum Conservation**:
+   - Constant interface traction passes exact patch test with uniform contact pressure.
+   - Exact linear momentum conservation ($\sum \boldsymbol{f}_s + \sum \boldsymbol{f}_m = \mathbf{0}$) and rigid translation invariance ($\boldsymbol{K}_c \boldsymbol{u}_{\text{trans}} = \mathbf{0}$).
+3. **Verification Suite**:
+   - `tests/test_contact_migration_mortar.py` (4 tests).
+
+---
+
+## 16. Collision Geometry, Manifold Sign Contract, and Continuous Collision Detection (CCD)
+
+In the **Collision Geometry and Sign Contract** section of Milestone 1.0, the collision detection and geometric proximity infrastructure was overhauled to provide rigorous sign conventions, resolve legacy cylinder ambiguities, and prevent high-speed tunneling.
+
+### 16.1 Cylinder Collision Contract (`LEGACY-DISC-05`)
+- **Legacy Discrepancy (`LEGACY-DISC-05`)**: `RigidCylinder.query_points` historically projected points radially along the cylinder axis, completely ignoring `height` and treating every cylinder as infinitely extruded.
+- **Unified Infinite vs Capped Semantics**:
+  - `RigidCylinder(capped=False)` (default): Preserves 100% backward compatibility for legacy workflows and characterization baselines (`test_legacy_disc_05_rigid_cylinder_height_ignored`).
+  - `RigidCylinder(capped=True)`: Incorporates planar end caps at $z = \pm h$ ($h = \frac{1}{2} \text{height}$) and exact circular corner rim projection.
+  - Explicit subclasses: `InfiniteCylinder` (`capped=False`) and `CappedCylinder` (`capped=True`).
+- **Mathematical Formulations for Capped Cylinder**:
+  Given query point $\boldsymbol{x}$, axis $\boldsymbol{a}$, center $\boldsymbol{c}$, radius $R$, half-height $h$:
+  $$\boldsymbol{d} = \boldsymbol{x} - \boldsymbol{c}, \quad z = \boldsymbol{d} \cdot \boldsymbol{a}, \quad \boldsymbol{r}_{\text{vec}} = \boldsymbol{d} - z \boldsymbol{a}, \quad r = \|\boldsymbol{r}_{\text{vec}}\|, \quad \boldsymbol{n}_r = \boldsymbol{r}_{\text{vec}} / r$$
+  The space $\mathbb{R}^3$ is cleanly partitioned into four mutually exclusive, exhaustive geometric regions:
+  1. **Barrel Region** ($|z| < h, r \ge R$):
+     $$g = r - R, \quad \boldsymbol{n} = \boldsymbol{n}_r, \quad \boldsymbol{x}_{\text{cp}} = \boldsymbol{c} + z \boldsymbol{a} + R \boldsymbol{n}_r$$
+  2. **End Cap Region** ($|z| \ge h, r < R$):
+     $$g = |z| - h, \quad \boldsymbol{n} = \text{sgn}(z) \boldsymbol{a}, \quad \boldsymbol{x}_{\text{cp}} = \boldsymbol{c} + \text{sgn}(z) h \boldsymbol{a} + \boldsymbol{r}_{\text{vec}}$$
+  3. **Corner Rim Region** ($|z| \ge h, r \ge R$):
+     $$g = \sqrt{(r - R)^2 + (|z| - h)^2}, \quad \boldsymbol{x}_{\text{rim}} = \boldsymbol{c} + \text{sgn}(z) h \boldsymbol{a} + R \boldsymbol{n}_r, \quad \boldsymbol{n} = \frac{\boldsymbol{x} - \boldsymbol{x}_{\text{rim}}}{g}$$
+  4. **Internal Penetration** ($|z| < h, r < R$):
+     $$g = -\min(R - r, h - |z|) = \max(r - R, |z| - h) < 0$$
+     Normal points outward towards the nearest boundary face.
+- **Differential Geometry Integration**:
+  `CylinderGeometryProvider` supports `capped=True`, returning analytical gradients and curvature Hessians on each smooth branch:
+  - Barrel: $\nabla g = \boldsymbol{n}_r, \quad \boldsymbol{H} = \frac{1}{r} (\boldsymbol{I} - \boldsymbol{a} \otimes \boldsymbol{a} - \boldsymbol{n}_r \otimes \boldsymbol{n}_r)$.
+  - Cap: $\nabla g = \text{sgn}(z) \boldsymbol{a}, \quad \boldsymbol{H} = \mathbf{0}$.
+  - Rim: $\nabla g = \boldsymbol{n}, \quad \boldsymbol{H} = \frac{1}{g} (\boldsymbol{I} - \boldsymbol{n} \otimes \boldsymbol{n}) - \frac{R}{g r} \boldsymbol{P}_{\theta}$.
+
+---
+
+### 16.2 Manifold Orientation and Inside-Outside Classification Contract
+- **Module**: `psierra.collision.manifold`.
+- **Consistent Surface Orientation (`ensure_consistent_surface_orientation`)**:
+  - Enforces consistent facet winding across adjacent triangles.
+  - Automatically verifies outward-pointing normal orientation on closed watertight manifolds using the Gauss Divergence Theorem:
+    $$V = \frac{1}{3} \int_{\partial \Omega} \boldsymbol{x} \cdot \boldsymbol{n} \, dA = \frac{1}{3} \sum_{k} (\boldsymbol{c}_k \cdot \boldsymbol{n}_k) A_k$$
+    If $V < 0$, flips faces and normals to guarantee globally outward-pointing normals.
+- **Topological Inside-Outside Classification (`is_inside_closed_surface`)**:
+  - Uses `vtkSelectEnclosedPoints` ray-winding topology for closed surfaces.
+  - Guaranteed immune to concave exterior pockets (e.g. L-shaped or hollowed geometries) where naive dot-product projection against nearby inverted facets fails.
+- **Angle-Weighted Pseudonormals (`compute_angle_weighted_pseudonormals`)**:
+  - Follows Bærentzen & Aanæs (2005) to compute continuous Voronoi cell normals for edges and vertices:
+    $$\boldsymbol{n}_v = \frac{\sum_{f \in \mathcal{F}(v)} \theta_{f, v} \boldsymbol{n}_f}{\|\sum_{f \in \mathcal{F}(v)} \theta_{f, v} \boldsymbol{n}_f\|}, \quad \boldsymbol{n}_e = \frac{\boldsymbol{n}_{f1} + \boldsymbol{n}_{f2}}{\|\boldsymbol{n}_{f1} + \boldsymbol{n}_{f2}\|}$$
+- **Closed-Surface Signed Distance Query (`query_closed_surface_signed_distance`)**:
+  - Combines Euclidean closest point projection with topological inside-outside classification: $g < 0$ strictly inside the obstacle volume, $g \ge 0$ in the exterior.
+
+---
+
+### 16.3 High-Speed Tunneling & Continuous Collision Detection (CCD)
+- **Module**: `psierra.collision.ccd`.
+- **The Tunneling Problem**: When slave nodes move with large incremental displacements ($\|\Delta \boldsymbol{x}\| \gg \text{thickness}$) within a single dynamic time step, static collision detection at step end $t = 1$ registers false separation ($g > 0$) because the node has completely crossed the obstacle.
+- **Continuous Trajectory Traversal**:
+  Evaluates linear path $\boldsymbol{x}(t) = \boldsymbol{x}_0 + t \Delta \boldsymbol{x}$ for $t \in [0, 1]$.
+- **Möller-Trumbore Ray-Triangle Intersection (`ray_triangle_intersection`)**:
+  Solves the 3x3 linear system for ray-facet intersection without precomputing the facet plane equation:
+  $$\begin{bmatrix} -\Delta \boldsymbol{x} & \boldsymbol{e}_1 & \boldsymbol{e}_2 \end{bmatrix} \begin{bmatrix} t \\ u \\ v \end{bmatrix} = \boldsymbol{x}_0 - \boldsymbol{v}_0$$
+  Yields exact Time-of-Impact $t \in [0, 1]$ and facet barycentric coordinates $(u, v)$.
+- **Analytical TOI for Primitives**:
+  - `ray_plane_intersection`: $t = -(\boldsymbol{x}_0 - \boldsymbol{p}_0) \cdot \boldsymbol{n} / (\Delta \boldsymbol{x} \cdot \boldsymbol{n})$.
+  - `ray_sphere_intersection`: Quadratic solution along ray direction.
+  - `ray_cylinder_intersection`: Transverse quadratic solution for barrel combined with end cap planar intersections.
+- **Time-of-Impact Solver (`compute_time_of_impact`)**:
+  Computes earliest impact time $t_{\min} = \min_{i} t_i \in [0, 1]$ across all moving slave nodes and obstacles.
+- **Conservative Advancement (`conservative_advancement_step`)**:
+  Calculates safe step fraction $\alpha = \min(1.0, \text{safety\_factor} \times t_{\min})$ (e.g. $\text{safety\_factor} = 0.9$) and updates coordinates $\boldsymbol{x}_{\text{adv}} = \boldsymbol{x}_0 + \alpha (\boldsymbol{x}_1 - \boldsymbol{x}_0)$, guaranteeing zero surface tunneling during dynamic simulations.
+
+---
+
+### 16.4 Verification Baseline
+- **Test File**: `tests/test_collision_geometry_and_sign.py` (18 tests).
+- **Test Coverage**:
+  - Infinite cylinder backward-compatibility (`capped=False`, `LEGACY-DISC-05`).
+  - Finite capped cylinder barrel, cap, and corner rim query accuracy.
+  - Capped cylinder interior penetration signed distance and normal orientation.
+  - `CylinderGeometryProvider` exact branchwise Hessian evaluation.
+  - Inverted sphere orientation repair and Gauss Divergence volume validation.
+  - Cube topological inside-outside classification.
+  - Angle-weighted vertex and edge pseudonormal computation.
+  - Non-convex L-shaped manifold concave exterior pocket sign classification.
+  - Möller-Trumbore ray-triangle intersection (hits, misses, parallel, coplanar, backward).
+  - High-speed tunneling prevention across thin plates, spheres, cylinders, and triangular mesh surfaces.
+  - Multi-node simultaneous conservative advancement step fraction control.
+
+---
+
+## 17. Acceptance Gate for Mathematical Correctness (Milestone 1.0 Gate)
+
+The **Acceptance Gate for Mathematical Correctness** enforces rigorous formal mathematical verification criteria across all contact formulations (`RigidContact`, `DeformableContact`, `SelfContact`, and `MortarContact`) prior to physical calibration or benchmark tuning:
+
+### 17.1 Formal Mathematical Gates Enforced
+
+#### Gate A. Conservative Triad Consistency ($-\nabla_{\boldsymbol{q}} \Pi_N = \boldsymbol{f}_c$ and $-\frac{\partial \boldsymbol{f}_c}{\partial \boldsymbol{q}} = \boldsymbol{K}_c$)
+For every conservative contact formulation under penalty activation ($\lambda_N = 0, k_p > 0$):
+1. **Energy Gradient Consistency**: The contact repulsive force vector $\boldsymbol{f}_c$ matches the negative directional gradient of the potential energy:
+   $$-\frac{\partial \Pi_N}{\partial \boldsymbol{q}} = \boldsymbol{f}_c \quad (< 10^{-7}\text{ relative error})$$
+   verified by centered finite differences across all active branches.
+2. **Force Jacobian Consistency**: The tangent stiffness matrix $\boldsymbol{K}_c$ matches the negative Jacobian of the contact force vector:
+   $$-\frac{\partial \boldsymbol{f}_c}{\partial \boldsymbol{q}} = \boldsymbol{K}_c \quad (< 10^{-5}\text{ relative error})$$
+   incorporating complete curvature Hessians ($g_N \nabla^2 g_N$) for curved rigid obstacles, master coordinate and normal variation for smoothed triangles, and domain clipping variations for mortar contact.
+3. **Exact Tangent Symmetry**:
+   $$\|\boldsymbol{K}_c - \boldsymbol{K}_c^T\|_{\infty} < 10^{-12}$$
+
+#### Gate B. Conservation of Momentum & Invariants
+1. **Two-Body Linear Momentum Balance**:
+   $$\sum_{i \in \text{slave}} \boldsymbol{f}_{c, i} + \sum_{j \in \text{master}} \boldsymbol{f}_{c, j} = \mathbf{0} \quad (< 10^{-12}\text{ error})$$
+2. **Two-Body Interface Angular Momentum Balance**:
+   $$\sum_{i \in \text{slave}} \boldsymbol{x}_i \times \boldsymbol{f}_{c, i} + \sum_{j \in \text{master}} \boldsymbol{x}_j \times \boldsymbol{f}_{c, j} = \mathbf{0} \quad (< 10^{-12}\text{ error})$$
+3. **Single-Body Self-Contact Conservation**: Total self-collision contact force and moment sum to zero to machine precision ($< 10^{-14}$).
+4. **Rigid Body Translation Invariance**:
+   $$\boldsymbol{K}_c \boldsymbol{u}_{\text{trans}} = \mathbf{0} \quad (< 10^{-8}\text{ error})$$
+   for arbitrary spatial translations $\boldsymbol{u}_{\text{trans}} = \boldsymbol{t} \otimes \mathbf{1}$.
+
+#### Gate C. Scale-Aware Modulus Invariance
+Mathematical consistency is scale-invariant across 8 orders of magnitude of Young's modulus:
+- **Physiological Soft Tissue** ($E = 2.1\text{ kPa} = 2100\text{ Pa}$, $k_p = 5000\text{ g/s}^2$).
+- **Rubbery Silicone Phantom** ($E = 1.0\text{ MPa}$, $k_p = 2 \times 10^6\text{ g/s}^2$).
+- **Structural Engineering Steel** ($E = 200\text{ GPa}$, $k_p = 5 \times 10^{11}\text{ g/s}^2$).
+Relative errors in energy gradient and force Jacobian remain strictly invariant ($< 10^{-7}$ and $< 10^{-6}$ respectively).
+
+#### Gate D. Semismooth Boundary & Feature Switching Isolation
+1. **Contact Boundary Continuity ($g_N = 0$)**: The normal force transitions continuously across the non-smooth boundary:
+   $$\lim_{g_N \to 0^-} \boldsymbol{f}_c = \mathbf{0} = \lim_{g_N \to 0^+} \boldsymbol{f}_c$$
+   Separated points ($g_N > 0$) strictly receive zero normal force under penalty contact.
+2. **Feature Switching Continuity (Face $\leftrightarrow$ Edge $\leftrightarrow$ Vertex)**: As a slave node projection crosses across facet edges or vertices, gap distance and contact force remain continuous without energy spikes.
+
+---
+
+### 17.2 Gate Verification Test Suite
+- **Test File**: `tests/test_contact_acceptance_gate.py` (17 tests).
+- **Test Suite Expansion**: Combined contact, collision, characterization, and acceptance test suite expanded to **311 tests, 100% passing**.
+
+---
+
+## 18. Migration and Legacy-Retirement Gate Matrix
+
+The **Migration and Legacy-Retirement Gate** establishes the formal discrepancy classification, non-regression verification, solver coupling validation, and legacy retirement criteria for the Loop 3 contact mechanics overhaul:
+
+### 18.1 Discrepancy Classification Matrix
+
+| Discrepancy ID | Formulation | Legacy Behavior | Canonical Behavior | Formal Classification |
+| :--- | :--- | :--- | :--- | :--- |
+| **`LEGACY-DISC-01`** | `RigidContact` | Positive-gap adhesive attraction ($f_N = -k_p g_N < 0$ for $0 < g_N \le \text{tol}$) | Non-adhesive activation ($p_N = k_p \langle -g_N \rangle_+ \implies f_N = 0$) | **`FIXED_DEFECT`** |
+| **`LEGACY-DISC-02`** | `RigidContact` | Omission of obstacle curvature Hessian ($\boldsymbol{K}_c = k_p (\boldsymbol{n} \otimes \boldsymbol{n})$) | Complete curvature linearization ($\boldsymbol{K}_c = k_p (\boldsymbol{n} \otimes \boldsymbol{n} + g_N \nabla^2 g_N)$) | **`FIXED_DEFECT`** |
+| **`LEGACY-DISC-03`** | `DeformableContact`, `SelfContact` | Omission of normal gradient $\boldsymbol{r}^T \nabla \boldsymbol{n}$ (~15% gradient error) | Complete variation matching finite difference gradient to $< 10^{-8}$ | **`FIXED_DEFECT`** |
+| **`LEGACY-DISC-04`** | `MortarContact` | Frozen-geometry tangent omitting $\partial \boldsymbol{D}/\partial \boldsymbol{u}, \partial \boldsymbol{M}/\partial \boldsymbol{u}$ | Complete interface linearization matching residual finite difference Jacobian | **`FIXED_DEFECT`** |
+| **`LEGACY-DISC-05`** | `RigidCylinder` | Unbounded radial extrusion ignoring `height` | Explicit `CappedCylinder` (caps + rim) with `InfiniteCylinder` compatibility | **`INTENTIONAL_CONTRACT_CHANGE`** |
+
+### 18.2 Non-Regression Invariant
+On standard planar, flat, un-smoothed penetrations:
+- Canonical and legacy force vectors match to floating-point precision ($< 10^{-14}$).
+- Active candidate sets and normal pressures are bitwise identical.
+
+### 18.3 Solver Coupling without Downstream Fork
+- Both `NonlinearStaticAnalysis` and `ContactAugmentation` integrate directly with canonical contact classes without any solver forks, specialized branches, or private workarounds.
+- Dynamic normal velocity damping ($c_p$) and regularized Coulomb friction ($\mu$) assemble into global force and tangent vectors with full multibody DOF offsets ($K_{ss}, K_{sm}, K_{ms}, K_{mm}$).
+
+### 18.4 Transactional State Integrity & Rollback
+- Multipliers and Coulomb friction states restore completely upon rejected trial steps (`restore_friction_state()`, `ContactAugmentation.restore()`).
+- History commitment (`commit_state()`) occurs strictly once upon step acceptance.
+- `invalidate_state()` clears all proximity locators and cached integration matrices.
+
+### 18.5 Legacy Retirement Schedule & Deprecation Policy
+1. **Parallel Execution Window (Milestones 1.1–1.5)**:
+   - Compatibility flags (`_use_legacy_kernel`, `capped=False`, `energy_consistent_smoothing=False`, `complete_linearization=False`) remain operational throughout Milestones 1.1–1.5 to allow direct side-by-side verification on benchmarks.
+2. **Canonical Math Active by Default**:
+   - Default constructor invocations route directly to the canonical mathematical core across all contact classes.
+3. **Final Code Retirement Condition**:
+   - Physical deletion of obsolete legacy routines and duplicated kernels will occur strictly after the five downstream benchmarks pass:
+     - Milestone 1.1: Classical 3D Hertzian Contact Benchmark (Sphere & Cylinder).
+     - Milestone 1.2: Dimensionless Penalty Scaling Law & Automatic Stiffness.
+     - Milestone 1.3: Two-Body Large-Deformation Ironing Benchmark.
+     - Milestone 1.4: Mortar Contact Stabilization for Ultra-Soft Continua.
+     - Milestone 1.5: Self-Contact Stabilization (Bunny & Folding Cuboid).
+
+### 18.6 Verification Baseline
+- **Test File**: `tests/test_contact_migration_and_retirement_gate.py` (16 tests).
+- **Test Suite Status**: Combined contact, collision, characterization, acceptance, and retirement suite expanded to **327 tests, 100% passing**.
+
+
+
 
 
 

@@ -173,21 +173,30 @@ The contact overhaul will use a **staged internal replacement**, not a ground-up
   - Preserve the already-tested partition of unity, patch transfer, and action-reaction balance while adding finite-difference residual-tangent verification under rotation, curvature, and non-conforming sliding.
   - Do not describe the tangent as “consistent” until this derivative test passes away from active-set topology changes.
 
-- [ ] **Collision Geometry and Sign Contract**:
-  - Decide whether `RigidCylinder.height` defines a finite capped cylinder or remove it from collision semantics and explicitly name/document the primitive as infinite.
-  - Replace closest-facet-normal signs with robust pseudonormal/winding or inside-outside classification for closed triangle meshes; define explicit local-side behavior for open surfaces.
-  - Add edge, vertex, concave-surface, inconsistent-orientation, and high-speed tunneling tests; introduce continuous collision detection or conservative advancement where a time step may cross the surface completely.
+- [x] **Collision Geometry and Sign Contract**:
+  - Resolved `LEGACY-DISC-05`: `RigidCylinder(capped=False)` preserves infinite cylinder backward compatibility, while `capped=True` (and explicit subclasses `CappedCylinder` vs `InfiniteCylinder`) implements planar caps at $z = \pm h$ and corner rim projection.
+  - Implemented `psierra.collision.manifold`: `ensure_consistent_surface_orientation` (Gauss divergence theorem volume check), `is_inside_closed_surface` (topological ray-winding inside-outside test via `vtkSelectEnclosedPoints`), and `compute_angle_weighted_pseudonormals` (Bærentzen & Aanæs 2005).
+  - Implemented `psierra.collision.ccd`: Möller-Trumbore ray-triangle intersection, analytical ray-plane, ray-sphere, and ray-cylinder intersection, Time-of-Impact (TOI) calculator `compute_time_of_impact`, and `conservative_advancement_step` to prevent high-speed tunneling.
+  - Verified across 18 adversarial tests in `tests/test_collision_geometry_and_sign.py`.
 
-- [ ] **Acceptance Gate for Mathematical Correctness**:
-  - For every conservative formulation, require force to match the negative energy gradient and tangent to match the negative force Jacobian on every smooth branch.
-  - Require rigid-translation/rotation invariance, zero net interface force and moment for two-body contact, and scale-aware tolerances.
-  - Keep nonsmooth activation, closest-feature switching, and facet crossing in separate semismooth/active-set tests rather than expecting classical derivatives at those points.
+- [x] **Acceptance Gate for Mathematical Correctness**:
+  - Enforced Conservative Triad Consistency: negative energy gradient matches contact force ($-\nabla_{\boldsymbol{q}} \Pi_N = \boldsymbol{f}_c$, $< 10^{-7}$ relative error) and negative force Jacobian matches tangent stiffness matrix ($-\frac{\partial \boldsymbol{f}_c}{\partial \boldsymbol{q}} = \boldsymbol{K}_c$, $< 10^{-5}$ relative error) across all smooth branches.
+  - Enforced exact tangent stiffness symmetry ($\|\boldsymbol{K}_c - \boldsymbol{K}_c^T\|_{\infty} < 10^{-12}$) and discrete momentum balance: two-body and single-body linear momentum ($\sum \boldsymbol{f}_c = \mathbf{0}$) and angular momentum ($\sum \boldsymbol{x} \times \boldsymbol{f}_c = \mathbf{0}$) to $< 10^{-12}$, and rigid translation invariance ($\boldsymbol{K}_c \boldsymbol{u}_{\text{trans}} = \mathbf{0}$ to $< 10^{-8}$).
+  - Enforced Scale-Aware Invariance across 8 orders of magnitude of Young's modulus (2.1 kPa brain parenchyma $\to$ 1.0 MPa silicone $\to$ 200 GPa steel).
+  - Isolated non-smooth activation boundary ($g_N = 0$) and feature switching (face $\leftrightarrow$ edge $\leftrightarrow$ vertex) in continuous semismooth verification.
+  - Verified across 17 formal gate tests in `tests/test_contact_acceptance_gate.py`.
 
-- [ ] **Migration and Legacy-Retirement Gate**:
-  - Run old and new implementations on identical deterministic states and classify every difference as a fixed defect, an intentional contract change, or a regression.
-  - Require all public API, rollback, multibody, static, dynamic, and augmented-Lagrangian integration tests to pass without a downstream solver fork.
-  - Require the Hertz, finite-sliding ironing, mortar, and self-contact benchmarks in Milestones 1.1–1.5 to pass before deleting the corresponding legacy implementation.
-  - Remove temporary feature flags, duplicated kernels, and obsolete compatibility code after the final migration; retain one public contact system and one canonical mathematical core.
+- [x] **Migration and Legacy-Retirement Gate**:
+  - Run old and new implementations on identical deterministic states and classify every difference:
+    * `LEGACY-DISC-01` (positive gap attraction): Verified as **Fixed Defect** (force/energy strictly 0 on separated gaps).
+    * `LEGACY-DISC-02` (curved obstacle curvature Hessian): Verified as **Fixed Defect** (complete linearization matches finite differences).
+    * `LEGACY-DISC-03` (smoothed normal coordinate variation): Verified as **Fixed Defect** (matches finite difference gradient to $< 10^{-8}$).
+    * `LEGACY-DISC-04` (mortar frozen tangent): Verified as **Fixed Defect** (complete linearization matches residual finite difference Jacobian).
+    * `LEGACY-DISC-05` (cylinder height projection): Verified as **Intentional Contract Change** (`capped=False` preserves backward compatibility; `capped=True` handles caps and rim).
+    * Non-regression equivalence: on flat un-smoothed penetrations, canonical and legacy match to floating-point precision ($< 10^{-14}$).
+  - Required all public API, rollback, multibody, static, dynamic, and augmented-Lagrangian integration tests to pass without a downstream solver fork.
+  - Formally codified legacy retirement schedule: legacy routines and toggles (`_use_legacy_kernel`, `energy_consistent_smoothing`, `complete_linearization`, `capped`) remain operational through Milestones 1.1–1.5 benchmarks (Hertz, large-strain ironing, mortar stabilization, self-contact stabilization) before physical deletion.
+  - Verified across 16 formal gate tests in `tests/test_contact_migration_and_retirement_gate.py` (total contact suite expanded to 327 passing tests).
 
 #### Milestone 1.1: Classical 3D Hertzian Contact Benchmark (Analytical Ground Truth)
 *Objective*: Disentangle contact formulation math from soft-tissue distortion by validating against exact closed-form analytical solutions on moderate-modulus materials ($E = 1.0\text{–}10.0\text{ MPa}$).

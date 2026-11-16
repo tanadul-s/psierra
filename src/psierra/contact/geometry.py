@@ -236,6 +236,7 @@ class CylinderGeometryProvider(ContactGeometryProvider):
         axis: Sequence[float] | np.ndarray = (0.0, 0.0, 1.0),
         radius: float = 1.0,
         height: float | None = None,
+        capped: bool = False,
         units: str = "mm",
     ) -> None:
         if radius <= 0.0 or not np.isfinite(radius):
@@ -248,6 +249,7 @@ class CylinderGeometryProvider(ContactGeometryProvider):
         self._axis = a / norm
         self._radius = float(radius)
         self._height = float(height) if height is not None else None
+        self._capped = bool(capped)
         self._units = str(units)
 
     @property
@@ -274,20 +276,32 @@ class CylinderGeometryProvider(ContactGeometryProvider):
     def height(self) -> float | None:
         return self._height
 
+    @property
+    def capped(self) -> bool:
+        return self._capped
+
     def is_smooth_branch(
         self, candidate: ContactCandidate, coordinates: np.ndarray
     ) -> bool:
-        """Smooth everywhere except along the central axis line d = 0."""
+        """Smooth everywhere except along the central axis line d = 0 or corner rims."""
         x_s = np.asarray(coordinates, dtype=np.float64).flatten()
         diff = x_s - self._center
         proj = np.dot(diff, self._axis) * self._axis
         rad_dist = float(np.linalg.norm(diff - proj))
-        return rad_dist > 1e-12 * self._radius
+        if rad_dist <= 1e-12 * self._radius:
+            return False
+        if self._capped and self._height is not None:
+            z = float(np.dot(diff, self._axis))
+            h = 0.5 * self._height
+            # Corner rim singularity check
+            if abs(abs(z) - h) < 1e-12 * h and abs(rad_dist - self._radius) < 1e-12 * self._radius:
+                return False
+        return True
 
     def evaluate_geometry(
         self, candidate: ContactCandidate, coordinates: np.ndarray
     ) -> DifferentiableContactGeometry:
-        """Evaluate cylinder gap, normal, and circumferential curvature Hessian."""
+        """Evaluate cylinder gap, normal, and exact curvature Hessian."""
         x_s = np.asarray(coordinates, dtype=np.float64).flatten()
         if x_s.shape != (3,):
             raise ValueError(f"Slave point must have shape (3,), got {x_s.shape}")
@@ -299,24 +313,111 @@ class CylinderGeometryProvider(ContactGeometryProvider):
         dist = float(np.linalg.norm(rad_vec))
 
         if dist < 1e-14:
-            # Degenerate point on axis: pick arbitrary normal perpendicular to axis
             arbitrary = np.array([1.0, 0.0, 0.0]) if abs(self._axis[0]) < 0.9 else np.array([0.0, 1.0, 0.0])
-            normal = arbitrary - np.dot(arbitrary, self._axis) * self._axis
-            normal /= np.linalg.norm(normal)
-            gap = -self._radius
-            closest_point = proj_axis_pt + self._radius * normal
-            gradient = normal.copy()
-            hessian = np.zeros((3, 3), dtype=np.float64)
-            smooth = False
+            radial_normal = arbitrary - np.dot(arbitrary, self._axis) * self._axis
+            radial_normal /= np.linalg.norm(radial_normal)
         else:
-            normal = rad_vec / dist
+            radial_normal = rad_vec / dist
+
+        if not self._capped or self._height is None:
+            # Infinite cylinder
+            if dist < 1e-14:
+                normal = radial_normal
+                gap = -self._radius
+                closest_point = proj_axis_pt + self._radius * normal
+                gradient = normal.copy()
+                hessian = np.zeros((3, 3), dtype=np.float64)
+                smooth = False
+            else:
+                normal = radial_normal
+                gap = dist - self._radius
+                closest_point = proj_axis_pt + self._radius * normal
+                gradient = normal.copy()
+                P_transverse = np.eye(3) - np.outer(self._axis, self._axis) - np.outer(normal, normal)
+                hessian = P_transverse / dist
+                smooth = True
+
+            return DifferentiableContactGeometry(
+                gap=gap,
+                normal=normal,
+                closest_point=closest_point,
+                gradient=gradient,
+                hessian=hessian,
+                feature_id="cylinder",
+                feature_index=0,
+                barycentric=None,
+                is_smooth_branch=smooth,
+                units=self._units,
+                orientation_convention=self.orientation_convention,
+            )
+
+        # Capped finite cylinder
+        h = 0.5 * self._height
+        abs_z = abs(proj_length)
+        sgn_z = 1.0 if proj_length >= 0.0 else -1.0
+
+        if abs_z < h and dist >= self._radius:
+            # Outside barrel
+            normal = radial_normal
             gap = dist - self._radius
             closest_point = proj_axis_pt + self._radius * normal
             gradient = normal.copy()
-            # Hessian = (1/d) * (I - a (x) a - n (x) n)
             P_transverse = np.eye(3) - np.outer(self._axis, self._axis) - np.outer(normal, normal)
-            hessian = P_transverse / dist
+            hessian = P_transverse / max(dist, 1e-14)
+            feature_id = "cylinder_barrel"
+            smooth = dist > 1e-12 * self._radius
+
+        elif abs_z >= h and dist < self._radius:
+            # Outside cap
+            normal = sgn_z * self._axis
+            gap = abs_z - h
+            cap_center = self._center + (sgn_z * h) * self._axis
+            closest_point = cap_center + rad_vec
+            gradient = normal.copy()
+            hessian = np.zeros((3, 3), dtype=np.float64)
+            feature_id = "cylinder_cap"
             smooth = True
+
+        elif abs_z >= h and dist >= self._radius:
+            # Outside rim corner
+            dr = dist - self._radius
+            dz = abs_z - h
+            gap = float(np.sqrt(dr**2 + dz**2))
+            rim_center = self._center + (sgn_z * h) * self._axis + self._radius * radial_normal
+            closest_point = rim_center
+            safe_gap = max(gap, 1e-14)
+            if gap < 1e-14:
+                normal = (radial_normal + sgn_z * self._axis) / np.sqrt(2.0)
+            else:
+                normal = (dr * radial_normal + (dz * sgn_z) * self._axis) / safe_gap
+            gradient = normal.copy()
+            P_theta = np.eye(3) - np.outer(self._axis, self._axis) - np.outer(radial_normal, radial_normal)
+            hessian = (np.eye(3) - np.outer(normal, normal)) / safe_gap - (self._radius / (safe_gap * max(dist, 1e-14))) * P_theta
+            feature_id = "cylinder_rim"
+            smooth = gap > 1e-12 * self._radius
+
+        else:
+            # Inside cylinder
+            d_barrel = self._radius - dist
+            d_cap = h - abs_z
+            if d_barrel <= d_cap:
+                normal = radial_normal
+                gap = -(self._radius - dist)
+                closest_point = proj_axis_pt + self._radius * normal
+                gradient = normal.copy()
+                P_transverse = np.eye(3) - np.outer(self._axis, self._axis) - np.outer(normal, normal)
+                hessian = P_transverse / max(dist, 1e-14)
+                feature_id = "cylinder_barrel"
+                smooth = dist > 1e-12 * self._radius
+            else:
+                normal = sgn_z * self._axis
+                gap = -(h - abs_z)
+                cap_center = self._center + (sgn_z * h) * self._axis
+                closest_point = cap_center + rad_vec
+                gradient = normal.copy()
+                hessian = np.zeros((3, 3), dtype=np.float64)
+                feature_id = "cylinder_cap"
+                smooth = True
 
         return DifferentiableContactGeometry(
             gap=gap,
@@ -324,7 +425,7 @@ class CylinderGeometryProvider(ContactGeometryProvider):
             closest_point=closest_point,
             gradient=gradient,
             hessian=hessian,
-            feature_id="cylinder",
+            feature_id=feature_id,
             feature_index=0,
             barycentric=None,
             is_smooth_branch=smooth,

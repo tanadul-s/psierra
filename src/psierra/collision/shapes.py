@@ -162,8 +162,10 @@ class RigidCylinder(CollisionShape):
     Rigid Cylinder Obstacle.
 
     Defined by a center point c, axis unit vector a, and radius R.
-    Radial distance d = ||(x - c) - ((x - c) . a) a||.
-    Gap g = d - R.
+    When capped=False (default), models an infinite circular cylinder where height is
+    ignored for closest point and distance queries (backward compatible).
+    When capped=True, models a finite cylinder of height H with planar end caps at
+    +/- H/2 and circular corner rim projection.
     """
 
     def __init__(
@@ -172,6 +174,7 @@ class RigidCylinder(CollisionShape):
         axis: Sequence[float] | np.ndarray = (0.0, 0.0, 1.0),
         radius: float = 1.0,
         height: float = 100.0,
+        capped: bool = False,
     ) -> None:
         if radius <= 0.0:
             raise ValueError(f"Cylinder radius must be positive, got {radius}")
@@ -183,11 +186,15 @@ class RigidCylinder(CollisionShape):
         self.axis = a / norm
         self.radius = float(radius)
         self.height = float(height)
+        self.capped = bool(capped)
 
     def query_points(
         self, points: np.ndarray
     ) -> tuple[np.ndarray, np.ndarray, np.ndarray]:
         pts = np.asarray(points, dtype=np.float64)
+        if pts.ndim != 2 or pts.shape[1] != 3:
+            raise ValueError(f"Expected points of shape (N, 3), got {pts.shape}")
+
         diff = pts - self.center
         proj_length = np.dot(diff, self.axis)
         proj_points = self.center + proj_length[:, None] * self.axis
@@ -196,13 +203,99 @@ class RigidCylinder(CollisionShape):
         dists = np.linalg.norm(rad_vec, axis=1)
 
         safe_dists = np.where(dists < 1e-14, 1.0, dists)
-        normals = rad_vec / safe_dists[:, None]
+        radial_normals = rad_vec / safe_dists[:, None]
         center_mask = dists < 1e-14
         if np.any(center_mask):
-            normals[center_mask] = np.array([0.0, 1.0, 0.0])
+            # Arbitrary orthogonal vector
+            arbitrary = np.array([1.0, 0.0, 0.0]) if abs(self.axis[0]) < 0.9 else np.array([0.0, 1.0, 0.0])
+            ortho = arbitrary - np.dot(arbitrary, self.axis) * self.axis
+            ortho /= np.linalg.norm(ortho)
+            radial_normals[center_mask] = ortho
 
-        gaps = dists - self.radius
-        closest_points = proj_points + self.radius * normals
+        if not self.capped:
+            # Legacy infinite cylinder behavior: height ignored
+            gaps = dists - self.radius
+            closest_points = proj_points + self.radius * radial_normals
+            return gaps, radial_normals, closest_points
+
+        # Capped finite cylinder: planar caps at +/- height / 2
+        h = 0.5 * self.height
+        sgn_z = np.where(proj_length >= 0.0, 1.0, -1.0)
+        abs_z = np.abs(proj_length)
+
+        n_pts = pts.shape[0]
+        gaps = np.zeros(n_pts, dtype=np.float64)
+        normals = np.zeros((n_pts, 3), dtype=np.float64)
+        closest_points = np.zeros((n_pts, 3), dtype=np.float64)
+
+        # Region masks (exhaustive 4-way partition)
+        # 1. On or outside barrel: |z| < h and r >= R
+        mask_barrel_out = (abs_z < h) & (dists >= self.radius)
+        if np.any(mask_barrel_out):
+            gaps[mask_barrel_out] = dists[mask_barrel_out] - self.radius
+            normals[mask_barrel_out] = radial_normals[mask_barrel_out]
+            closest_points[mask_barrel_out] = (
+                proj_points[mask_barrel_out] + self.radius * radial_normals[mask_barrel_out]
+            )
+
+        # 2. On or outside end cap: |z| >= h and r < R
+        mask_cap_out = (abs_z >= h) & (dists < self.radius)
+        if np.any(mask_cap_out):
+            gaps[mask_cap_out] = abs_z[mask_cap_out] - h
+            normals[mask_cap_out] = sgn_z[mask_cap_out, None] * self.axis
+            cap_centers = self.center + (sgn_z[mask_cap_out, None] * h) * self.axis
+            closest_points[mask_cap_out] = cap_centers + rad_vec[mask_cap_out]
+
+        # 3. On or outside corner rim: |z| >= h and r >= R
+        mask_rim_out = (abs_z >= h) & (dists >= self.radius)
+        if np.any(mask_rim_out):
+            dr = dists[mask_rim_out] - self.radius
+            dz = abs_z[mask_rim_out] - h
+            rim_gaps = np.sqrt(dr**2 + dz**2)
+            gaps[mask_rim_out] = rim_gaps
+            rim_pts = (
+                self.center
+                + (sgn_z[mask_rim_out, None] * h) * self.axis
+                + self.radius * radial_normals[mask_rim_out]
+            )
+            closest_points[mask_rim_out] = rim_pts
+            safe_rim_gaps = np.where(rim_gaps < 1e-14, 1.0, rim_gaps)
+            rim_normals = (
+                dr[:, None] * radial_normals[mask_rim_out]
+                + (dz * sgn_z[mask_rim_out])[:, None] * self.axis
+            ) / safe_rim_gaps[:, None]
+            zero_mask = rim_gaps < 1e-14
+            if np.any(zero_mask):
+                # Equiangular normal at corner rim
+                equi = (radial_normals[mask_rim_out][zero_mask] + sgn_z[mask_rim_out][zero_mask, None] * self.axis) / np.sqrt(2.0)
+                rim_normals[zero_mask] = equi
+            normals[mask_rim_out] = rim_normals
+
+        # 4. Strictly inside cylinder: |z| < h and r < R
+        mask_inside = (abs_z < h) & (dists < self.radius)
+        if np.any(mask_inside):
+            d_barrel = self.radius - dists[mask_inside]
+            d_cap = h - abs_z[mask_inside]
+            closer_barrel = d_barrel <= d_cap
+
+            # Inside indices relative to pts
+            inside_indices = np.flatnonzero(mask_inside)
+            idx_barrel = inside_indices[closer_barrel]
+            idx_cap = inside_indices[~closer_barrel]
+
+            if len(idx_barrel) > 0:
+                gaps[idx_barrel] = dists[idx_barrel] - self.radius  # negative
+                normals[idx_barrel] = radial_normals[idx_barrel]
+                closest_points[idx_barrel] = (
+                    proj_points[idx_barrel] + self.radius * radial_normals[idx_barrel]
+                )
+
+            if len(idx_cap) > 0:
+                gaps[idx_cap] = abs_z[idx_cap] - h  # negative
+                normals[idx_cap] = sgn_z[idx_cap, None] * self.axis
+                cap_centers = self.center + (sgn_z[idx_cap, None] * h) * self.axis
+                closest_points[idx_cap] = cap_centers + rad_vec[idx_cap]
+
         return gaps, normals, closest_points
 
     def to_pyvista(self, **kwargs) -> pv.PolyData:
@@ -212,5 +305,44 @@ class RigidCylinder(CollisionShape):
             radius=self.radius,
             height=self.height,
             resolution=30,
+            capping=self.capped,
+        )
+
+
+class InfiniteCylinder(RigidCylinder):
+    """Rigid Infinite Circular Cylinder Obstacle (capped=False)."""
+
+    def __init__(
+        self,
+        center: Sequence[float] | np.ndarray = (0.0, 0.0, 0.0),
+        axis: Sequence[float] | np.ndarray = (0.0, 0.0, 1.0),
+        radius: float = 1.0,
+        height: float = 100.0,
+    ) -> None:
+        super().__init__(
+            center=center,
+            axis=axis,
+            radius=radius,
+            height=height,
+            capped=False,
+        )
+
+
+class CappedCylinder(RigidCylinder):
+    """Rigid Finite Capped Cylinder Obstacle (capped=True)."""
+
+    def __init__(
+        self,
+        center: Sequence[float] | np.ndarray = (0.0, 0.0, 0.0),
+        axis: Sequence[float] | np.ndarray = (0.0, 0.0, 1.0),
+        radius: float = 1.0,
+        height: float = 100.0,
+    ) -> None:
+        super().__init__(
+            center=center,
+            axis=axis,
+            radius=radius,
+            height=height,
+            capped=True,
         )
 
