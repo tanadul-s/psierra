@@ -376,7 +376,7 @@ def main() -> None:
         console.print(
             Panel.fit(
                 "[bold green]ParaView Visualization Guide:[/bold green]\n"
-                f"1. Open [cyan]{base_out / 'result.xdmf'}[/cyan] (or in [cyan]{run_dir.name}[/cyan]) in ParaView and click [bold]Apply[/bold].\n"
+                f"1. Open [cyan]{base_out / 'result.xdmf'}[/cyan] in ParaView and click [bold]Apply[/bold].\n"
                 "2. Apply filter: [bold cyan]Filters → Alphabetical → Warp By Vector[/bold cyan] (Vectors: [italic]Displacement[/italic], Scale: [italic]1.0[/italic]).\n"
                 "3. Click [bold]Rescale to data range over all timesteps[/bold] and press [bold]Play[/bold] to inspect contact deformation & reaction forces.",
                 border_style="cyan",
