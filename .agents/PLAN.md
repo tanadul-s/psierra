@@ -127,7 +127,7 @@ The contact overhaul will use a **staged internal replacement**, not a ground-up
   - Require every geometry provider to state its smooth-branch validity, units, orientation convention, and behavior at feature/active-set switches.
   - Make the canonical geometry record the sole source of gaps, normals, closest points, gradients, Hessians, and feature identity used downstream.
 
-- [ ] **Stage C — Centralize Constraint Laws and Assembly**:
+- [x] **Stage C — Centralize Constraint Laws and Assembly**:
   - Implement one normal penalty/augmented-Lagrangian law that returns pressure, potential, first derivative, activity, and multiplier update from the same inputs.
   - Implement shared one-body and two-body assembly operators so action-reaction, DOF mapping, and sparse scatter logic are not independently reimplemented by each contact class.
   - Keep collision search tolerances out of the constitutive constraint law.

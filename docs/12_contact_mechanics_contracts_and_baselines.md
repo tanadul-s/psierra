@@ -442,3 +442,27 @@ Every provider implements the `ContactGeometryProvider` protocol, providing smoo
 - **`CylinderGeometryProvider`**: Exact circumferential curvature Hessian $\nabla^2 g = \frac{1}{d} (\boldsymbol{I} - \boldsymbol{a} \otimes \boldsymbol{a} - \boldsymbol{n} \otimes \boldsymbol{n})$.
 - **`TriangleGeometryProvider`**: Exact 12-DOF node-to-triangle projection gradient and analytical Hessian.
 
+---
+
+## 10. Centralized Constraint Laws & Shared Assembly Operators (Stage C)
+
+In **Stage C**, the physical constraint law and multi-body global scatter logic are decoupled from individual contact classes and centralized in `psierra.contact.law` and `psierra.contact.assembly`:
+
+### 10.1 Centralized Normal Constraint Law (`NormalConstraintLaw`)
+- **Non-Adhesive Activation**: Collision search tolerances $\delta_{\text{search}}$ are strictly decoupled from physical force activation. For penalty contact, $p_N = k_p \langle -g_N \rangle_+$, guaranteeing that separated points with $0 < g_N \le \delta_{\text{search}}$ receive zero normal force, zero stiffness, and zero potential energy.
+- **Conservative Triad Consistency**:
+  $$\Pi_N = \frac{p_N^2 - \lambda_N^2}{2 k_p}$$
+  $$\boldsymbol{f}_{\text{local}} = -\frac{\partial \Pi_N}{\partial \boldsymbol{q}} = p_N \nabla_{\boldsymbol{q}} g_N$$
+  $$\boldsymbol{K}_{\text{local}} = -\frac{\partial \boldsymbol{f}_{\text{local}}}{\partial \boldsymbol{q}} = (k_p + a_1 c_p) (\nabla_{\boldsymbol{q}} g_N \otimes \nabla_{\boldsymbol{q}} g_N) - p_N \nabla_{\boldsymbol{q}}^2 g_N$$
+- **Unified Mathematical Kernel**: The exact same normal constraint law evaluates forces and tangents across analytical rigid obstacles, deformable node-to-triangle facets, and self-contact stencils.
+
+### 10.2 Shared Assembly Engine (`ContactAssembler`)
+- **Unified Assembly Maps**:
+  - `build_one_body_map`: One-body mapping with global degree-of-freedom offsets (`slave_dofs`).
+  - `build_two_body_map`: Two-body mapping for master/slave stencils with partition-of-unity interpolation weights $\boldsymbol{w} = [1, -\xi_0, -\xi_1, -\xi_2]$.
+  - `build_self_contact_map`: Single-body fold mapping with domain offset bounding.
+- **Global Scatter & Momentum Conservation**:
+  - Force vector scatter via `np.add.at`, strictly guaranteeing linear momentum conservation ($\sum \boldsymbol{f}_s + \sum \boldsymbol{f}_m = \mathbf{0}$) and angular momentum conservation ($\sum \boldsymbol{x} \times \boldsymbol{f} = \mathbf{0}$) to machine precision ($< 10^{-12}$).
+  - Sparse coordinate triplet accumulation (`rows`, `cols`, `data`) and CSR conversion, ensuring symmetry $\boldsymbol{K}_c = \boldsymbol{K}_c^T$ and correct summation of overlapping nodal entries across shared facets.
+
+

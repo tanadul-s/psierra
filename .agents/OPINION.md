@@ -118,3 +118,9 @@
   - Canonical `DifferentiableContactGeometry` enforces the exact tuple $\mathcal{G}(\boldsymbol{q}) = (g_N, \nabla g_N, \nabla^2 g_N, \boldsymbol{x}_{\text{closest}}, \boldsymbol{n}, \text{feature ID})$ as the sole downstream source of truth for gaps, normals, gradients, Hessians, and features.
   - Implemented analytical `ContactGeometryProvider` classes in `psierra.contact.geometry` (`PlanarGeometryProvider`, `SphereGeometryProvider`, `CylinderGeometryProvider`, `TriangleGeometryProvider`), with exact curvature and circumferential Hessians verified by centered finite differences.
   - Full suite expanded to 199 tests (167 focused baseline + 22 Stage A characterization + 10 Stage B data models), passing with 0 regressions.
+- **Stage C Centralized Constraint Laws & Unified Assembly**:
+  - Authored `NormalConstraintLaw` in `psierra.contact.law`: implements a single source of truth for penalty and augmented Lagrangian normal contact laws with strict non-adhesive activation ($p_N = 0$ for $g_N > 0$ when $\lambda_N = 0$), eliminating `LEGACY-DISC-01`.
+  - Unified potential energy $\Pi_N = \frac{p_N^2 - \lambda_N^2}{2 k_p}$, pressure derivative $dp_N/dg_N = -k_p \cdot \mathbb{I}(\text{active})$, and exact dual multiplier update $\lambda_{N, \text{new}} = p_N = \max(0, \lambda_N - k_p g_N)$.
+  - Authored `ContactAssembler` in `psierra.contact.assembly`: centralizes one-body (rigid-to-deformable), two-body (deformable-to-deformable), and self-contact assembly. Enforces action-reaction balance ($\sum \boldsymbol{f}_c = \mathbf{0}$), arbitrary multibody DOF offsets, vector scattering via `np.add.at`, and CSR sparse matrix construction via COO triplets with automatic duplicate summation.
+  - Authored adversarial test suite `tests/test_contact_centralized_law_and_assembly.py` (8 tests). Full suite expanded to 207 contact tests, all passing with zero regressions.
+  - Documented Section 10 in `docs/12_contact_mechanics_contracts_and_baselines.md`.
