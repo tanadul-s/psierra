@@ -39,11 +39,16 @@ flowchart TD
         D11["11. Biomechanical Continua, Locking Alleviation & Dynamic Relaxation<br/><i>Tet4Fbar (nu -> 0.5), Flory split, nodal dilatation averaging, consistent tangent K_T</i>"]
     end
 
+    subgraph Stage7["Stage VII: Robust Contact Mechanics Overhaul"]
+        D12["12. Contact Mechanics: Frozen Contracts & Baselines<br/><i>Frozen public contracts, DOF offsets, state transactions, legacy discrepancies</i>"]
+    end
+
     Stage1 --> Stage2
     Stage2 --> Stage3
     Stage3 --> Stage4
     Stage4 --> Stage5
     Stage5 --> Stage6
+    Stage6 --> Stage7
 
     D01 --> D02
     D02 --> D03
@@ -55,6 +60,7 @@ flowchart TD
     D08 --> D09
     D09 --> D10
     D10 --> D11
+    D11 --> D12
 ```
 
 ---
@@ -193,6 +199,14 @@ flowchart TD
 - Average Nodal Dilatation: non-local nodal volume smoothing eliminating volumetric over-constraint.
 - Total Lagrangian formulation with consistent material and geometric tangent stiffness matrices $\boldsymbol{K}_T$.
 - Implementation map: [`Tet4Fbar`](../src/psierra/element/tet4_fbar.py).
+
+### 12. [Contact Mechanics: Frozen Public Contracts & Characterization Baselines](12_contact_mechanics_contracts_and_baselines.md)
+- Public contract specifications for `RigidContact`, `DeformableContact`, `SelfContact`, and `MortarContact`.
+- Base class `ContactMultiplierState`: candidate alignment, Uzawa dual projections, transaction rollback, and cache invalidation.
+- Global degree of freedom (DOF) offset and multi-body block placement mappings ($K_{ss}, K_{sm}, K_{ms}, K_{mm}$).
+- Inner Newton-Raphson vs. outer Uzawa augmentation solver coupling and accepted-step commitment history.
+- Formal classification of legacy mathematical discrepancies (`LEGACY-DISC-01` to `05`) ahead of canonical replacement.
+- Implementation map: [`RigidContact`](../src/psierra/boundary/contact.py), [`DeformableContact`](../src/psierra/boundary/contact.py), [`SelfContact`](../src/psierra/boundary/contact.py), [`MortarContact`](../src/psierra/boundary/mortar.py).
 
 ---
 

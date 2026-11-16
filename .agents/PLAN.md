@@ -117,7 +117,7 @@ The contact overhaul will use a **staged internal replacement**, not a ground-up
 #### Milestone 1.0: Repair Mathematical Consistency Before Physical Calibration
 *Objective*: Build the unified internal contact core, migrate each formulation safely, and remove known force-energy-tangent inconsistencies before tuning penalty parameters or interpreting benchmark convergence as physical validation.
 
-- [ ] **Stage A — Freeze Public Contracts and Establish Characterization Baselines**:
+- [x] **Stage A — Freeze Public Contracts and Establish Characterization Baselines**:
   - Document the public constructor, evaluation, multiplier, rollback, commit, and diagnostic behavior of all four contact classes.
   - Preserve the current 167-test focused contact baseline and add characterization tests for solver coupling, DOF offsets, state restoration, and accepted-step history.
   - Mark mathematically incorrect behavior as an expected legacy discrepancy rather than encoding it as the desired replacement result.

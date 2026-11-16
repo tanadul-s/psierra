@@ -98,3 +98,18 @@
 - **$C^0$ Contact Facet Chattering & Ridge Snapping**: In node-to-surface contact on discretized 3D meshes, crossing the edge between adjacent non-coplanar triangles causes an instantaneous jump $\Delta \boldsymbol{n} = \boldsymbol{n}_B - \boldsymbol{n}_A$ in the outward normal. Under high contact pressure $p = \max(0, \lambda - k_p g)$, this induces an unphysical force shock $\Delta \boldsymbol{f}_c = p \Delta \boldsymbol{n}$ (often hundreds of kN for sub-micron steps), causing Armijo line search rejection and Newton divergence. Must be resolved via adaptive time cutback, $C^1$ normal smoothing, or contact-aware active-set fallback.
 - **Spurious Dual Forces from Frozen Uzawa Multipliers During Rebound**: In dynamic Augmented Lagrangian contact, loose AL tolerances (`al_gap_tol`, `al_tol`) permit early step acceptance with significant penetration, freezing large dual multipliers $\lambda$. When local dynamic rebound opens a positive gap ($g > 0$), $p = \max(0, \lambda - k_p g)$ maintains artificial pushing/pulling forces across facet boundaries until the outer Uzawa loop relaxes them.
 - **Armijo Line Search Stalls on Non-Smooth Contact Interfaces**: Standard Armijo line search assumes a smooth $C^1$ energy landscape. Contact active-set switches create localized non-smooth ridges in the residual norm. Do not allow pure line search shrinkage to choke the time step to zero; use temporal substepping (cutback) or active-set projection fallback.
+
+---
+
+## 9. Loop 3 Contact Mechanics Overhaul & Milestone 1.0 Baselines (Agreed)
+- **Staged Internal Replacement Strategy**: Public classes (`RigidContact`, `DeformableContact`, `SelfContact`, `MortarContact`) remain stable external interfaces. Internal mathematics are replaced in four clear layers: candidate search $\to$ contact geometry $\to$ constraint law $\to$ global assembly.
+- **Stage A Characterization Baselines**:
+  - Baseline preserved: all 167 existing contact tests pass without modification.
+  - 22 new characterization baseline tests authored in `tests/test_contact_characterization_baseline.py` (total 189 passing contact tests).
+  - Public contracts, lifecycle transitions, degree-of-freedom offsets, and solver coupling fully documented in `docs/12_contact_mechanics_contracts_and_baselines.md`.
+- **Characterized Legacy Discrepancies (Do Not Bless as Ground Truth)**:
+  - `LEGACY-DISC-01`: Positive-gap penalty force attraction under nonzero search tolerance ($f_N = -k_p g < 0$ when $0 < g \le \text{tolerance}$). Target in Stage C: non-adhesive law $p_N = k_p \langle -g_N \rangle_+$.
+  - `LEGACY-DISC-02`: Curved obstacle tangent omission of curvature Hessian ($g_N \nabla^2 g_N$). Target in Stage D: complete analytical second derivatives.
+  - `LEGACY-DISC-03`: Smoothed normals omitting $\boldsymbol{r}^T \nabla \boldsymbol{n}$ and vertex pseudonormal variation $\partial \boldsymbol{n}_v / \partial \boldsymbol{q}$. Target in Stage D: full energy-consistent variation.
+  - `LEGACY-DISC-04`: Mortar tangent frozen geometry ($d\boldsymbol{D}/d\boldsymbol{u} = d\boldsymbol{M}/d\boldsymbol{u} = \mathbf{0}$). Target in Stage D: complete interface linearization.
+  - `LEGACY-DISC-05`: `RigidCylinder` distance query ignoring `height` bounding caps. Target in Stage D: explicit capped or infinite collision geometry contract.
