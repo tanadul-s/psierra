@@ -134,6 +134,24 @@ def parse_arguments() -> argparse.Namespace:
         help="Generalized-alpha spectral radius rho_inf in [0, 1] (default: 0.8)",
     )
     parser.add_argument(
+        "--thickness-buffer",
+        type=str,
+        default="auto",
+        help="Proximity thickness buffer: float in mm or 'auto' (default: auto = 0.15 * h_e)",
+    )
+    parser.add_argument(
+        "--consistent-orientation-filter",
+        action=argparse.BooleanOptionalAction,
+        default=True,
+        help="Filter back-to-back facet pairs with opposing undeformed reference normals (default: True)",
+    )
+    parser.add_argument(
+        "--smoothed",
+        action=argparse.BooleanOptionalAction,
+        default=True,
+        help="Enable C1 continuous pseudonormal smoothing across facet boundaries (default: True)",
+    )
+    parser.add_argument(
         "--output-dir",
         type=str,
         default="results/08_contact/0805_cuboid_self_contact",
@@ -170,7 +188,11 @@ def main() -> None:
     )
     mesh_path = Path(args.mesh)
     if not mesh_path.exists():
-        raise FileNotFoundError(f"Mesh file not found: {mesh_path}")
+        fallback = Path(__file__).resolve().parents[2] / args.mesh
+        if fallback.exists():
+            mesh_path = fallback
+        else:
+            raise FileNotFoundError(f"Mesh file not found: {mesh_path}")
 
     cuboid_mesh = VolumetricMesh(mesh_path)
     nodes = cuboid_mesh.nodes
@@ -250,6 +272,13 @@ def main() -> None:
         f"  Self-Contact Candidates: [green]{len(slit_candidates)}[/green] surface nodes facing across the slit"
     )
 
+    thickness_buf = args.thickness_buffer
+    if isinstance(thickness_buf, str) and thickness_buf.lower() != "auto":
+        try:
+            thickness_buf = float(thickness_buf)
+        except ValueError:
+            pass
+
     contact = system.add_self_contact(
         body="SlottedCuboid",
         contact_nodes=slit_candidates,
@@ -260,6 +289,9 @@ def main() -> None:
         exclusion_rings=6,       # Exclude up to 6-ring local topological neighbors (prevents arm-step false detection)
         normal_threshold=-0.2,   # Require opposing outward normals (n1 . n2 <= -0.2)
         formulation=args.formulation,
+        thickness_buffer=thickness_buf,
+        consistent_orientation_filter=args.consistent_orientation_filter,
+        smoothed_normals=args.smoothed,
     )
 
     console.print(
@@ -360,6 +392,8 @@ def main() -> None:
     if result.time_series_files:
         for p in result.time_series_files:
             try:
+                if Path(p).suffix.lower() not in ('.vtu', '.xdmf'):
+                    continue
                 g = pv.read(p)
                 disp = g.point_data["Displacement"]
                 pts_cur = g.points + disp

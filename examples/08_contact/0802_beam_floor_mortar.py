@@ -99,6 +99,18 @@ def parse_args() -> argparse.Namespace:
         help="Contact normal damping coefficient in g/s (default: 10.0)",
     )
     parser.add_argument(
+        "--gamma-cap",
+        type=float,
+        default=1.0,
+        help="Multiplier capping factor for Augmented Lagrangian stabilization (default: 1.0)",
+    )
+    parser.add_argument(
+        "--max-multiplier-step",
+        type=float,
+        default=None,
+        help="Explicit maximum dual multiplier increment per AL step (default: auto)",
+    )
+    parser.add_argument(
         "--output-dir",
         type=str,
         default="results/08_contact/0802_beam_floor_mortar",
@@ -125,6 +137,8 @@ def run_mortar_case(
     base_out: Path,
     beam_mesh_path: Path,
     floor_mesh_path: Path,
+    gamma_cap: float = 1.0,
+    max_multiplier_step: float | None = None,
     verbose: bool = True,
 ) -> dict[str, str | float]:
     console = Console()
@@ -133,8 +147,15 @@ def run_mortar_case(
     run_out_dir.mkdir(parents=True, exist_ok=True)
 
     beam_mesh = VolumetricMesh(beam_mesh_path)
-    beam_bottom_y = float(beam_mesh.bounds[2])
     min_z = float(beam_mesh.bounds[4])
+
+    # Resolve beam arm bottom Y coordinate at the floor contact region (Z ~ 150 mm)
+    arm_node_mask = beam_mesh.nodes[:, 2] > 100.0
+    arm_bottom_y = (
+        float(beam_mesh.nodes[arm_node_mask, 1].min())
+        if np.any(arm_node_mask)
+        else float(beam_mesh.bounds[2])
+    )
 
     params_beam = IsotropicElasticParameters()
     params_beam.set_from_youngs_poisson(
@@ -148,7 +169,7 @@ def run_mortar_case(
 
     floor_mesh = VolumetricMesh(floor_mesh_path)
     orig_top_y = float(floor_mesh.bounds[3])
-    target_top_y = beam_bottom_y - gap
+    target_top_y = arm_bottom_y - gap
     dy = target_top_y - orig_top_y
     floor_mesh.transform(translation=(0.0, dy, 150.0))
 
@@ -170,6 +191,8 @@ def run_mortar_case(
         c_damping=cdamp,
         formulation=formulation,
         search_radius=30.0,
+        gamma_cap=gamma_cap,
+        max_multiplier_step=max_multiplier_step,
     )
 
     # Clamped beam root at min Z
@@ -315,6 +338,8 @@ def main() -> None:
                 base_out=base_out,
                 beam_mesh_path=beam_path,
                 floor_mesh_path=floor_path,
+                gamma_cap=args.gamma_cap,
+                max_multiplier_step=args.max_multiplier_step,
                 verbose=True,
             )
             results.append(res)
@@ -359,6 +384,8 @@ def main() -> None:
             base_out=base_out,
             beam_mesh_path=beam_path,
             floor_mesh_path=floor_path,
+            gamma_cap=args.gamma_cap,
+            max_multiplier_step=args.max_multiplier_step,
             verbose=True,
         )
 

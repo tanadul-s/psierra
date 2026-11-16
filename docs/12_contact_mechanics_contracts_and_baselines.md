@@ -972,3 +972,152 @@ The standalone executable benchmark [`examples/08_contact/0812_ironing_large_str
    Evaluates deformation gradient $\boldsymbol{F} = \boldsymbol{I} + \nabla \boldsymbol{u}$ across all tetrahedral elements in both bodies; verifies $\det \boldsymbol{F} > 0.01$ throughout finite sliding.
 5. `test_executable_benchmark_runs_cleanly`:
    End-to-end integration test verifying that CLI arguments, Rich reporting, and ParaView PVD/VTU time series export execute without error.
+
+---
+
+## 22. Milestone 1.4: Mortar Contact Stabilization for Ultra-Soft Continua
+
+### 22.1 Motivation & Technical Challenge
+Segment-to-Segment Mortar Contact provides variational consistency, satisfies the contact patch test across mismatched meshes, and prevents node-to-segment overconstraining. However, when applied to ultra-soft hyperelastic continua (e.g. silicone elastomers, hydrogels, and brain tissue with $E \sim 1\text{--}100\text{ kPa}$), standard mortar formulations suffer from two severe numerical failure modes:
+1. **Unweighted Facet-Count Normal Tilting**:
+   In legacy mortar implementations, the contact normal at a slave node is averaged by simple facet counts:
+   $$\boldsymbol{n}_i^{\text{unweighted}} = \frac{\sum_{\text{seg} \in \mathcal{S}_i} \boldsymbol{n}_{\text{seg}}}{\left\|\sum_{\text{seg} \in \mathcal{S}_i} \boldsymbol{n}_{\text{seg}}\right\|}$$
+   When a master facet edge clips a slave triangle, it frequently creates microscopic sliver polygons ($A_{\text{sliver}} \sim 10^{-5}\text{ mm}^2$). Weighting a tiny sliver equally with a full face patch ($A_{\text{patch}} \sim 1.0\text{ mm}^2$) tilts the contact normal by $20^\circ\text{--}45^\circ$, generating artificial transverse forces, severe facet-edge chattering, and non-physical facet intersections on curved interfaces.
+2. **Wild Dual Multiplier Oscillations & Element Inversion**:
+   In standard Augmented Lagrangian (Uzawa) enforcement, dual multipliers are updated as:
+   $$\Delta \lambda_N = -k_p g_N$$
+   For an ultra-soft element ($E \sim 20\text{ kPa}$, $k_{\text{elem}} \approx 0.01\text{ N/mm}$), an initial penetration of $g_N \sim -0.5\text{ mm}$ under penalty $k_p = 50{,}000\text{ N/mm}$ produces an unconstrained multiplier update $\Delta \lambda_N = 25{,}000\text{ N}$—over **100,000 times** the element's structural capacity! In the subsequent Newton step, this force spike crushes the soft element, inverting the deformation Jacobian ($\det \boldsymbol{F} \le 0$) and causing line search failure.
+
+### 22.2 Mathematical Formulation & Algorithmic Design
+
+#### 1. Area-Weighted Mortar Projection Normals
+To eliminate normal tilting and facet-edge chattering, incident master normals are weighted by their exact polygon overlap area computed via Sutherland-Hodgman clipping and Dunavant quadrature:
+$$\boldsymbol{n}_i = \frac{\sum_{\text{seg} \in \mathcal{S}_i} A_{\text{seg}} \boldsymbol{n}_{\text{seg}}}{\left\|\sum_{\text{seg} \in \mathcal{S}_i} A_{\text{seg}} \boldsymbol{n}_{\text{seg}}\right\|}$$
+where $A_{\text{seg}} = \text{seg.overlap\_area}$.
+- A microscopic clipping sliver ($A_2 = 10^{-4}\text{ mm}^2$) contributes negligibly ($\sim 10^{-4}$) relative to a primary face patch ($A_1 = 1.0\text{ mm}^2$).
+- The transverse normal deviation is strictly bounded ($\Delta n_T < 10^{-4}$), yielding a smooth, continuous $C^0$ normal field across non-conforming sliding interfaces without facet snagging.
+
+#### 2. Scale-Aware Bounded Multiplier Augmentation
+To prevent unphysical element crushing and dual multiplier divergence, an element-capacity-aware upper bound is enforced on multiplier increments per Augmented Lagrangian step:
+$$|\Delta \lambda_N| \le \lambda_{\max}^{\text{step}} = \gamma_{\text{cap}} \frac{E A_e}{h_e} \cdot h_e = \gamma_{\text{cap}} \cdot E_{\text{bulk}} \cdot \bar{A}_e$$
+where:
+- $E_{\text{bulk}}$ is the effective Young's modulus of the slave continuum [$\text{g}/(\text{mm}\cdot\text{s}^2) = \text{Pa}$].
+- $\bar{A}_e$ is the characteristic surface facet area [$\text{mm}^2$].
+- $\gamma_{\text{cap}} \in [0.1, 5.0]$ is the dimensionless capping calibration parameter (default: $\gamma_{\text{cap}} = 1.0$).
+
+The projected dual multiplier update is evaluated in `ContactAugmentation.assess()` and `ContactMultiplierState.update_multipliers()` as:
+$$\lambda_N^{\text{trial}} = \max(0, \lambda_N - k_p g_N)$$
+$$\Delta \lambda_N = \text{clip}\left(\lambda_N^{\text{trial}} - \lambda_N, \; -\lambda_{\max}^{\text{step}}, \; +\lambda_{\max}^{\text{step}}\right)$$
+$$\lambda_N^{\text{new}} = \max\left(0, \; \lambda_N + \Delta \lambda_N\right)$$
+Upon dynamic rebound or separation ($g_N > g_{\text{tol}}$), rebound relaxation overrides the cap and instantly zeroes the multiplier ($\lambda_N = 0$), preventing artificial sticky adhesion.
+
+#### 3. Continuum Admissibility (Zero Element Inversions)
+The deformation gradient $\boldsymbol{F} = \boldsymbol{I} + \nabla_{\boldsymbol{X}} \boldsymbol{u}$ across all tetrahedral continuum elements is tracked throughout static and dynamic deformation:
+$$\det \boldsymbol{F} > 0.01$$
+Bounded multiplier augmentation guarantees that incremental contact forces never exceed the structural capacity of soft elements, entirely eliminating unphysical element inversions.
+
+### 22.3 Verification Test Suite: `test_mortar_soft_stabilization.py`
+The formal test suite [`tests/test_mortar_soft_stabilization.py`](file:///home/tanadul/Workspace/project-sierra/psierra/tests/test_mortar_soft_stabilization.py) contains 6 verification tests:
+1. `test_area_weighted_mortar_projection_normals`:
+   Verifies that area-weighted normals prevent normal tilting from tiny edge clipping slivers ($A = 10^{-4}\text{ mm}^2$), preserving normal accuracy to $< 10^{-12}$.
+2. `test_bounded_multiplier_augmentation_capping`:
+   Verifies that massive penetrations ($g_N = -1.0\text{ mm}$, unconstrained $\Delta \lambda = 50{,}000\text{ N}$) are strictly clamped to $|\Delta \lambda| \le \lambda_{\max}^{\text{step}}$.
+3. `test_multiplier_cap_modulus_scaling_invariance`:
+   Verifies that $\lambda_{\max}^{\text{step}}$ scales strictly linearly with Young's modulus across orders of magnitude ($2\text{ kPa} \to 20\text{ kPa} \to 200\text{ kPa}$).
+4. `test_soft_continuum_admissibility_zero_element_inversions`:
+   Evaluates finite mortar contact compression on soft hyperelastic cubes ($E = 10\text{ kPa}$) and verifies $\det \boldsymbol{F} > 0.01$ across all continuum elements.
+5. `test_end_to_end_static_silicone_beam_on_deformable_floor`:
+   Verifies static equilibrium convergence of a soft silicone cantilever beam ($E = 21\text{ kPa}$) contacting a compliant deformable floor plate ($E = 5\text{ kPa}$) with Augmented Lagrangian mortar enforcement.
+6. `test_end_to_end_dynamic_silicone_beam_on_deformable_floor`:
+   Verifies dynamic generalized-alpha time integration ($\rho_\infty = 0.8$, Rayleigh damping) under impact on a deformable floor without multiplier divergence or element inversions.
+
+### 22.4 Executable Benchmark: `0802_beam_floor_mortar.py`
+The benchmark [`examples/08_contact/0802_beam_floor_mortar.py`](file:///home/tanadul/Workspace/project-sierra/psierra/examples/08_contact/0802_beam_floor_mortar.py) has been upgraded with:
+- Accurate geometry placement tracking the cantilever arm bottom ($Y = -25.0\text{ mm}$) at the floor interaction region ($Z = 150.0\text{ mm}$).
+- Command-line arguments `--gamma-cap` and `--max-multiplier-step` supporting bounded Augmented Lagrangian stabilization.
+- Verified static and dynamic convergence with `--floor deformable` and `--floor rigid`.
+
+---
+
+## 23. Milestone 1.5: Self-Contact Stabilization (Bunny & Folding Cuboid)
+
+### 23.1 Motivation & Technical Challenges
+Self-contact problems on organic and slender geometries (such as the Stanford Bunny and slotted keyhole flexures) exhibit three characteristic numerical failure modes under finite deformations:
+1. **Spurious Undeformed Reference Penetrations on Thin Features**:
+   On thin-walled structures and slender features (e.g. the Stanford Bunny ears, which are $\approx 3\text{--}4\text{ mm}$ thick), opposite sides of the same feature have outward reference normals pointing in opposite directions through the interior solid ($\boldsymbol{n}_s \cdot \boldsymbol{n}_m \approx -1.0$). If the proximity search thickness exceeds feature thickness ($d_{\text{thick}} \ge 4.0\text{ mm}$), the slave node projects across the solid interior into the opposite facet with negative reference gap ($g_{\text{ref}} \approx -3.8\text{ mm}$). Standard BFS topological neighbor rings cannot exclude these without setting ring depth so high that true self-contact across narrow external gaps is also suppressed.
+2. **Facet-Edge Discontinuities & 2-Cycle Active Set Chattering**:
+   On piecewise-planar faceted surfaces, contact normals jump abruptly across triangle edges ($\Delta \boldsymbol{n} \approx 0.2\text{--}0.5$). When an approaching corner node or flexure arm slides across a facet boundary, this normal discontinuity generates sudden transverse force shocks ($\Delta F_T \approx k_p \Delta \boldsymbol{n} |g| \sim 3{,}000\text{ N}$ under $k_p = 50{,}000\text{ N/mm}$), triggering 2-cycle active-set limit loops (residual alternating between low and high states) and line search stalls.
+3. **Approaching Shock in Dynamic Slit Closure**:
+   When flexible prongs close dynamically, sudden onset of penalty contact upon zero-gap crossing creates violent acceleration spikes, causing the generalized-$\alpha$ time integrator to chatter between open and closed active sets.
+
+### 23.2 Mathematical Formulation & Algorithmic Design
+
+#### 1. Proximity Thickness Buffer ($\delta_{\text{buffer}} = \text{buffer\_ratio} \cdot h_e$)
+To cushion dynamic approaching impacts and trigger contact forces before unphysical lattice interpenetration occurs, an effective contact gap is formulated:
+$$g_{\text{eff}} = g_N - \delta_{\text{buffer}}$$
+where $\delta_{\text{buffer}} = \text{buffer\_ratio} \cdot h_e$ is proportional to the characteristic element edge length $h_e$ (default: $\text{buffer\_ratio} = 0.15$).
+
+- **Activation Threshold**:
+  $$g_{\text{eff}} \le 0 \iff g_N \le \delta_{\text{buffer}}$$
+  The normal constraint law activates as soon as the interface approaches within the proximity buffer $\delta_{\text{buffer}}$, providing a smooth repulsive barrier.
+- **Exact Derivative Invariance**:
+  Since $\delta_{\text{buffer}}$ is a coordinate-independent scalar constant:
+  $$\nabla_{\boldsymbol{q}} g_{\text{eff}} = \nabla_{\boldsymbol{q}} g_N, \quad \nabla^2_{\boldsymbol{q}} g_{\text{eff}} = \nabla^2_{\boldsymbol{q}} g_N$$
+  The contact normal $\boldsymbol{n}$, directional gradient $\nabla g$, analytical Hessian $\nabla^2 g$, and barycentric projection weights are exactly preserved without modification.
+- **Normal Constraint Law & Energy**:
+  $$p_N = \max(0, \lambda_N - k_p g_{\text{eff}})$$
+  $$\Pi_N(\boldsymbol{q}, \lambda_N) = \frac{p_N^2 - \lambda_N^2}{2 k_p}$$
+  $$\boldsymbol{f}_N = -p_N \nabla_{\boldsymbol{q}} g_{\text{eff}} = -p_N \nabla_{\boldsymbol{q}} g_N$$
+  Exact force-potential consistency is preserved ($\boldsymbol{f}_N = -\nabla_{\boldsymbol{q}} \Pi_N$).
+- **Scaling Helper**:
+  The function `compute_thickness_buffer(mesh=None, domain=None, buffer_ratio=0.15)` computes the characteristic mesh edge length $h_e$ via surface facet geometry and scales the buffer proportionally, providing scale invariance across units (mm, m). Passing `thickness_buffer="auto"` automatically calibrates the buffer to the body's discretisation.
+
+#### 2. Consistent Normal Orientation Filtering
+To eliminate spurious undeformed penetrations on thin features without arbitrary BFS tuning, candidate facet pairs are filtered at initialization:
+$$\text{Exclude pair }(s, m) \iff g_{\text{ref}}(s, m) \le 0 \quad \text{and} \quad \boldsymbol{n}_{\text{ref},s} \cdot \boldsymbol{n}_{\text{ref},m} \le \text{threshold}$$
+- **Solid Interior Rejection**: When facets point back-to-back across a thin interior wall, $g_{\text{ref}} \le 0$ and $\boldsymbol{n}_s \cdot \boldsymbol{n}_m \le -0.2$. These are recognized as back-to-back interior facets and added to the topological exclusion graph.
+- **Exterior Void Preservation**: When facets face each other across an external gap (e.g. slotted cuboid flexure arms or folding surfaces), $g_{\text{ref}} > 0$. These pairs are preserved in the candidate graph and admitted when deformation causes them to contact.
+- **Stanford Bunny Verification**: On the Stanford Bunny mesh with $d_{\text{thick}} = 5.0\text{ mm}$, consistent normal orientation filtering eliminates all 7 spurious undeformed penetrations (with maximum false penetration $4.9\text{ mm}$) at `exclusion_rings=4` (and 148 spurious penetrations at `exclusion_rings=0`), allowing clean static Augmented Lagrangian convergence.
+
+#### 3. Continuous Pseudonormal Smoothing
+To eliminate facet-edge normal discontinuities $\Delta \boldsymbol{n}$, $C^1$ continuous pseudonormal smoothing (`smoothed_normals=True`) is integrated:
+- Corner angle-weighted vertex pseudonormals $\boldsymbol{N}_v$ are assembled and normalized:
+  $$\boldsymbol{N}_v = \frac{\sum_{f \in \mathcal{F}_v} \theta_{v, f} \boldsymbol{n}_f}{\left\|\sum_{f \in \mathcal{F}_v} \theta_{v, f} \boldsymbol{n}_f\right\|}$$
+- On each facet, the contact normal is interpolated using closest-point barycentric weights $\boldsymbol{\xi}$:
+  $$\boldsymbol{n}(\boldsymbol{\xi}) = \frac{\sum_{i=1}^3 \xi_i \boldsymbol{N}_{v_i}}{\left\|\sum_{i=1}^3 \xi_i \boldsymbol{N}_{v_i}\right\|}$$
+- This guarantees $C^1$ continuous normal variation across triangle boundaries, resolving the 2-cycle active-set chattering observed in flexure slit closure.
+
+### 23.3 Verification Test Suite: `test_self_contact_stabilization.py`
+The formal test suite [`tests/test_self_contact_stabilization.py`](file:///home/tanadul/Workspace/project-sierra/psierra/tests/test_self_contact_stabilization.py) contains 9 verification tests:
+1. `test_effective_gap_activation_threshold`:
+   Verifies that contact activates when $g_N \le \delta_{\text{buffer}} \iff g_{\text{eff}} \le 0$, evaluating $p = k_p (-g_{\text{eff}})$.
+2. `test_exact_gradients_and_hessians_preserved`:
+   Verifies bitwise preservation of normal, gradient, Hessian, and closest point between buffered and unbuffered geometry.
+3. `test_forces_potential_gradient_consistency_with_buffer`:
+   Verifies exact force-potential consistency ($\boldsymbol{f} = -\nabla \Pi$) via centered finite differences under active buffer.
+4. `test_thickness_buffer_scaling_helper_and_auto_option`:
+   Verifies that `compute_thickness_buffer` scales linearly with `buffer_ratio` and that `thickness_buffer="auto"` automatically calibrates to the mesh edge length.
+5. `test_thickness_buffer_parameter_validation`:
+   Verifies informative `ValueError` on negative buffer values or non-positive ratios.
+6. `test_filter_excludes_interior_back_to_back_facets`:
+   Verifies that a thin wall with opposing interior normals is cleanly excluded by `consistent_orientation_filter=True`, preventing false active contact at step 0.
+7. `test_filter_preserves_legitimate_exterior_contact`:
+   Verifies that separated opposing facets across an exterior void are preserved and admitted when deformed into contact.
+8. `test_cuboid_dynamic_slit_closure_smoke`:
+   Solves 3 dynamic steps on the slotted cuboid flexure, verifying clean convergence with smoothed normals and thickness buffer.
+9. `test_bunny_reference_filter_eliminates_spurious_penetrations`:
+   Evaluates the Stanford Bunny mesh and verifies that `consistent_orientation_filter=True` eliminates all spurious thin-ear penetrations ($> 4\text{ mm}$ false penetration with filter=False down to $0.0\text{ mm}$ with filter=True).
+
+### 23.4 Executable Benchmarks
+1. **Simulation 0805: Slotted Cuboid Dynamic Self-Contact** ([`examples/08_contact/0805_cuboid_self_contact.py`](file:///home/tanadul/Workspace/project-sierra/psierra/examples/08_contact/0805_cuboid_self_contact.py)):
+   - Finite-strain Total Lagrangian formulation with Neo-Hookean hyperelasticity under dynamic bilateral pinching load ($25{,}000\ \mu\text{N}$) and gravitational acceleration.
+   - Solves all 25 dynamic generalized-$\alpha$ time steps ($dt = 0.02\text{ s}$) to completion.
+   - Flexure arms close the $10.0\text{ mm}$ keyhole slit, engage 11 self-contact nodes, and rebound elastically with maximum penetration $0.103\text{ mm}$ and stored potential energy $1089.4\text{ mJ}$.
+   - Zero active-set chattering; VTK CFD reader warnings resolved by filtering `.vtu`/`.xdmf` files.
+2. **Simulation 0804: Stanford Bunny Deformable Self-Contact** ([`examples/08_contact/0804_bunny_self_contact.py`](file:///home/tanadul/Workspace/project-sierra/psierra/examples/08_contact/0804_bunny_self_contact.py)):
+   - Inclined gravity self-weight collapse with Augmented Lagrangian formulation and consistent normal orientation filtering.
+   - Solves all 5 incremental Newton load steps to full gravity load ($\lambda = 1.0$) in $75.2\text{ s}$.
+   - Captures ear-to-skull self-contact engagement (3 active nodes, peak multiplier $1058.8\text{ N}$) with interface penetration depth of only $1.1\ \mu\text{m}$ ($0.0011\text{ mm}$).
+   - Zero element inversions, zero divergence.
+
+

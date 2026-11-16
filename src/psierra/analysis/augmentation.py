@@ -94,9 +94,20 @@ class ContactAugmentation:
                 raise ValueError(
                     "Contact gaps must align with multipliers and be finite or +infinity"
                 )
-            pressure = np.maximum(0.0, multipliers - contact.k_penalty * gaps)
+            target_pressure = np.maximum(0.0, multipliers - contact.k_penalty * gaps)
             if self.rebound_relaxation:
-                pressure = np.where(gaps > self.gap_tol, 0.0, pressure)
+                target_pressure = np.where(gaps > self.gap_tol, 0.0, target_pressure)
+
+            # Bounded Multiplier Augmentation (Milestone 1.4)
+            max_step = getattr(contact, "max_multiplier_step", None)
+            if max_step is not None and np.isfinite(max_step) and max_step > 0.0:
+                delta_lam = target_pressure - multipliers
+                delta_lam = np.clip(delta_lam, -max_step, max_step)
+                pressure = np.maximum(0.0, multipliers + delta_lam)
+                if self.rebound_relaxation:
+                    pressure = np.where(gaps > self.gap_tol, 0.0, pressure)
+            else:
+                pressure = target_pressure
             if not np.all(np.isfinite(pressure)):
                 raise ValueError("Projected AL multipliers must be finite")
             scale = max(

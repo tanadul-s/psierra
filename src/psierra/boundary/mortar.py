@@ -61,6 +61,9 @@ class MortarContact(ContactMultiplierState):
         tolerance: float = 0.0,
         symmetric_tangent: bool = False,
         domain: Domain | None = None,
+        gamma_cap: float = 1.0,
+        max_multiplier_step: float | None = None,
+        bounded_augmentation: bool = True,
         *,
         complete_linearization: bool = False,
     ) -> None:
@@ -77,6 +80,8 @@ class MortarContact(ContactMultiplierState):
             raise ValueError("tolerance must be finite and nonnegative")
         if formulation not in ("penalty", "augmented_lagrangian"):
             raise ValueError("formulation must be 'penalty' or 'augmented_lagrangian'")
+        if not np.isfinite(gamma_cap) or gamma_cap <= 0.0:
+            raise ValueError(f"gamma_cap must be finite and positive, got {gamma_cap}")
 
         self.slave = slave
         self.master = master
@@ -93,6 +98,28 @@ class MortarContact(ContactMultiplierState):
         self.symmetric_tangent = bool(symmetric_tangent)
         self.domain = domain
         self.complete_linearization = bool(complete_linearization)
+        self.gamma_cap = float(gamma_cap)
+        self.bounded_augmentation = bool(bounded_augmentation)
+
+        if not self.bounded_augmentation:
+            self.max_multiplier_step: float | None = None
+        elif max_multiplier_step is not None:
+            if not np.isfinite(max_multiplier_step) or max_multiplier_step <= 0.0:
+                raise ValueError(
+                    f"max_multiplier_step must be finite and positive, got {max_multiplier_step}"
+                )
+            self.max_multiplier_step = float(max_multiplier_step)
+        else:
+            # Scale-aware adaptive upper bound on multiplier increment per AL step:
+            # lambda_max = gamma_cap * (E * A_e / h_e) * h_e = gamma_cap * E * A_e
+            try:
+                from psierra.contact.scaling import compute_multiplier_cap
+                self.max_multiplier_step = compute_multiplier_cap(
+                    domain=self.slave, gamma_cap=self.gamma_cap
+                )
+            except Exception:
+                self.max_multiplier_step = None
+
         self._normal_law = NormalConstraintLaw(
             k_penalty=self.k_penalty,
             c_damping=self.c_damping,
@@ -247,6 +274,34 @@ class MortarContact(ContactMultiplierState):
             )
         return self.slave_offset + self.slave.n_dofs
 
+    def _compute_area_weighted_normals(
+        self,
+        segments: Sequence[MortarSegmentData],
+        n_nodes: int,
+    ) -> np.ndarray:
+        """Compute area-weighted mortar projection normals across active segments.
+
+        Weights incident facet normals by segment overlap area:
+            n_i = (sum_{seg in S_i} A_seg * n_seg) / ||sum_{seg in S_i} A_seg * n_seg||
+        to establish smooth, area-averaged contact normals and eliminate facet-edge
+        chattering on curved interfaces.
+        """
+        node_normals = np.zeros((n_nodes, 3), dtype=np.float64)
+        node_weights = np.zeros(n_nodes, dtype=np.float64)
+        for seg in segments:
+            n_push = seg.normal
+            area = max(float(seg.overlap_area), 1e-14)
+            for snode in seg.slave_nodes:
+                node_normals[snode] += area * n_push
+                node_weights[snode] += area
+
+        valid_norm_mask = node_weights > 0.0
+        node_normals[valid_norm_mask] /= node_weights[valid_norm_mask, None]
+        norm_len = np.linalg.norm(node_normals, axis=1, keepdims=True)
+        return np.where(
+            norm_len > 1e-14, node_normals / np.maximum(norm_len, 1e-14), 0.0
+        )
+
     def evaluate_forces(
         self,
         current_nodes: np.ndarray | None = None,
@@ -290,21 +345,8 @@ class MortarContact(ContactMultiplierState):
             else np.asarray(velocities, dtype=np.float64).reshape(-1)
         )
 
-        # Average normal vector per slave node from incident active segments
-        node_normals = np.zeros((len(D_diag), 3), dtype=np.float64)
-        node_counts = np.zeros(len(D_diag), dtype=np.float64)
-        for seg in segments:
-            # seg.normal is master outward normal; contact force pushes slave along +n_m
-            # Direction pushing slave out of master: n_push = seg.normal
-            n_push = seg.normal
-            for snode in seg.slave_nodes:
-                node_normals[snode] += n_push
-                node_counts[snode] += 1.0
-
-        valid_norm_mask = node_counts > 0
-        node_normals[valid_norm_mask] /= node_counts[valid_norm_mask, None]
-        norm_len = np.linalg.norm(node_normals, axis=1, keepdims=True)
-        node_normals = np.where(norm_len > 1e-14, node_normals / np.maximum(norm_len, 1e-14), 0.0)
+        # Area-weighted mortar projection normals per slave node
+        node_normals = self._compute_area_weighted_normals(segments, len(D_diag))
 
         # 1. Slave forces: f_s_i = P_i * n_push + f_T_s_i
         active_p_nodes = np.flatnonzero(pressures > 0.0)
@@ -456,19 +498,8 @@ class MortarContact(ContactMultiplierState):
         if self.complete_linearization:
             return self._evaluate_complete_linearization(total_dofs, active_p_nodes, a1=a1)
 
-        # Average normals
-        node_normals = np.zeros((len(D_diag), 3), dtype=np.float64)
-        node_counts = np.zeros(len(D_diag), dtype=np.float64)
-        for seg in segments:
-            n_push = seg.normal
-            for snode in seg.slave_nodes:
-                node_normals[snode] += n_push
-                node_counts[snode] += 1.0
-
-        valid_norm_mask = node_counts > 0
-        node_normals[valid_norm_mask] /= node_counts[valid_norm_mask, None]
-        norm_len = np.linalg.norm(node_normals, axis=1, keepdims=True)
-        node_normals = np.where(norm_len > 1e-14, node_normals / np.maximum(norm_len, 1e-14), 0.0)
+        # Area-weighted mortar projection normals
+        node_normals = self._compute_area_weighted_normals(segments, len(D_diag))
 
         rows: list[int] = []
         cols: list[int] = []

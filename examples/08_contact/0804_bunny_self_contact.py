@@ -168,14 +168,32 @@ def parse_arguments() -> argparse.Namespace:
     parser.add_argument(
         "--al-gap-tol",
         type=float,
-        default=1e-3,
-        help="Augmented Lagrangian penetration tolerance in mm (default: 1e-3 mm = 1 um)",
+        default=0.01,
+        help="Augmented Lagrangian penetration tolerance in mm (default: 0.01 mm = 10 um)",
     )
     parser.add_argument(
         "--al-tol",
         type=float,
-        default=1e-3,
-        help="Augmented Lagrangian multiplier convergence tolerance (default: 1e-3)",
+        default=0.05,
+        help="Augmented Lagrangian multiplier convergence tolerance (default: 0.05)",
+    )
+    parser.add_argument(
+        "--thickness-buffer",
+        type=str,
+        default="auto",
+        help="Proximity thickness buffer: float in mm or 'auto' (default: auto = 0.15 * h_e)",
+    )
+    parser.add_argument(
+        "--consistent-orientation-filter",
+        action=argparse.BooleanOptionalAction,
+        default=True,
+        help="Filter back-to-back facet pairs with opposing undeformed reference normals (default: True)",
+    )
+    parser.add_argument(
+        "--smoothed",
+        action=argparse.BooleanOptionalAction,
+        default=True,
+        help="Enable C1 continuous pseudonormal smoothing across facet boundaries (default: True)",
     )
     parser.add_argument(
         "--nr-max",
@@ -221,7 +239,11 @@ def main() -> None:
     )
     bunny_path = Path(args.bunny_mesh)
     if not bunny_path.exists():
-        raise FileNotFoundError(f"Bunny mesh not found: {bunny_path}")
+        fallback = Path(__file__).resolve().parents[2] / args.bunny_mesh
+        if fallback.exists():
+            bunny_path = fallback
+        else:
+            raise FileNotFoundError(f"Bunny mesh not found: {bunny_path}")
 
     bunny_mesh = VolumetricMesh(bunny_path)
     nodes = bunny_mesh.nodes
@@ -360,6 +382,13 @@ def main() -> None:
     )
 
     # 3. Configure SelfContact boundary formulation
+    thickness_buf = args.thickness_buffer
+    if isinstance(thickness_buf, str) and thickness_buf.lower() != "auto":
+        try:
+            thickness_buf = float(thickness_buf)
+        except ValueError:
+            pass
+
     contact = SelfContact(
         domain=domain,
         contact_nodes=cand_nodes,
@@ -368,6 +397,9 @@ def main() -> None:
         contact_thickness=args.contact_thickness,
         normal_threshold=args.normal_threshold,
         formulation=args.formulation,
+        thickness_buffer=thickness_buf,
+        consistent_orientation_filter=args.consistent_orientation_filter,
+        smoothed_normals=args.smoothed,
     )
     console.print(
         f"  SelfContact Formulation: [cyan]{args.formulation.upper()}[/cyan] "

@@ -43,6 +43,8 @@ from psierra.contact.assembly import ContactAssembler
 from psierra.contact.scaling import (
     compute_adaptive_penalty,
     compute_dimensionless_contact_parameter,
+    compute_multiplier_cap,
+    compute_thickness_buffer,
 )
 from psierra.boundary.friction import (
     StickSlipState,
@@ -68,6 +70,8 @@ class ContactMultiplierState:
     k_tangential: float = 1e4
     symmetric_tangent: bool = False
     friction_state: CoulombFrictionState | None = None
+    max_multiplier_step: float | None = None
+    gamma_cap: float = 1.0
 
     def evaluate_gaps(self, current_nodes: np.ndarray | None = None) -> np.ndarray:
         """Return candidate-aligned signed normal constraint gaps [length]."""
@@ -121,9 +125,18 @@ class ContactMultiplierState:
             }
         gaps = self.evaluate_gaps()
         previous = self.snapshot_multipliers()
-        new_multipliers = np.maximum(0.0, previous - self.k_penalty * gaps)
+        target_multipliers = np.maximum(0.0, previous - self.k_penalty * gaps)
         if rebound_relaxation:
-            new_multipliers = np.where(gaps > gap_tol, 0.0, new_multipliers)
+            target_multipliers = np.where(gaps > gap_tol, 0.0, target_multipliers)
+        max_step = getattr(self, "max_multiplier_step", None)
+        if max_step is not None and np.isfinite(max_step) and max_step > 0.0:
+            delta_lam = target_multipliers - previous
+            delta_lam = np.clip(delta_lam, -max_step, max_step)
+            new_multipliers = np.maximum(0.0, previous + delta_lam)
+            if rebound_relaxation:
+                new_multipliers = np.where(gaps > gap_tol, 0.0, new_multipliers)
+        else:
+            new_multipliers = target_multipliers
         self.set_multipliers(new_multipliers)
         return {
             "max_penetration": float(np.max(np.maximum(-gaps, 0.0), initial=0.0)),
@@ -1639,6 +1652,10 @@ class SelfContact(ContactMultiplierState):
         smoothing_weight: Literal["angle", "area"] = "angle",
         symmetric_tangent: bool = False,
         energy_consistent_smoothing: bool = False,
+        thickness_buffer: float | Literal["auto"] = 0.0,
+        buffer_ratio: float = 0.15,
+        consistent_orientation_filter: bool = False,
+        filter_reference_opposition: bool = False,
     ) -> None:
         """Bind surface candidates, material-independent contact law and search.
 
@@ -1663,6 +1680,17 @@ class SelfContact(ContactMultiplierState):
             Eliminates directional jumps Delta n = n_B - n_A as slave nodes cross facet edges.
         smoothing_weight : {'angle', 'area'}, default='angle'
             Weighting formulation for assembling vertex pseudonormals from incident facet normals.
+        thickness_buffer : float or 'auto', default=0.0
+            Proximity thickness buffer delta_buffer = buffer_ratio * h_e (Milestone 1.5).
+            Shifts effective gap g_eff = g_N - delta_buffer so active-set detection triggers
+            before physical interpenetration occurs, smoothly decelerating approaching continua
+            and eliminating active-set chattering.
+        buffer_ratio : float, default=0.15
+            Buffer ratio relative to characteristic surface element edge length h_e.
+        consistent_orientation_filter : bool, default=False
+            Milestone 1.5 Consistent Normal Orientation Filtering: reject candidate facet pairs
+            whose reference normals point in opposite directions through the interior (g_ref <= 0)
+            or share topological edges, eliminating spurious self-penetrations across thin features.
         """
         if isinstance(k_penalty, str) and k_penalty.lower() == "auto":
             k_penalty = compute_adaptive_penalty(domain=domain)
@@ -1739,25 +1767,7 @@ class SelfContact(ContactMultiplierState):
         self.multipliers = np.zeros(len(self.contact_nodes), dtype=np.float64)
         self.friction_state = CoulombFrictionState(len(self.contact_nodes))
 
-        self._edge_faces: dict[tuple[int, int], list[int]] = defaultdict(list)
-        for face_index, face in enumerate(self._faces):
-            for i, j in ((0, 1), (1, 2), (2, 0)):
-                self._edge_faces[tuple(sorted((int(face[i]), int(face[j]))))].append(face_index)
-        self._excluded_faces = self._build_exclusion_graph(self.exclusion_rings)
-        self._locator = vtk.vtkStaticCellLocator()
-        self._locator.SetDataSet(self._polydata)
-        self._geometry_provider = TriangleGeometryProvider(
-            energy_consistent_smoothing=self.energy_consistent_smoothing
-        )
-        self._normal_law = NormalConstraintLaw(
-            k_penalty=self.k_penalty,
-            c_damping=self.c_damping,
-            formulation=self.formulation,
-        )
-        self._assembler = ContactAssembler()
-        self._use_legacy_kernel: bool = False
-        self._update_surface()
-
+        # Surface geometry metrics
         points = domain.mesh.nodes[self._surf_node_idx]
         diagonal = float(np.linalg.norm(np.ptp(points, axis=0)))
         self.search_radius = (
@@ -1774,6 +1784,48 @@ class SelfContact(ContactMultiplierState):
             if contact_thickness is None else float(contact_thickness)
         )
 
+        if not np.isfinite(buffer_ratio) or buffer_ratio <= 0.0:
+            raise ValueError(f"buffer_ratio must be finite and positive, got {buffer_ratio}")
+        self.buffer_ratio = float(buffer_ratio)
+
+        if isinstance(thickness_buffer, str) and thickness_buffer.lower() == "auto":
+            self.thickness_buffer = compute_thickness_buffer(
+                domain=domain, buffer_ratio=self.buffer_ratio
+            )
+        elif thickness_buffer is None:
+            self.thickness_buffer = 0.0
+        else:
+            self.thickness_buffer = float(thickness_buffer)
+
+        if not np.isfinite(self.thickness_buffer) or self.thickness_buffer < 0.0:
+            raise ValueError(f"thickness_buffer must be finite and nonnegative, got {thickness_buffer}")
+
+        if self.thickness_buffer > 0.0:
+            self.contact_thickness = max(self.contact_thickness, 2.0 * self.thickness_buffer)
+
+        self.consistent_orientation_filter = bool(consistent_orientation_filter or filter_reference_opposition)
+
+        self._edge_faces: dict[tuple[int, int], list[int]] = defaultdict(list)
+        for face_index, face in enumerate(self._faces):
+            for i, j in ((0, 1), (1, 2), (2, 0)):
+                self._edge_faces[tuple(sorted((int(face[i]), int(face[j]))))].append(face_index)
+        self._excluded_faces = self._build_exclusion_graph(
+            self.exclusion_rings, self.consistent_orientation_filter
+        )
+        self._locator = vtk.vtkStaticCellLocator()
+        self._locator.SetDataSet(self._polydata)
+        self._geometry_provider = TriangleGeometryProvider(
+            energy_consistent_smoothing=self.energy_consistent_smoothing
+        )
+        self._normal_law = NormalConstraintLaw(
+            k_penalty=self.k_penalty,
+            c_damping=self.c_damping,
+            formulation=self.formulation,
+        )
+        self._assembler = ContactAssembler()
+        self._use_legacy_kernel: bool = False
+        self._update_surface()
+
     @property
     def _active_normal_law(self) -> NormalConstraintLaw:
         """Return normal constraint law synchronized with current parameters."""
@@ -1789,12 +1841,15 @@ class SelfContact(ContactMultiplierState):
             )
         return self._normal_law
 
-    def _build_exclusion_graph(self, rings: int) -> dict[int, set[int]]:
+    def _build_exclusion_graph(
+        self, rings: int, consistent_orientation_filter: bool = False
+    ) -> dict[int, set[int]]:
         """Exclude incident facets of nodes within the given surface BFS depth.
 
-        This retains mesh-topology policy, not a proof that every remaining
-        facet is physically eligible for self-contact. Depth zero excludes only
-        incident facets; greater depth can also suppress legitimate close folds.
+        When consistent_orientation_filter is True, additionally excludes:
+        1. Facets sharing a topological edge with any incident facet of the node.
+        2. Reference interior back-to-back facet pairs across thin features (where
+           undeformed reference normals oppose each other and the reference gap g_ref <= 0).
         """
         incident: dict[int, set[int]] = defaultdict(set)
         adjacency: dict[int, set[int]] = defaultdict(set)
@@ -1814,6 +1869,52 @@ class SelfContact(ContactMultiplierState):
                 if not frontier:
                     break
             excluded[node] = set().union(*(incident[current] for current in visited))
+
+        if consistent_orientation_filter:
+            # 1. Exclude any facet sharing an edge with an incident facet of the node
+            for node in range(self.n_surf_nodes):
+                for inc_f in incident[node]:
+                    inc_nodes = self._faces[inc_f]
+                    for j, k in ((0, 1), (1, 2), (2, 0)):
+                        edge = tuple(sorted((int(inc_nodes[j]), int(inc_nodes[k]))))
+                        for shared_f in self._edge_faces.get(edge, []):
+                            excluded[node].add(shared_f)
+
+            # 2. Exclude reference interior back-to-back facet pairs across thin features
+            ref_coords = (
+                self.domain.mesh.nodes
+                if hasattr(self.domain, "mesh") and hasattr(self.domain.mesh, "nodes")
+                else self.domain.current_nodes
+            )
+            ref_nodal_normals, ref_face_normals, _, _ = self._compute_surface_normals(ref_coords)
+            ref_poly = self._polydata.copy(deep=True)
+            ref_poly.points = ref_coords[self._surf_node_idx]
+            ref_locator = vtk.vtkStaticCellLocator()
+            ref_locator.SetDataSet(ref_poly)
+            ref_locator.BuildLocator()
+
+            ref_verts = ref_coords[self._surf_node_idx[self._faces]]
+            cell_ids = vtk.vtkIdList()
+            cutoff = self.contact_thickness
+            for s_idx in range(self.n_surf_nodes):
+                pt = ref_coords[self._surf_node_idx[s_idx]]
+                s_norm = ref_nodal_normals[s_idx]
+                bounds = [
+                    pt[0] - cutoff, pt[0] + cutoff,
+                    pt[1] - cutoff, pt[1] + cutoff,
+                    pt[2] - cutoff, pt[2] + cutoff,
+                ]
+                ref_locator.FindCellsWithinBounds(bounds, cell_ids)
+                for i in range(cell_ids.GetNumberOfIds()):
+                    fid = cell_ids.GetId(i)
+                    fn = ref_face_normals[fid]
+                    if float(s_norm @ fn) <= self.normal_threshold:
+                        weights = TriangleContactGeometry.closest_barycentric(pt, ref_verts[fid])
+                        cp = weights @ ref_verts[fid]
+                        g_ref = float((pt - cp) @ fn)
+                        if g_ref <= 0.0:
+                            excluded[s_idx].add(fid)
+
         return excluded
 
     def _resolve_nodes(self, current_nodes: np.ndarray | None) -> np.ndarray:
@@ -1984,7 +2085,7 @@ class SelfContact(ContactMultiplierState):
                     point, vertices[best_face], pseudonormal, vertex_normals=v_normals
                 )
                 geometry = DifferentiableContactGeometry(
-                    gap=legacy_geom.gap,
+                    gap=legacy_geom.gap - self.thickness_buffer,
                     normal=legacy_geom.normal,
                     closest_point=weights @ vertices[best_face],
                     gradient=legacy_geom.gradient,
@@ -2010,6 +2111,20 @@ class SelfContact(ContactMultiplierState):
                     pseudonormal=pseudonormal,
                     vertex_normals=v_normals,
                 )
+                if self.thickness_buffer != 0.0:
+                    geometry = DifferentiableContactGeometry(
+                        gap=geometry.gap - self.thickness_buffer,
+                        normal=geometry.normal,
+                        closest_point=geometry.closest_point,
+                        gradient=geometry.gradient,
+                        hessian=geometry.hessian,
+                        feature_id=geometry.feature_id,
+                        feature_index=geometry.feature_index,
+                        barycentric=geometry.barycentric,
+                        is_smooth_branch=geometry.is_smooth_branch,
+                        units=geometry.units,
+                        orientation_convention=geometry.orientation_convention,
+                    )
             queries.append(_SelfContactQuery(
                 slave_index, int(slave_node), self._surf_node_idx[face], geometry
             ))
@@ -2327,6 +2442,7 @@ class SelfContact(ContactMultiplierState):
             "active_nodes": self.contact_nodes[active],
             "potential_energy": float(np.sum((pressure**2 - multipliers**2) / (2.0 * self.k_penalty))),
             "max_multiplier": float(np.max(self.multipliers, initial=0.0)),
+            "thickness_buffer": self.thickness_buffer,
         }
         if self.friction_state is not None:
             info["num_stick"] = int(np.count_nonzero(self.friction_state.states == StickSlipState.STICK))

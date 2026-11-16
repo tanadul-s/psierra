@@ -35,6 +35,7 @@ from psierra.analysis.quasi_static import (
     QuasiStaticAnalysis,
     QuasiStaticResult,
 )
+from psierra.analysis.augmentation import ContactAugmentation, AugmentationStatus
 
 __all__ = [
     # Base
@@ -65,4 +66,7 @@ __all__ = [
     # Dynamic Relaxation
     "DynamicRelaxationAnalysis",
     "DynamicRelaxationResult",
+    # Augmentation
+    "ContactAugmentation",
+    "AugmentationStatus",
 ]

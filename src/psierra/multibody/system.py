@@ -374,6 +374,8 @@ class MultiBodySystem(Domain):
         formulation: Literal["penalty", "augmented_lagrangian"] = "penalty",
         search_radius: float = 10.0,
         tolerance: float = 0.0,
+        gamma_cap: float = 1.0,
+        max_multiplier_step: float | None = None,
         **kwargs: Any,
     ) -> Any:
         """
@@ -448,6 +450,8 @@ class MultiBodySystem(Domain):
             formulation=formulation,
             search_radius=search_radius,
             tolerance=tolerance,
+            gamma_cap=gamma_cap,
+            max_multiplier_step=max_multiplier_step,
             **kwargs,
         )
         self._contacts.append(contact)
@@ -457,10 +461,15 @@ class MultiBodySystem(Domain):
         self,
         body: str | int | Domain,
         contact_nodes: Sequence[int] | np.ndarray | None = None,
-        k_penalty: float = 1e4,
+        k_penalty: float | Literal["auto"] = 1e4,
         c_damping: float = 0.0,
         friction: float = 0.0,
         formulation: Literal["penalty", "augmented_lagrangian"] = "penalty",
+        *,
+        thickness_buffer: float | Literal["auto"] = 0.0,
+        buffer_ratio: float = 0.15,
+        consistent_orientation_filter: bool = False,
+        smoothed_normals: bool = False,
         **kwargs: Any,
     ) -> Any:
         """
@@ -472,7 +481,7 @@ class MultiBodySystem(Domain):
             Deformable body undergoing self-contact (name, index, or domain).
         contact_nodes : Sequence[int] or np.ndarray, optional
             Candidate contact nodes on the body (defaults to all surface nodes).
-        k_penalty : float, default=1e4
+        k_penalty : float or 'auto', default=1e4
             Normal penalty contact stiffness in N/mm.
         c_damping : float, default=0.0
             Contact velocity damping coefficient in N*s/mm.
@@ -480,6 +489,14 @@ class MultiBodySystem(Domain):
             Friction coefficient.
         formulation : {'penalty', 'augmented_lagrangian'}, default='penalty'
             Contact formulation method.
+        thickness_buffer : float or 'auto', default=0.0
+            Proximity thickness buffer delta_buffer = buffer_ratio * h_e (Milestone 1.5).
+        buffer_ratio : float, default=0.15
+            Buffer ratio relative to characteristic surface element edge length.
+        consistent_orientation_filter : bool, default=False
+            Reject candidate pairs whose reference normals point in opposite directions or share edges.
+        smoothed_normals : bool, default=False
+            Enable C1 vertex normal smoothing to eliminate facet-edge force chattering.
 
         Returns:
         --------
@@ -500,6 +517,10 @@ class MultiBodySystem(Domain):
             friction=friction,
             dof_offset=dof_offset,
             formulation=formulation,
+            thickness_buffer=thickness_buffer,
+            buffer_ratio=buffer_ratio,
+            consistent_orientation_filter=consistent_orientation_filter,
+            smoothed_normals=smoothed_normals,
             **kwargs,
         )
 

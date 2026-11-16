@@ -30,6 +30,8 @@ from psierra.contact.hertz import (
 from psierra.contact.scaling import (
     compute_adaptive_penalty,
     compute_dimensionless_contact_parameter,
+    compute_multiplier_cap,
+    compute_thickness_buffer,
     compute_characteristic_mesh_metrics,
     extract_material_stiffness,
 )
@@ -55,6 +57,8 @@ __all__ = [
     "reconstruct_nodal_pressures",
     "compute_adaptive_penalty",
     "compute_dimensionless_contact_parameter",
+    "compute_multiplier_cap",
+    "compute_thickness_buffer",
     "compute_characteristic_mesh_metrics",
     "extract_material_stiffness",
 ]

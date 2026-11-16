@@ -390,3 +390,109 @@ def compute_dimensionless_contact_parameter(
         kappa = (k_p * h_e) / E_bulk
 
     return float(kappa)
+
+
+def compute_multiplier_cap(
+    domain: Domain | Any = None,
+    mesh: VolumetricMesh | SurfaceMesh | Any | None = None,
+    material: Material | Any | None = None,
+    *,
+    gamma_cap: float = 1.0,
+) -> float:
+    """
+    Compute scale-aware upper bound on dual multiplier increments per AL step.
+
+    Milestone 1.4: Mortar Contact Stabilization for Ultra-Soft Continua.
+
+    Formulation:
+        lambda_max^step = gamma_cap * (E_bulk * A_e / h_e) * h_e = gamma_cap * E_bulk * mean_A
+
+    Prevents wild multiplier oscillations from over-correcting soft elements
+    in a single step, preventing unphysical continuum element inversions (det F <= 0).
+
+    Parameters:
+    -----------
+    domain : Domain, optional
+        Deformable domain containing geometry and material.
+    mesh : VolumetricMesh or SurfaceMesh, optional
+        Mesh geometry if not provided via domain.
+    material : Material, optional
+        Material constitutive model if not provided via domain.
+    gamma_cap : float, default=1.0
+        Multiplier capping factor in [0.1, 5.0].
+
+    Returns:
+    --------
+    float:
+        Maximum allowed dual multiplier increment per AL step [force units].
+    """
+    if not np.isfinite(gamma_cap) or gamma_cap <= 0.0:
+        raise ValueError(f"gamma_cap must be finite and positive, got {gamma_cap}")
+
+    target_mesh = mesh
+    if target_mesh is None and domain is not None:
+        target_mesh = getattr(domain, "mesh", None)
+        if target_mesh is None and isinstance(domain, (VolumetricMesh, SurfaceMesh)):
+            target_mesh = domain
+
+    target_mat = material
+    if target_mat is None and domain is not None:
+        target_mat = getattr(domain, "material", None)
+        if target_mat is None and isinstance(domain, Material):
+            target_mat = domain
+
+    _, E_bulk, _ = extract_material_stiffness(
+        target_mat if target_mat is not None else domain
+    )
+    metrics = compute_characteristic_mesh_metrics(target_mesh)
+    mean_A = metrics["mean_area"]
+
+    cap = float(gamma_cap * E_bulk * mean_A)
+    return max(cap, 1e-12)
+
+
+def compute_thickness_buffer(
+    mesh: VolumetricMesh | SurfaceMesh | Any | None = None,
+    domain: Domain | Any | None = None,
+    *,
+    buffer_ratio: float = 0.15,
+) -> float:
+    """
+    Compute proximity thickness buffer delta_buffer = buffer_ratio * h_e.
+
+    Milestone 1.5: Self-Contact Stabilization (Bunny & Folding Cuboid).
+
+    Formulation:
+        delta_buffer = buffer_ratio * h_e
+    where h_e is the characteristic surface element edge length [L]. Triggers
+    active-set detection before nodes penetrate through opposing facets, smoothly
+    decelerating approaching continua and eliminating active-set chattering.
+
+    Parameters:
+    -----------
+    mesh : VolumetricMesh or SurfaceMesh, optional
+        Mesh geometry if not provided via domain.
+    domain : Domain, optional
+        Deformable domain containing geometry if mesh is not directly provided.
+    buffer_ratio : float, default=0.15
+        Buffer ratio relative to characteristic edge length (typically in [0.05, 0.30]).
+
+    Returns:
+    --------
+    float:
+        Proximity thickness buffer [length units].
+    """
+    if not np.isfinite(buffer_ratio) or buffer_ratio <= 0.0:
+        raise ValueError(f"buffer_ratio must be finite and positive, got {buffer_ratio}")
+
+    target_mesh = mesh
+    if target_mesh is None and domain is not None:
+        target_mesh = getattr(domain, "mesh", None)
+        if target_mesh is None and isinstance(domain, (VolumetricMesh, SurfaceMesh)):
+            target_mesh = domain
+
+    metrics = compute_characteristic_mesh_metrics(target_mesh)
+    h_e = metrics["h_e"]
+    return float(buffer_ratio * h_e)
+
+
