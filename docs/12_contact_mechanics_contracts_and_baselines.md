@@ -767,6 +767,62 @@ On standard planar, flat, un-smoothed penetrations:
 - **Test File**: `tests/test_contact_migration_and_retirement_gate.py` (16 tests).
 - **Test Suite Status**: Combined contact, collision, characterization, acceptance, and retirement suite expanded to **327 tests, 100% passing**.
 
+---
+
+## 19. Classical 3D Hertzian Contact Benchmark (Milestone 1.1)
+
+**Milestone 1.1** provides closed-form analytical ground truth for non-conforming elastic contact, validating contact formulations on moderate-modulus materials ($E = 1.0\text{–}10.0\text{ MPa}$) independent of soft-tissue geometric distortions.
+
+### 19.1 Mathematical Formulation (Hertz 1882)
+
+#### 1. Spherical Indentation on Rigid Plane / Spherical Contact
+Given primary elastic sphere radius $R_1$, modulus $E_1$, Poisson ratio $\nu_1$, and opposing body $(R_2, E_2, \nu_2)$:
+- **Equivalent Contact Modulus $E^*$**:
+  $$\frac{1}{E^*} = \frac{1 - \nu_1^2}{E_1} + \frac{1 - \nu_2^2}{E_2} \quad \left(\text{for rigid plane: } E^* = \frac{E_1}{1 - \nu_1^2}\right)$$
+- **Equivalent Curvature Radius $R^*$**:
+  $$\frac{1}{R^*} = \frac{1}{R_1} + \frac{1}{R_2} \quad \left(\text{for rigid plane: } R^* = R_1\right)$$
+- **Contact Radius $a$**:
+  $$a = \left( \frac{3 F_N R^*}{4 E^*} \right)^{1/3} = \sqrt{R^* \delta}$$
+- **Penetration Depth $\delta$**:
+  $$\delta = \frac{a^2}{R^*} = \left( \frac{9 F_N^2}{16 {E^*}^2 R^*} \right)^{1/3}$$
+- **Peak Contact Pressure $p_0$** (at $r = 0$):
+  $$p_0 = \frac{3 F_N}{2 \pi a^2} = \frac{2 E^* a}{\pi R^*}$$
+- **Hemispherical Radial Pressure Profile $p(r)$**:
+  $$p(r) = p_0 \sqrt{\max\left(0, 1 - \left(\frac{r}{a}\right)^2\right)}$$
+- **Total Normal Force Integral Equivalence**:
+  $$F_N = \int_0^a p(r) \cdot 2\pi r \, dr = \frac{4}{3} E^* \sqrt{R^*} \delta^{3/2}$$
+- **Classical Subsurface Stress Field**:
+  $$\sigma_z(z) = -p_0 \left( 1 + \frac{z^2}{a^2} \right)^{-1}$$
+  $$\sigma_r(z) = \sigma_\theta(z) = -p_0 \left[ (1 + \nu) \left( 1 - \frac{z}{a} \arctan\left(\frac{a}{z}\right) \right) - \frac{1}{2} \left( 1 + \frac{z^2}{a^2} \right)^{-1} \right]$$
+  $$\tau_{\max}(z) = \frac{1}{2} |\sigma_z - \sigma_r| \implies \tau_{\max} \approx 0.31 p_0 \quad \text{at depth } z \approx 0.48 a$$
+
+#### 2. Cylindrical Contact Benchmark (Cylinder on Flat Plane)
+Given cylinder of radius $R$, length $L$, modulus $E_1$, Poisson ratio $\nu_1$:
+- **Contact Strip Half-Width $b$**:
+  $$b = \sqrt{\frac{4 F_N R^*}{\pi L E^*}}$$
+- **Peak Contact Pressure $p_0$** (along centerline $x = 0$):
+  $$p_0 = \frac{2 F_N}{\pi b L} = \sqrt{\frac{F_N E^*}{\pi R^* L}}$$
+- **Transverse Elliptical Pressure Distribution $p(x)$**:
+  $$p(x) = p_0 \sqrt{\max\left(0, 1 - \left(\frac{x}{b}\right)^2\right)}$$
+- **Total Force Integral Equivalence**:
+  $$\int_{-b}^b p(x) \cdot L \, dx = F_N$$
+
+### 19.2 Nodal Area Integration & Pressure Field Reconstruction
+To reconstruct continuous contact pressure fields on unstructured 3D finite element surfaces:
+1. **Nodal Tributary Areas**:
+   For surface triangular mesh $\mathcal{M}_{\text{surf}}$ with elements $f = (v_0, v_1, v_2)$, one third of each facet area is scattered to incident global volumetric nodes:
+   $$A_i = \frac{1}{3} \sum_{f \in \mathcal{F}(i)} \text{Area}(f)$$
+   satisfying total surface area conservation: $\sum_{i} A_i = A_{\text{surface}}$ to $< 10^{-14}$.
+2. **Reconstructed Contact Pressure**:
+   $$p_i = \frac{f_{c, z, i}}{A_i} \quad \forall i \text{ with } A_i > 0, f_{c, z, i} > 0$$
+
+### 19.3 Deliverables & Verification Baseline
+- **Analytical Module**: [`src/psierra/contact/hertz.py`](file:///home/tanadul/Workspace/project-sierra/psierra/src/psierra/contact/hertz.py) (`HertzSphereContact`, `HertzCylinderContact`, `compute_nodal_tributary_areas`, `reconstruct_nodal_pressures`).
+- **Benchmark Simulation Executable**: [`examples/08_contact/0811_hertz_sphere_contact.py`](file:///home/tanadul/Workspace/project-sierra/psierra/examples/08_contact/0811_hertz_sphere_contact.py) (CLI with ParaView VTU/PVD export and Rich comparative summary table).
+- **Verification Test Suite**: [`tests/test_contact_hertz_analytical.py`](file:///home/tanadul/Workspace/project-sierra/psierra/tests/test_contact_hertz_analytical.py) (21 tests, 100% passing).
+- **Test Suite Status**: Contact and collision test suite expanded to **348 tests, 100% passing**.
+
+
 
 
 

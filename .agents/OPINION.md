@@ -181,3 +181,13 @@
   - Verified transactional state rollback: dual multipliers and Coulomb stick-slip friction snapshots restore completely upon trial step rejection; history commits only on acceptance.
   - Formally codified legacy retirement policy: legacy pathways remain operational throughout Milestones 1.1–1.5 benchmarks before physical code deletion.
   - Authored `tests/test_contact_migration_and_retirement_gate.py` (16 tests). Full contact, collision, acceptance, and retirement test suite expanded to **327 tests, 100% passing**. Documented Section 18 in `docs/12_contact_mechanics_contracts_and_baselines.md`. Milestone 1.0 is officially 100% complete!
+- **Milestone 1.1: Classical 3D Hertzian Contact Benchmark (Analytical Ground Truth)**:
+  - Authored `src/psierra/contact/hertz.py` providing exact closed-form analytical solutions:
+    * `HertzSphereContact`: contact radius $a = (3 F_N R^* / 4 E^*)^{1/3} = \sqrt{R^* \delta}$, penetration $\delta = a^2 / R^*$, peak pressure $p_0 = \frac{3 F_N}{2 \pi a^2}$, radial pressure profile $p(r) = p_0 \sqrt{\max(0, 1 - (r/a)^2)}$, and full subsurface stress field ($\sigma_z, \sigma_r, \tau_{\max}$).
+    * `HertzCylinderContact`: contact half-width $b = \sqrt{\frac{4 F_N R^*}{\pi L E^*}}$, peak pressure $p_0 = \frac{2 F_N}{\pi b L}$, transverse pressure distribution $p(x) = p_0 \sqrt{\max(0, 1 - (x/b)^2)}$.
+    * Vectorized surface nodal tributary area calculation `compute_nodal_tributary_areas` ensuring exact area conservation $\sum A_i = A_{\text{surface}}$ to $< 10^{-14}$.
+    * Continuous normal contact pressure field reconstruction `reconstruct_nodal_pressures` ($p_i = f_{c, z, i} / A_i$).
+  - Delivered executable simulation benchmark: `examples/08_contact/0811_hertz_sphere_contact.py`, featuring ParaView VTU/PVD export and formatted Rich comparative summary tables.
+  - Authored comprehensive verification test suite: `tests/test_contact_hertz_analytical.py` (21 tests, 100% passing).
+  - Validated exact mathematical reciprocity ($F_N(\delta(F_N)) = F_N$), normal force integral conservation ($\int p \, dA = F_N$ to $< 10^{-10}$), Boussinesq two-body effective modulus/curvature, classical subsurface peak shear stress location ($z \approx 0.48 a, \tau_{\max} \approx 0.31 p_0$), 3D FE spherical indentation and cylindrical compression against analytical formulas, and modulus scaling invariance across $E = 1.0\text{–}10.0\text{ MPa}$.
+  - Full contact and collision test suite expanded to **348 tests, 100% passing**. Documented Section 19 in `docs/12_contact_mechanics_contracts_and_baselines.md`. Milestone 1.1 complete!

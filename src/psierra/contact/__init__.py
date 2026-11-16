@@ -21,6 +21,12 @@ from psierra.contact.geometry import (
 )
 from psierra.contact.law import NormalConstraintLaw
 from psierra.contact.assembly import ContactAssembler
+from psierra.contact.hertz import (
+    HertzSphereContact,
+    HertzCylinderContact,
+    compute_nodal_tributary_areas,
+    reconstruct_nodal_pressures,
+)
 
 __all__ = [
     "ContactCandidate",
@@ -37,4 +43,8 @@ __all__ = [
     "evaluate_smoothed_triangle_geometry",
     "NormalConstraintLaw",
     "ContactAssembler",
+    "HertzSphereContact",
+    "HertzCylinderContact",
+    "compute_nodal_tributary_areas",
+    "reconstruct_nodal_pressures",
 ]
