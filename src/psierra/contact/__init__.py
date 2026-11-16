@@ -27,6 +27,12 @@ from psierra.contact.hertz import (
     compute_nodal_tributary_areas,
     reconstruct_nodal_pressures,
 )
+from psierra.contact.scaling import (
+    compute_adaptive_penalty,
+    compute_dimensionless_contact_parameter,
+    compute_characteristic_mesh_metrics,
+    extract_material_stiffness,
+)
 
 __all__ = [
     "ContactCandidate",
@@ -47,4 +53,8 @@ __all__ = [
     "HertzCylinderContact",
     "compute_nodal_tributary_areas",
     "reconstruct_nodal_pressures",
+    "compute_adaptive_penalty",
+    "compute_dimensionless_contact_parameter",
+    "compute_characteristic_mesh_metrics",
+    "extract_material_stiffness",
 ]

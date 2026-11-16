@@ -214,14 +214,14 @@ The contact overhaul will use a **staged internal replacement**, not a ground-up
 
 #### Milestone 1.2: Dimensionless Penalty Scaling Law & Automatic Stiffness Calculation
 *Objective*: Eliminate arbitrary user-guessed penalty values and guarantee conditioning across 6 orders of magnitude of Young's modulus ($100\text{ MPa} \to 1\text{ kPa}$).
-- [ ] **Dimensionless Contact Parameter $\kappa_p$**:
+- [x] **Dimensionless Contact Parameter $\kappa_p$**:
   $$\kappa_p \equiv \frac{k_p \cdot h_e}{E_{\text{bulk}}} \in [5, 50]$$
   where $h_e$ is the characteristic surface element edge length and $E_{\text{bulk}}$ is the effective Young's modulus.
-- [ ] **Automatic Element-Adaptive Penalty Law**:
+- [x] **Automatic Element-Adaptive Penalty Law**:
   $$k_{p, e} = \alpha_{\text{penalty}} \cdot \frac{K_{\text{bulk}} A_e}{V_e}$$
   where $K_{\text{bulk}}$ is bulk modulus, $A_e$ is facet area, $V_e$ is element volume, and $\alpha_{\text{penalty}} \approx 0.1\text{–}1.0$.
-- [ ] Implement `compute_adaptive_penalty(domain, mesh)` in `psierra.boundary.contact`.
-- [ ] Parametric modulus sweep test in `tests/test_contact_modulus_scaling.py`: verify that decreasing $E$ from $10\text{ MPa} \to 21\text{ kPa} \to 1\text{ kPa}$ with adaptive penalty maintains identical iteration counts ($< 6$ Newton iterations) and zero element inversions.
+- [x] Implemented `compute_adaptive_penalty(domain, mesh)` in `psierra.contact.scaling`, exported from `psierra.boundary.contact`, `psierra.boundary`, and `psierra.contact`. Integrated `k_penalty="auto"` across `RigidContact`, `DeformableContact`, `SelfContact`, and `MortarContact`.
+- [x] Parametric modulus sweep test in `tests/test_contact_modulus_scaling.py` (32 tests, 100% passing): verified that decreasing $E$ from $10\text{ MPa} \to 21\text{ kPa} \to 1\text{ kPa}$ with adaptive penalty maintains identical iteration counts (`[3, 2]`, $< 6$ Newton iterations) and zero element inversions ($\det \boldsymbol{F} > 0$). Verified absence of the 200,000x conditioning degradation seen with un-adapted rigid penalties.
 
 #### Milestone 1.3: Two-Body Large-Deformation Ironing Benchmark
 *Objective*: Prove stability of deformable-to-deformable contact and Coulomb stick-slip friction under finite sliding without facet-edge snagging.

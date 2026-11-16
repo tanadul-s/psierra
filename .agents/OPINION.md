@@ -191,3 +191,15 @@
   - Authored comprehensive verification test suite: `tests/test_contact_hertz_analytical.py` (21 tests, 100% passing).
   - Validated exact mathematical reciprocity ($F_N(\delta(F_N)) = F_N$), normal force integral conservation ($\int p \, dA = F_N$ to $< 10^{-10}$), Boussinesq two-body effective modulus/curvature, classical subsurface peak shear stress location ($z \approx 0.48 a, \tau_{\max} \approx 0.31 p_0$), 3D FE spherical indentation and cylindrical compression against analytical formulas, and modulus scaling invariance across $E = 1.0\text{–}10.0\text{ MPa}$.
   - Full contact and collision test suite expanded to **348 tests, 100% passing**. Documented Section 19 in `docs/12_contact_mechanics_contracts_and_baselines.md`. Milestone 1.1 complete!
+- **Milestone 1.2: Dimensionless Penalty Scaling Law & Automatic Stiffness Calculation (Agreed)**:
+  - Authored `src/psierra/contact/scaling.py` providing scale-invariant penalty parameter calculation and automatic element-adaptive contact stiffness:
+    * Characteristic mesh metrics extraction `compute_characteristic_mesh_metrics` ($h_e, \bar{A}_e, \bar{V}_e, A_e, V_e$).
+    * Universal material stiffness extraction `extract_material_stiffness` across all continuum constitutive laws (`NeoHookean`, `Hookean`, `Yeoh`, `MooneyRivlin`, `Ogden`, `HGO`, numeric duck-types, and fallbacks).
+    * Automatic element-adaptive penalty law: $k_{p, e} = \alpha_{\text{penalty}} \frac{K_{\text{bulk}} A_e}{V_e}$ (distributed) and $k_{p, \text{nodal}, e} = \alpha_{\text{penalty}} \frac{K_{\text{bulk}} A_e^2}{V_e}$ (nodal), with scalar $k_{p, \text{nodal}} = \alpha_{\text{penalty}} \frac{K_{\text{bulk}} \bar{A}_e^2}{\bar{V}_e}$.
+    * Dimensionless parameter evaluation: $\kappa_p \equiv \frac{k_{p, \text{dist}} \cdot h_e}{E_{\text{bulk}}} = \frac{k_{p, \text{nodal}} \cdot h_e}{E_{\text{bulk}} \cdot A_e} \in [5, 50]$.
+  - Integrated `k_penalty="auto"` across all four public contact classes (`RigidContact`, `DeformableContact`, `SelfContact`, and `MortarContact`).
+  - Authored comprehensive verification test suite: `tests/test_contact_modulus_scaling.py` (32 tests, 100% passing):
+    * Linear scaling verification ($k_p \propto E$, $k_p \propto K_{\text{bulk}}$) across 4 orders of magnitude.
+    * Acceptance Gate: Parametric Modulus Sweep ($E = 10\text{ MPa} \to 21\text{ kPa} \to 1\text{ kPa}$) in `NonlinearStaticAnalysis` achieves identical iteration counts (`[3, 2]`, $< 6$ Newton iterations per step) and zero element inversions ($\det \boldsymbol{F} > 0$).
+    * Conditioning robustness: $\|\boldsymbol{K}_c\| / \|\boldsymbol{K}_{\text{dom}}\|$ invariant across moduli, preventing the 200,000x conditioning degradation and element inversion seen with un-adapted rigid penalties ($10^5\text{ N/mm}$).
+  - Full contact and collision test suite expanded to **380 tests, 100% passing in 107.55s**. Documented Section 20 in `docs/12_contact_mechanics_contracts_and_baselines.md`. Milestone 1.2 complete!

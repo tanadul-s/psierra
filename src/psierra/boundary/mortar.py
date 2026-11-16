@@ -26,6 +26,7 @@ from psierra.collision.mortar import (
     MortarSegmentData,
 )
 from psierra.contact.law import NormalConstraintLaw
+from psierra.contact.scaling import compute_adaptive_penalty
 
 
 class MortarContact(ContactMultiplierState):
@@ -48,7 +49,7 @@ class MortarContact(ContactMultiplierState):
         slave: Domain,
         master: Domain | Any,
         slave_nodes: Sequence[int] | np.ndarray | None = None,
-        k_penalty: float = 1e4,
+        k_penalty: float | Literal["auto"] = 1e4,
         k_tangential: float | None = None,
         c_damping: float = 0.0,
         friction: float = 0.0,
@@ -63,6 +64,9 @@ class MortarContact(ContactMultiplierState):
         *,
         complete_linearization: bool = False,
     ) -> None:
+        if isinstance(k_penalty, str) and k_penalty.lower() == "auto":
+            k_penalty = compute_adaptive_penalty(domain=slave)
+
         if not np.isfinite(k_penalty) or k_penalty <= 0.0:
             raise ValueError("k_penalty must be finite and positive")
         if not np.isfinite(c_damping) or c_damping < 0.0:

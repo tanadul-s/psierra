@@ -40,6 +40,10 @@ from psierra.contact.geometry import (
 )
 from psierra.contact.law import NormalConstraintLaw
 from psierra.contact.assembly import ContactAssembler
+from psierra.contact.scaling import (
+    compute_adaptive_penalty,
+    compute_dimensionless_contact_parameter,
+)
 from psierra.boundary.friction import (
     StickSlipState,
     CoulombFrictionState,
@@ -200,7 +204,7 @@ class RigidContact(ContactMultiplierState):
         domain: Domain | None = None,
         body: int | str | Domain | None = None,
         slave_nodes: Sequence[int] | np.ndarray | None = None,
-        k_penalty: float = 1e4,
+        k_penalty: float | Literal["auto"] = 1e4,
         k_tangential: float | None = None,
         c_damping: float = 0.0,
         friction: float = 0.0,
@@ -305,6 +309,10 @@ class RigidContact(ContactMultiplierState):
             if isinstance(master_obstacle, CollisionDetector)
             else CollisionDetector(master_obstacle)
         )
+
+        if isinstance(k_penalty, str) and k_penalty.lower() == "auto":
+            cand_domain = self._target_body if self._target_body is not None else self.domain
+            k_penalty = compute_adaptive_penalty(domain=cand_domain)
 
         if not np.isfinite(k_penalty) or k_penalty <= 0.0:
             raise ValueError("k_penalty must be finite and positive")
@@ -985,7 +993,7 @@ class DeformableContact(ContactMultiplierState):
         slave: Domain,
         master: Domain,
         slave_nodes: Sequence[int] | np.ndarray | None = None,
-        k_penalty: float = 1e4,
+        k_penalty: float | Literal["auto"] = 1e4,
         k_tangential: float | None = None,
         c_damping: float = 0.0,
         friction: float = 0.0,
@@ -1015,6 +1023,10 @@ class DeformableContact(ContactMultiplierState):
         smoothing_weight : {'angle', 'area'}, default='angle'
             Weighting formulation for assembling vertex pseudonormals from incident facet normals.
         """
+        if isinstance(k_penalty, str) and k_penalty.lower() == "auto":
+            cand_domain = slave if slave is not None else master
+            k_penalty = compute_adaptive_penalty(domain=cand_domain)
+
         if not np.isfinite(k_penalty) or k_penalty <= 0.0:
             raise ValueError("k_penalty must be finite and positive")
         if not np.isfinite(c_damping) or c_damping < 0.0:
@@ -1588,7 +1600,7 @@ class SelfContact(ContactMultiplierState):
         domain: Domain,
         contact_nodes: Sequence[int] | np.ndarray | None = None,
         *,
-        k_penalty: float = 1e4,
+        k_penalty: float | Literal["auto"] = 1e4,
         k_tangential: float | None = None,
         c_damping: float = 0.0,
         friction: float = 0.0,
@@ -1628,6 +1640,9 @@ class SelfContact(ContactMultiplierState):
         smoothing_weight : {'angle', 'area'}, default='angle'
             Weighting formulation for assembling vertex pseudonormals from incident facet normals.
         """
+        if isinstance(k_penalty, str) and k_penalty.lower() == "auto":
+            k_penalty = compute_adaptive_penalty(domain=domain)
+
         for name, value in (
             ("k_penalty", k_penalty), ("search_radius", search_radius),
             ("contact_thickness", contact_thickness),

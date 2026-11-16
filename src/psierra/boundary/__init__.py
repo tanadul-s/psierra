@@ -22,6 +22,8 @@ from psierra.boundary.contact import (
     RigidContact,
     DeformableContact,
     SelfContact,
+    compute_adaptive_penalty,
+    compute_dimensionless_contact_parameter,
 )
 from psierra.boundary.mortar import MortarContact
 from psierra.boundary.friction import (
@@ -47,6 +49,8 @@ __all__ = [
     "DeformableContact",
     "SelfContact",
     "MortarContact",
+    "compute_adaptive_penalty",
+    "compute_dimensionless_contact_parameter",
     "StickSlipState",
     "CoulombFrictionState",
     "CoulombFrictionModel",
