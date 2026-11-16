@@ -122,7 +122,7 @@ The contact overhaul will use a **staged internal replacement**, not a ground-up
   - Preserve the current 167-test focused contact baseline and add characterization tests for solver coupling, DOF offsets, state restoration, and accepted-step history.
   - Mark mathematically incorrect behavior as an expected legacy discrepancy rather than encoding it as the desired replacement result.
 
-- [ ] **Stage B — Introduce Canonical Internal Data Models**:
+- [x] **Stage B — Introduce Canonical Internal Data Models**:
   - Add typed, candidate-aligned internal records for search results, differentiable contact geometry, projected normal-law state, friction state, and assembly maps.
   - Require every geometry provider to state its smooth-branch validity, units, orientation convention, and behavior at feature/active-set switches.
   - Make the canonical geometry record the sole source of gaps, normals, closest points, gradients, Hessians, and feature identity used downstream.

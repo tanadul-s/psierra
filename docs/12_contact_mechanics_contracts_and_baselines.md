@@ -413,3 +413,32 @@ The Stage A baseline ensures:
    - Solver coupling with `NonlinearStaticAnalysis` and `NonlinearDynamicAnalysis`.
    - Transactional state restoration and step commitment history.
    - Characterization and tagging of `LEGACY-DISC-01` through `LEGACY-DISC-05`.
+
+---
+
+## 9. Canonical Internal Data Models & Geometry Providers (Stage B)
+
+In **Stage B**, the canonical internal data structures and differentiable geometry providers are introduced under `psierra.contact` (`psierra/src/psierra/contact/`):
+
+### 9.1 Data Transfer Models (`psierra.contact.data`)
+1. **`ContactCandidate`**:
+   - Candidate-aligned representation of proximity search results (`candidate_index`, `slave_node`, `master_feature_id`, `master_nodes`, `search_distance`, `is_admissible`, `metadata`).
+2. **`DifferentiableContactGeometry`**:
+   - The canonical mathematical record:
+     $$\mathcal{G}(\boldsymbol{q}) = \left(g_N,\;\nabla_{\boldsymbol{q}} g_N,\;\nabla_{\boldsymbol{q}}^2 g_N,\;\boldsymbol{x}_{\text{closest}},\;\boldsymbol{n},\;\text{feature\_id}\right)$$
+   - Acts as the **sole downstream source of truth** for all gaps, outward normals, closest points, gradients, and Hessians.
+   - Enforces physical unit metadata (`units='mm'`), outward convention (`orientation_convention='master_outward'`), and symmetric Hessian validation.
+3. **`NormalLawState`**:
+   - Projected normal constraint state: $p_N = \max(0, \lambda_N - k_p g_N)$, $d p_N / d g_N = -k_p$, potential $\Pi_N$, and updated Uzawa dual state.
+4. **`FrictionalConstraintState`**:
+   - Coulomb stick-slip state (`INACTIVE`, `STICK`, `SLIP`), committed and trial anchors, traction force, and tangent blocks $\boldsymbol{K}_{TT}, \boldsymbol{K}_{TN}$.
+5. **`ContactAssemblyMap`**:
+   - Stencil degree-of-freedom indices and partition-of-unity interpolation weights for global sparse scatter.
+
+### 9.2 Canonical Geometry Providers (`psierra.contact.geometry`)
+Every provider implements the `ContactGeometryProvider` protocol, providing smooth-branch validity assertions and exact analytical derivatives:
+- **`PlanarGeometryProvider`**: $C^\infty$ plane with $\nabla g = \boldsymbol{n}$ and $\nabla^2 g = \mathbf{0}$.
+- **`SphereGeometryProvider`**: Exact curvature Hessian $\nabla^2 g = \frac{1}{d} (\boldsymbol{I} - \boldsymbol{n} \otimes \boldsymbol{n})$.
+- **`CylinderGeometryProvider`**: Exact circumferential curvature Hessian $\nabla^2 g = \frac{1}{d} (\boldsymbol{I} - \boldsymbol{a} \otimes \boldsymbol{a} - \boldsymbol{n} \otimes \boldsymbol{n})$.
+- **`TriangleGeometryProvider`**: Exact 12-DOF node-to-triangle projection gradient and analytical Hessian.
+

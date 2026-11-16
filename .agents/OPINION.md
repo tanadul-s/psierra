@@ -113,3 +113,8 @@
   - `LEGACY-DISC-03`: Smoothed normals omitting $\boldsymbol{r}^T \nabla \boldsymbol{n}$ and vertex pseudonormal variation $\partial \boldsymbol{n}_v / \partial \boldsymbol{q}$. Target in Stage D: full energy-consistent variation.
   - `LEGACY-DISC-04`: Mortar tangent frozen geometry ($d\boldsymbol{D}/d\boldsymbol{u} = d\boldsymbol{M}/d\boldsymbol{u} = \mathbf{0}$). Target in Stage D: complete interface linearization.
   - `LEGACY-DISC-05`: `RigidCylinder` distance query ignoring `height` bounding caps. Target in Stage D: explicit capped or infinite collision geometry contract.
+- **Stage B Canonical Internal Data Models**:
+  - Introduced typed internal records in `psierra.contact.data`: `ContactCandidate`, `DifferentiableContactGeometry`, `NormalLawState`, `FrictionalConstraintState`, and `ContactAssemblyMap`.
+  - Canonical `DifferentiableContactGeometry` enforces the exact tuple $\mathcal{G}(\boldsymbol{q}) = (g_N, \nabla g_N, \nabla^2 g_N, \boldsymbol{x}_{\text{closest}}, \boldsymbol{n}, \text{feature ID})$ as the sole downstream source of truth for gaps, normals, gradients, Hessians, and features.
+  - Implemented analytical `ContactGeometryProvider` classes in `psierra.contact.geometry` (`PlanarGeometryProvider`, `SphereGeometryProvider`, `CylinderGeometryProvider`, `TriangleGeometryProvider`), with exact curvature and circumferential Hessians verified by centered finite differences.
+  - Full suite expanded to 199 tests (167 focused baseline + 22 Stage A characterization + 10 Stage B data models), passing with 0 regressions.
