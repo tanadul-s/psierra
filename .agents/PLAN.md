@@ -76,7 +76,7 @@ During Loop 2 testing on the reorganized benchmark suite (`examples/08_contact/`
    - **Static contact regimes** (`0801` static, `0802` static): Highly sensitive to active-set changes, often stalling Newton iterations or requiring aggressive cutbacks.
    - **Deformable-to-deformable contact** (`0801` deformable floor, `0802` deformable floor): Slave nodes penetrations cause localized mesh distortions on compliant master facets.
    - **Self-contact** (`0804_bunny_self_contact.py`, `0805_cuboid_self_contact.py`): Inward folding of lobes causes adjacent facets to continually oscillate master/slave roles, leading to active-set chattering and element collapse.
-   - **Mortar contact** (`0802_beam_floor_mortar.py`): Mathematically exact in linear momentum conservation and patch tests, but exhibits extreme stiffness sensitivity and divergence when coupled with ultra-soft hyperelastic continua.
+   - **Mortar contact** (`0802_beam_floor_mortar.py`): Exact in the tested linear-momentum and constant-pressure patch properties, but its current frozen-geometry tangent is not the complete derivative of the recomputed finite-deformation force. It also exhibits extreme stiffness sensitivity and divergence when coupled with ultra-soft hyperelastic continua.
 
 > [!IMPORTANT]
 > **The User's Core Hypothesis**:
@@ -87,9 +87,107 @@ During Loop 2 testing on the reorganized benchmark suite (`examples/08_contact/`
 > In contrast, standard penalty values inherited from structural engineering ($k_p = 50{,}000\text{ to }500{,}000\text{ N/mm} = 5 \times 10^{10}\text{ to }5 \times 10^{11}\text{ g/s}^2$) are **$10^6$ to $10^8$ times stiffer than the underlying elements**.
 > This massive stiffness mismatch acts like a rigid needle piercing soft gelatin: localized penalty forces invert surface tetrahedra ($\det \boldsymbol{F} \le 0$) before the bulk continuum can transmit the load and displace. In dynamic mode, inertia ($\frac{1}{\beta \Delta t^2} \boldsymbol{M}$) artificially stabilizes this; in static mode, the solver diverges immediately.
 
+> [!CAUTION]
+> **Mathematical Audit Conclusion (2026-11-16)**:
+> The material-stiffness mismatch is a major conditioning problem, but it is not the only cause of contact failure. The planar frictionless rigid formulation and the unsmoothed node-to-triangle normal formulation are locally consistent on a fixed active feature branch. A general correctness claim is not yet justified because curved rigid tangents, smoothed-normal derivatives, positive-gap tolerance handling, frictional finite-sliding tangents, mortar geometry linearization, and several collision-sign/geometry cases remain incomplete or inconsistent. Existing unit tests prove useful local invariants; they do not replace analytical contact benchmarks or full force-energy-tangent verification.
+
 ---
 
 ### 2.2 Phase 1: Proving Contact Correctness & Stabilizing Ultra-Soft Continua
+
+#### Implementation Strategy: Preserve the Public Shell, Replace the Mathematical Core
+
+The contact overhaul will use a **staged internal replacement**, not a ground-up public rewrite and not indefinite patching of duplicated formulations.
+
+- Preserve the public classes and solver contracts of `RigidContact`, `DeformableContact`, `SelfContact`, and `MortarContact`, including multiplier snapshots, rollback, state commitment, multibody offsets, and analysis integration.
+- Introduce one internal geometry contract that returns candidate-aligned contact data:
+  $$\mathcal{G}(\boldsymbol{q})=
+    \left(g_N,\;\nabla g_N,\;\nabla^2 g_N,\;\boldsymbol{x}_{\mathrm{closest}},\;
+    \boldsymbol{n},\;\text{feature ID}\right).$$
+- Separate the pipeline into four explicit layers:
+  $$\text{candidate search}\longrightarrow\text{contact geometry}
+    \longrightarrow\text{constraint law}\longrightarrow\text{global assembly/state}.$$
+- Centralize the normal constraint law and active-set semantics so force, tangent, energy, diagnostics, damping, and friction consume the same projected pressure:
+  $$p_N=\max(0,\lambda_N-k_p g_N),$$
+  with $\lambda_N=0$ for pure penalty contact.
+- Port the already-verified unsmoothed node-to-triangle kernel first as the reference implementation. Migrate curved rigid contact, smoothed normals, friction, mortar, and self-contact incrementally behind the preserved API.
+- Maintain old-versus-new comparison tests during migration. A legacy path may be removed only after its replacement passes the mathematical, conservation, solver, and benchmark gates below.
+- Do not create a long-lived public `v2` contact API. A temporary internal feature flag is permitted only for verification and must be removed when migration is complete.
+
+#### Milestone 1.0: Repair Mathematical Consistency Before Physical Calibration
+*Objective*: Build the unified internal contact core, migrate each formulation safely, and remove known force-energy-tangent inconsistencies before tuning penalty parameters or interpreting benchmark convergence as physical validation.
+
+- [ ] **Stage A — Freeze Public Contracts and Establish Characterization Baselines**:
+  - Document the public constructor, evaluation, multiplier, rollback, commit, and diagnostic behavior of all four contact classes.
+  - Preserve the current 167-test focused contact baseline and add characterization tests for solver coupling, DOF offsets, state restoration, and accepted-step history.
+  - Mark mathematically incorrect behavior as an expected legacy discrepancy rather than encoding it as the desired replacement result.
+
+- [ ] **Stage B — Introduce Canonical Internal Data Models**:
+  - Add typed, candidate-aligned internal records for search results, differentiable contact geometry, projected normal-law state, friction state, and assembly maps.
+  - Require every geometry provider to state its smooth-branch validity, units, orientation convention, and behavior at feature/active-set switches.
+  - Make the canonical geometry record the sole source of gaps, normals, closest points, gradients, Hessians, and feature identity used downstream.
+
+- [ ] **Stage C — Centralize Constraint Laws and Assembly**:
+  - Implement one normal penalty/augmented-Lagrangian law that returns pressure, potential, first derivative, activity, and multiplier update from the same inputs.
+  - Implement shared one-body and two-body assembly operators so action-reaction, DOF mapping, and sparse scatter logic are not independently reimplemented by each contact class.
+  - Keep collision search tolerances out of the constitutive constraint law.
+
+- [ ] **Stage D — Migrate in Increasing-Risk Order**:
+  1. Unsmoothed deformable node-to-triangle normal contact as the reference kernel.
+  2. Planar rigid contact, followed by exact curved analytical obstacles.
+  3. Self-contact candidate filtering using the same triangle geometry and assembly core.
+  4. Energy-consistent smoothed-normal geometry.
+  5. Frictionless mortar contact with complete geometry linearization.
+  6. Coulomb friction and damping as explicitly dissipative extensions.
+  - Keep each migration independently releasable and revertible until its acceptance gates pass.
+
+- [ ] **Non-Adhesive Activation and Tolerance Semantics**:
+  - Separate proximity/candidate detection from physical force activation.
+  - For penalty contact, enforce $p_N = k_p\langle-g_N\rangle_+$ so a separated point with $0 < g_N \le \delta_{\text{search}}$ never receives an attractive normal force.
+  - Make force, stiffness, potential energy, active-node reporting, and friction activation use the same projected pressure and active-set definition.
+  - Add regression tests with positive gap and nonzero search tolerance for penalty and augmented-Lagrangian contact.
+
+- [ ] **Exact Curved Rigid-Obstacle Linearization**:
+  - For a signed-distance obstacle, implement
+    $$\boldsymbol{K}_c=-\frac{\partial\boldsymbol{f}_c}{\partial\boldsymbol{x}}
+      =k_p\left(\boldsymbol{n}\otimes\boldsymbol{n}
+      +g_N\nabla^2 g_N\right)$$
+    on a fixed active branch, including sphere and cylinder curvature terms.
+  - Verify $\boldsymbol{K}_c=-\partial\boldsymbol{f}_c/\partial\boldsymbol{u}$ by centered finite differences at multiple radii, orientations, and length scales.
+
+- [ ] **Energy-Consistent Smoothed-Normal Contact**:
+  - For $g_N=\boldsymbol{r}\cdot\boldsymbol{n}(\boldsymbol{\xi})$, include both terms
+    $$\frac{\partial g_N}{\partial\boldsymbol{q}}
+      =\boldsymbol{W}^{T}\boldsymbol{n}
+      +\boldsymbol{r}^{T}\frac{\partial\boldsymbol{n}}{\partial\boldsymbol{q}},$$
+    and differentiate the vertex pseudonormals with respect to the current master geometry when they are recomputed from that geometry.
+  - Require independent finite-difference agreement among potential energy, contact force, and tangent; symmetry alone is insufficient.
+
+- [ ] **Consistent Frictional Finite-Sliding Tangent**:
+  - Retain the local Coulomb return mapping, but add derivatives of the tangent projector, evolving normal, closest-point/barycentric projection, normal pressure, and committed/trial history variables required by the selected algorithm.
+  - Verify stick and slip branches independently, including facet crossing and curved-master sliding.
+  - Check discrete dissipation: frictional work must be non-positive within numerical tolerance.
+
+- [ ] **Complete Mortar Geometry Linearization**:
+  - Differentiate the active overlap map, mortar matrices $\boldsymbol{D}$ and $\boldsymbol{M}$, quadrature gaps, projected normals, and master/slave coupling used by the recomputed residual.
+  - Preserve the already-tested partition of unity, patch transfer, and action-reaction balance while adding finite-difference residual-tangent verification under rotation, curvature, and non-conforming sliding.
+  - Do not describe the tangent as “consistent” until this derivative test passes away from active-set topology changes.
+
+- [ ] **Collision Geometry and Sign Contract**:
+  - Decide whether `RigidCylinder.height` defines a finite capped cylinder or remove it from collision semantics and explicitly name/document the primitive as infinite.
+  - Replace closest-facet-normal signs with robust pseudonormal/winding or inside-outside classification for closed triangle meshes; define explicit local-side behavior for open surfaces.
+  - Add edge, vertex, concave-surface, inconsistent-orientation, and high-speed tunneling tests; introduce continuous collision detection or conservative advancement where a time step may cross the surface completely.
+
+- [ ] **Acceptance Gate for Mathematical Correctness**:
+  - For every conservative formulation, require force to match the negative energy gradient and tangent to match the negative force Jacobian on every smooth branch.
+  - Require rigid-translation/rotation invariance, zero net interface force and moment for two-body contact, and scale-aware tolerances.
+  - Keep nonsmooth activation, closest-feature switching, and facet crossing in separate semismooth/active-set tests rather than expecting classical derivatives at those points.
+
+- [ ] **Migration and Legacy-Retirement Gate**:
+  - Run old and new implementations on identical deterministic states and classify every difference as a fixed defect, an intentional contract change, or a regression.
+  - Require all public API, rollback, multibody, static, dynamic, and augmented-Lagrangian integration tests to pass without a downstream solver fork.
+  - Require the Hertz, finite-sliding ironing, mortar, and self-contact benchmarks in Milestones 1.1–1.5 to pass before deleting the corresponding legacy implementation.
+  - Remove temporary feature flags, duplicated kernels, and obsolete compatibility code after the final migration; retain one public contact system and one canonical mathematical core.
 
 #### Milestone 1.1: Classical 3D Hertzian Contact Benchmark (Analytical Ground Truth)
 *Objective*: Disentangle contact formulation math from soft-tissue distortion by validating against exact closed-form analytical solutions on moderate-modulus materials ($E = 1.0\text{–}10.0\text{ MPa}$).
