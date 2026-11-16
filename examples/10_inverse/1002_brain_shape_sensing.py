@@ -103,8 +103,8 @@ def parse_arguments() -> argparse.Namespace:
     parser.add_argument(
         "--alpha",
         type=float,
-        default=1e-5,
-        help="Tikhonov smoothing regularizer weight (default: 1e-5)",
+        default=1e-11,
+        help="Tikhonov smoothing regularizer weight (default: 1e-11)",
     )
     parser.add_argument(
         "--noise-std",
