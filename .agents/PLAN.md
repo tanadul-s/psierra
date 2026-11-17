@@ -204,7 +204,7 @@ The contact overhaul will use a **staged internal replacement**, not a ground-up
   - Implemented analytical Hertz solution in `psierra.contact.hertz.HertzSphereContact`:
     $$\text{Contact Radius: } a = \left( \frac{3 F_N R}{4 E^*} \right)^{1/3}, \quad \text{Penetration: } \delta = \frac{a^2}{R}, \quad \text{Peak Pressure: } p_0 = \frac{3 F_N}{2 \pi a^2}$$
     where $\frac{1}{E^*} = \frac{1 - \nu_1^2}{E_1} + \frac{1 - \nu_2^2}{E_2}$.
-  - Delivered executable benchmark simulation: `examples/08_contact/0811_hertz_sphere_contact.py` with ParaView VTU/PVD export and Rich comparative summary table.
+  - Delivered executable benchmark simulation: `examples/08_contact/0805_hertz_sphere_contact.py` with ParaView VTU/PVD export and Rich comparative summary table.
   - Implemented vectorized surface nodal tributary area integration (`compute_nodal_tributary_areas`) and continuous contact pressure field reconstruction (`reconstruct_nodal_pressures`).
   - Validated penetration depth $\delta$, contact area $A = \pi a^2$, peak pressure $p_0$, and radial pressure profile $p(r) = p_0 \sqrt{1 - (r/a)^2}$ against analytical formulas ($< 5\%$ error on refined mesh).
 - [x] **Cylindrical Contact Benchmark**:
@@ -229,7 +229,7 @@ The contact overhaul will use a **staged internal replacement**, not a ground-up
 - [x] **Two-Body Relative Tangential Kinematics**:
   Formulated reference-displacement-based relative sliding $\boldsymbol{u}_{\text{rel}} = \boldsymbol{u}_s - \boldsymbol{u}_{m}^{\text{proj}}$ and anchor tracking in `DeformableContact` and `SelfContact`, resolving the previous bug where $s_{\text{coord}} - m_{\text{proj}}$ collapsed to the normal gap vector.
 - [x] **Executable Benchmark**:
-  Delivered `examples/08_contact/0812_ironing_large_strain.py` with CLI flags (`--friction`, `--indentation`, `--sliding-distance`, `--smooth / --no-smooth`, `--export-pvd`, `--quiet`), Rich telemetry table, and ParaView PVD/VTU time series export.
+  Delivered `examples/08_contact/0807_ironing_large_strain.py` with CLI flags (`--friction`, `--indentation`, `--sliding-distance`, `--smooth / --no-smooth`, `--export-pvd`, `--quiet`), Rich telemetry table, and ParaView PVD/VTU time series export.
 - [x] **Verification & Acceptance Criteria**:
   * Steady-state kinetic friction: $|F_T / F_N| \approx \mu \cdot \cos \theta_{\text{contact}} \in [0.70 \mu, 1.05 \mu]$ across finite sliding.
   * Thermodynamic dissipation: Cumulative friction work $W_f = \int \boldsymbol{f}_T \cdot d\boldsymbol{u}_T \le 0$ ($D_f = -W_f \ge 0$).
@@ -266,8 +266,8 @@ The contact overhaul will use a **staged internal replacement**, not a ground-up
   - Rejects candidate self-contact facet pairs whose undeformed reference normals point in opposite directions through the interior ($g_{\text{ref}} \le 0$ with $\boldsymbol{n}_{\text{ref}, s} \cdot \boldsymbol{n}_{\text{ref}, m} \le -0.2$) or share topological edges.
   - Eliminates all spurious thin-wall / thin-ear penetrations in the undeformed reference configuration (e.g. Stanford Bunny ears) without requiring artificial BFS depth tuning.
 - [x] **Verification & Benchmark Showcase**:
-  - Verified Stanford Bunny ear collapse (`examples/08_contact/0804_bunny_self_contact.py`): 5/5 load steps converged to full gravity ($\lambda = 1.0$) with Augmented Lagrangian, capturing ear-to-skull contact with 1.1 micrometer interface penetration depth without divergence or element inversions.
-  - Verified Slotted Cuboid flexure dynamic pinching and rebound (`examples/08_contact/0805_cuboid_self_contact.py`): 25/25 dynamic generalized-$\alpha$ steps converged smoothly without active-set chattering; VTK Fluent CFD warnings eliminated.
+  - Verified Stanford Bunny dynamic ear droop (`examples/08_contact/0804_bunny_self_contact.py`): 5 dynamic generalized-$\alpha$ steps converged cleanly under gravity with Augmented Lagrangian, capturing ear-to-skull contact with microscopic interface penetration depth without divergence or element inversions.
+  - Verified Slotted Cuboid flexure dynamic gravity sag and rebound (`examples/08_contact/0803_cuboid_self_contact.py`): dynamic generalized-$\alpha$ steps converged smoothly without active-set chattering; VTK Fluent CFD warnings eliminated.
   - Authored formal test suite `tests/test_self_contact_stabilization.py` (9 formal verification tests, 100% passing). Complete contact regression baseline expanded to **391+ passing tests**.
   - Documented Section 23 in `docs/12_contact_mechanics_contracts_and_baselines.md`.
 

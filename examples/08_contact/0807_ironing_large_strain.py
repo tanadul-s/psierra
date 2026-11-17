@@ -1,4 +1,4 @@
-"""Example 0812: Two-Body Large-Deformation Ironing Benchmark.
+"""Example 0807: Two-Body Large-Deformation Ironing Benchmark.
 
 Milestone 1.3 of Loop 3 Contact Mechanics Overhaul in Project Sierra.
 ---------------------------------------------------------------------
@@ -46,7 +46,10 @@ from rich.console import Console
 from rich.panel import Panel
 from rich.table import Table
 
-from psierra.analysis.nonlinear_static import NonlinearStaticAnalysis, NonlinearStaticResult
+from psierra.analysis.nonlinear_static import (
+    NonlinearStaticAnalysis,
+    NonlinearStaticResult,
+)
 from psierra.boundary.contact import DeformableContact
 from psierra.boundary.dirichlet import DirichletManager, DOFConstraint
 from psierra.boundary.friction import StickSlipState
@@ -77,7 +80,14 @@ class StepTelemetry(NamedTuple):
 
 
 def build_ironing_system(
-    slab_bounds: tuple[float, float, float, float, float, float] = (0.0, 30.0, -4.0, 4.0, -5.0, 0.0),
+    slab_bounds: tuple[float, float, float, float, float, float] = (
+        0.0,
+        30.0,
+        -4.0,
+        4.0,
+        -5.0,
+        0.0,
+    ),
     slider_center: tuple[float, float, float] = (6.0, 0.0, 3.5),
     slider_radius: float = 3.5,
     slider_height: float = 5.0,
@@ -111,7 +121,9 @@ def build_ironing_system(
     slab_mesh = mesher_slab.generate(box)
 
     params_slab = IsotropicElasticParameters()
-    params_slab.set_from_youngs_poisson(youngs_modulus=e_slab, poissons_ratio=nu_slab, mass_density=1e-6)
+    params_slab.set_from_youngs_poisson(
+        youngs_modulus=e_slab, poissons_ratio=nu_slab, mass_density=1e-6
+    )
     mat_slab = NeoHookean(params_slab)
     elem_slab = Tet4Linear(mat_slab)
     slab_domain = SolidDomain(slab_mesh, mat_slab, elem_slab)
@@ -128,7 +140,9 @@ def build_ironing_system(
     slider_mesh = mesher_slider.generate(cyl)
 
     params_slider = IsotropicElasticParameters()
-    params_slider.set_from_youngs_poisson(youngs_modulus=e_slider, poissons_ratio=nu_slider, mass_density=1e-6)
+    params_slider.set_from_youngs_poisson(
+        youngs_modulus=e_slider, poissons_ratio=nu_slider, mass_density=1e-6
+    )
     mat_slider = NeoHookean(params_slider)
     elem_slider = Tet4Linear(mat_slider)
     slider_domain = SolidDomain(slider_mesh, mat_slider, elem_slider)
@@ -164,21 +178,25 @@ def run_ironing_simulation(
     n_indent_steps: int = 2,
     n_slip_steps: int = 8,
     smoothed_normals: bool = True,
-    nr_tol: float = 0.03,
+    nr_tol: float = 0.05,
     nr_max_iter: int = 25,
     export_pvd: bool = True,
-    output_dir: Path | str = "results/08_contact/0812_ironing_large_strain",
+    output_dir: Path | str = "results/08_contact/0807_ironing_large_strain",
     verbose: bool = True,
 ) -> tuple[NonlinearStaticResult, list[StepTelemetry]]:
     """Executes the two-phase finite-sliding ironing simulation and collects step telemetry."""
     repo_root = Path(__file__).resolve().parent.parent.parent
-    out_path = Path(output_dir) if Path(output_dir).is_absolute() else (repo_root / output_dir)
+    out_path = (
+        Path(output_dir) if Path(output_dir).is_absolute() else (repo_root / output_dir)
+    )
     if export_pvd:
         out_path.mkdir(parents=True, exist_ok=True)
 
-    system, contact, bot_nodes, top_nodes, slider_offset, slab_offset = build_ironing_system(
-        friction=friction,
-        smoothed_normals=smoothed_normals,
+    system, contact, bot_nodes, top_nodes, slider_offset, slab_offset = (
+        build_ironing_system(
+            friction=friction,
+            smoothed_normals=smoothed_normals,
+        )
     )
 
     total_steps = n_indent_steps + n_slip_steps
@@ -187,7 +205,11 @@ def run_ironing_simulation(
         mgr = DirichletManager(system.n_dofs)
         # Clamped foundation bottom (all 3 DOFs = 0)
         for node in bot_nodes:
-            dofs = [slab_offset + 3 * node, slab_offset + 3 * node + 1, slab_offset + 3 * node + 2]
+            dofs = [
+                slab_offset + 3 * node,
+                slab_offset + 3 * node + 1,
+                slab_offset + 3 * node + 2,
+            ]
             mgr.add_constraint(DOFConstraint(dofs, 0.0))
 
         # Two-phase displacement control on slider top cap
@@ -246,7 +268,9 @@ def run_ironing_simulation(
 
         if not step_res.converged:
             if verbose:
-                print(f"[bold red]Simulation halted at step {step_idx} ({phase_name})[/bold red]")
+                print(
+                    f"[bold red]Simulation halted at step {step_idx} ({phase_name})[/bold red]"
+                )
             break
 
         # Contact interface forces on the slider (slave)
@@ -261,15 +285,25 @@ def run_ironing_simulation(
         f_t = abs(fx)
 
         ratio = f_t / f_n
-        coulomb_err = (abs(ratio - friction) / friction) * 100.0 if friction > 0.0 else 0.0
+        coulomb_err = (
+            (abs(ratio - friction) / friction) * 100.0 if friction > 0.0 else 0.0
+        )
 
         # Incremental and cumulative friction work
         delta_work = fx * delta_ux_step
         cumulative_work += delta_work
 
         # Contact state metrics
-        num_act = int(np.sum(contact.friction_state.states != StickSlipState.INACTIVE)) if contact.friction_state else 0
-        num_slp = int(np.sum(contact.friction_state.states == StickSlipState.SLIP)) if contact.friction_state else 0
+        num_act = (
+            int(np.sum(contact.friction_state.states != StickSlipState.INACTIVE))
+            if contact.friction_state
+            else 0
+        )
+        num_slp = (
+            int(np.sum(contact.friction_state.states == StickSlipState.SLIP))
+            if contact.friction_state
+            else 0
+        )
         iters = step_res.iteration_history[0] if step_res.iteration_history else 1
 
         entry = StepTelemetry(
@@ -307,7 +341,8 @@ def run_ironing_simulation(
     total_converged = len(telemetry) == total_steps
     final_res = NonlinearStaticResult(
         displacement=system.displacement,
-        reactions=analysis.domain.assemble_internal_forces() - contact.evaluate_forces(),
+        reactions=analysis.domain.assemble_internal_forces()
+        - contact.evaluate_forces(),
         converged=total_converged,
         steps_completed=len(telemetry),
         iteration_history=[t.iterations for t in telemetry],
@@ -374,7 +409,11 @@ def print_ironing_report(
         dissipation_valid = False
         total_dissipation_mj = 0.0
 
-    export_info = f"\n[bold]Exported ParaView Dataset:[/bold] {output_path / 'ironing.pvd'}" if output_path else ""
+    export_info = (
+        f"\n[bold]Exported ParaView Dataset:[/bold] {output_path / 'ironing.pvd'}"
+        if output_path
+        else ""
+    )
     summary_text = (
         f"[bold]Normals Formulation:[/bold] {'C1 Smoothed Pseudonormals' if smoothed_normals else 'Facet Normals'}\n"
         f"[bold]Prescribed Friction Coefficient mu:[/bold] {friction:.4f}\n"
@@ -387,12 +426,16 @@ def print_ironing_report(
         f"{'[bold green]PASSED[/bold green]' if (coulomb_match and dissipation_valid) else '[bold red]FAILED[/bold red]'}"
         f"{export_info}"
     )
-    console.print(Panel(summary_text, title="Milestone 1.3 Verification Gate", border_style="cyan"))
+    console.print(
+        Panel(
+            summary_text, title="Milestone 1.3 Verification Gate", border_style="cyan"
+        )
+    )
 
 
 def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(
-        description="Example 0812: Two-Body Large-Deformation Ironing Benchmark"
+        description="Example 0807: Two-Body Large-Deformation Ironing Benchmark"
     )
     parser.add_argument(
         "--friction",
@@ -456,8 +499,14 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument(
         "--output-dir",
         type=str,
-        default="results/08_contact/0812_ironing_large_strain",
-        help="Output directory for exported visualization files (default: results/08_contact/0812_ironing_large_strain)",
+        default="results/08_contact/0807_ironing_large_strain",
+        help="Output directory for exported visualization files (default: results/08_contact/0807_ironing_large_strain)",
+    )
+    parser.add_argument(
+        "--nr-tol",
+        type=float,
+        default=0.05,
+        help="Newton-Raphson relative equilibrium tolerance (default: 0.05)",
     )
     parser.add_argument(
         "--quiet",
@@ -474,7 +523,7 @@ def main() -> None:
 
     console.print(
         Panel(
-            "[bold white]Project Sierra - Example 0812[/bold white]\n"
+            "[bold white]Project Sierra - Example 0807[/bold white]\n"
             "[cyan]Two-Body Large-Deformation Ironing Benchmark (Milestone 1.3)[/cyan]\n"
             f"Friction mu = {args.friction} | Indentation delta_z = {args.indentation} mm | "
             f"Sliding dx = {args.sliding_distance} mm | Steps = {args.n_indent_steps + args.n_slip_steps}",
@@ -490,6 +539,7 @@ def main() -> None:
         n_indent_steps=args.n_indent_steps,
         n_slip_steps=args.n_slip_steps,
         smoothed_normals=args.smoothed_normals,
+        nr_tol=args.nr_tol,
         export_pvd=args.export_pvd,
         output_dir=args.output_dir,
         verbose=not args.quiet,
@@ -497,7 +547,15 @@ def main() -> None:
     elapsed = time.perf_counter() - t0
 
     repo_root = Path(__file__).resolve().parent.parent.parent
-    final_out = (Path(args.output_dir) if Path(args.output_dir).is_absolute() else (repo_root / args.output_dir)) if args.export_pvd else None
+    final_out = (
+        (
+            Path(args.output_dir)
+            if Path(args.output_dir).is_absolute()
+            else (repo_root / args.output_dir)
+        )
+        if args.export_pvd
+        else None
+    )
 
     print_ironing_report(
         telemetry=telemetry,

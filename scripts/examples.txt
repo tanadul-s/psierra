@@ -61,10 +61,11 @@
 # ------------------------------------------------------------------------------
 0801    # 0801_beam_floor_penalty.py (Node-to-surface penalty contact on 3D floor)
 0802    # 0802_beam_floor_mortar.py (Segment-to-segment mortar contact on 3D floor)
-0803    # 0803_pole_pad.py (Curved contact between pad and cylindrical pole with Coulomb friction)
-0804    # 0804_bunny_self_contact.py (Stanford bunny self-contact under compound gravity)
-0805    # 0805_cuboid_self_contact.py (Slotted cuboid flexure self-contact under bilateral pinching)
+0803    # 0803_cuboid_self_contact.py (Nonlinear dynamic self-contact on slotted cuboid under gravity sag)
+0804    # 0804_bunny_self_contact.py (Nonlinear dynamic self-contact on Stanford Bunny under inclined gravity)
+0805    # 0805_hertz_sphere_contact.py (Analytical 3D Hertzian spherical indentation benchmark)
 0806    # 0806_frictional_stick_slip.py (Coulomb stick-slip limit cycles and return mapping)
+0807    # 0807_ironing_large_strain.py (Two-body large-strain finite-sliding ironing benchmark with Coulomb friction)
 
 # ------------------------------------------------------------------------------
 # 09_mor: Model Order Reduction (POD-Galerkin ROM & ECSW Hyper-Reduction)

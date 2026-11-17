@@ -187,7 +187,7 @@
     * `HertzCylinderContact`: contact half-width $b = \sqrt{\frac{4 F_N R^*}{\pi L E^*}}$, peak pressure $p_0 = \frac{2 F_N}{\pi b L}$, transverse pressure distribution $p(x) = p_0 \sqrt{\max(0, 1 - (x/b)^2)}$.
     * Vectorized surface nodal tributary area calculation `compute_nodal_tributary_areas` ensuring exact area conservation $\sum A_i = A_{\text{surface}}$ to $< 10^{-14}$.
     * Continuous normal contact pressure field reconstruction `reconstruct_nodal_pressures` ($p_i = f_{c, z, i} / A_i$).
-  - Delivered executable simulation benchmark: `examples/08_contact/0811_hertz_sphere_contact.py`, featuring ParaView VTU/PVD export and formatted Rich comparative summary tables.
+  - Delivered executable simulation benchmark: `examples/08_contact/0805_hertz_sphere_contact.py`, featuring ParaView VTU/PVD export and formatted Rich comparative summary tables.
   - Authored comprehensive verification test suite: `tests/test_contact_hertz_analytical.py` (21 tests, 100% passing).
   - Validated exact mathematical reciprocity ($F_N(\delta(F_N)) = F_N$), normal force integral conservation ($\int p \, dA = F_N$ to $< 10^{-10}$), Boussinesq two-body effective modulus/curvature, classical subsurface peak shear stress location ($z \approx 0.48 a, \tau_{\max} \approx 0.31 p_0$), 3D FE spherical indentation and cylindrical compression against analytical formulas, and modulus scaling invariance across $E = 1.0\text{–}10.0\text{ MPa}$.
   - Full contact and collision test suite expanded to **348 tests, 100% passing**. Documented Section 19 in `docs/12_contact_mechanics_contracts_and_baselines.md`. Milestone 1.1 complete!
@@ -207,7 +207,7 @@
   - Formulated and resolved two-body relative tangential sliding kinematics:
     * Identified and fixed structural gap vector defect in `DeformableContact` and `SelfContact` where `x_rel = s_coord - m_proj` collapsed to the purely normal gap vector $g \boldsymbol{n}$, rendering tangential slip projection zero ($P_T @ (g \boldsymbol{n}) = \mathbf{0}$).
     * Implemented reference-displacement-based relative sliding $\boldsymbol{u}_{\text{rel}} = \boldsymbol{u}_s - \boldsymbol{u}_{m}^{\text{proj}}$ and anchor tracking, accurately measuring tangential sliding across deforming and sliding finite element meshes.
-  - Delivered standalone executable simulation benchmark: `examples/08_contact/0812_ironing_large_strain.py`, featuring:
+  - Delivered standalone executable simulation benchmark: `examples/08_contact/0807_ironing_large_strain.py`, featuring:
     * Deformable slab ($30 \times 8 \times 5\text{ mm}$, clamped bottom, $E = 1.0\text{ MPa}$) and deformable rounded slider ($R = 3.5\text{ mm}$, $L = 5.0\text{ mm}$, $E = 5.0\text{ MPa}$).
     * Two-phase loading: Phase 1 indentation ($\delta_z = 0.15\text{ mm}$) and Phase 2 finite sliding ($d_x = 2.0\text{--}4.0\text{ mm}$) across multiple element widths.
     * CLI flags: `--friction`, `--indentation`, `--sliding-distance`, `--n-indent-steps`, `--n-slip-steps`, `--smooth / --no-smooth`, `--export-pvd`, `--output-dir`, and `--quiet`.
@@ -240,8 +240,8 @@
     * Consistent Normal Orientation Filtering: Added automatic rejection of candidate facet pairs whose undeformed reference normals point back-to-back through the solid interior ($g_{\text{ref}} \le 0$ and $\boldsymbol{n}_{\text{ref},s} \cdot \boldsymbol{n}_{\text{ref},m} \le -0.2$) or share topological edges. Eliminates all spurious thin-wall / thin-ear penetrations in the undeformed configuration (e.g. Stanford Bunny ears) without manual or fragile BFS depth tuning.
     * $C^1$ Continuous Normal Smoothing: Integrated angle-weighted vertex pseudonormal interpolation across triangular facets, eliminating normal jumps $\Delta \boldsymbol{n} \approx 0.3$ across facet edges and resolving the 2-cycle active-set chattering loop observed during slotted flexure slit closure.
   - Upgraded executable benchmarks:
-    * `examples/08_contact/0805_cuboid_self_contact.py`: Solves all 25 dynamic generalized-$\alpha$ time steps ($dt = 0.02\text{ s}$) to completion. The $10.0\text{ mm}$ keyhole slit closes smoothly, engages 11 contact nodes, and rebounds elastically with 0 chattering; filtered `.vtu`/`.xdmf` files in post-processing to eliminate VTK Fluent reader warnings.
-    * `examples/08_contact/0804_bunny_self_contact.py`: Solves full 5-step Augmented Lagrangian gravity droop to $\lambda = 1.0$ without divergence or element inversions; captures ear-to-skull contact with $1.1\ \mu\text{m}$ interface penetration precision.
+    * `examples/08_contact/0803_cuboid_self_contact.py`: Solves dynamic generalized-$\alpha$ time steps ($dt = 0.02\text{ s}$) to completion. The $5.0\text{ mm}$ horizontal slit sags down along $-Z$ under gravity, engages self-contact, and rebounds elastically with 0 chattering; base clamped in XY plane.
+    * `examples/08_contact/0804_bunny_self_contact.py`: Solves dynamic generalized-$\alpha$ time steps under gravity without divergence or element inversions; captures ear-to-skull self-contact with microscopic interface penetration precision.
   - Authored comprehensive verification test suite: `tests/test_self_contact_stabilization.py` (9 formal tests, 100% passing in 10s):
     * Effective gap kinematics, activation threshold, exact gradient/Hessian invariance, finite-difference energy consistency.
     * Proximity buffer scaling and auto calibration; parameter validation.

@@ -818,7 +818,7 @@ To reconstruct continuous contact pressure fields on unstructured 3D finite elem
 
 ### 19.3 Deliverables & Verification Baseline
 - **Analytical Module**: [`src/psierra/contact/hertz.py`](file:///home/tanadul/Workspace/project-sierra/psierra/src/psierra/contact/hertz.py) (`HertzSphereContact`, `HertzCylinderContact`, `compute_nodal_tributary_areas`, `reconstruct_nodal_pressures`).
-- **Benchmark Simulation Executable**: [`examples/08_contact/0811_hertz_sphere_contact.py`](file:///home/tanadul/Workspace/project-sierra/psierra/examples/08_contact/0811_hertz_sphere_contact.py) (CLI with ParaView VTU/PVD export and Rich comparative summary table).
+- **Benchmark Simulation Executable**: [`examples/08_contact/0805_hertz_sphere_contact.py`](file:///home/tanadul/Workspace/project-sierra/psierra/examples/08_contact/0805_hertz_sphere_contact.py) (CLI with ParaView VTU/PVD export and Rich comparative summary table).
 - **Verification Test Suite**: [`tests/test_contact_hertz_analytical.py`](file:///home/tanadul/Workspace/project-sierra/psierra/tests/test_contact_hertz_analytical.py) (21 tests, 100% passing).
 - **Test Suite Status**: Contact and collision test suite expanded to **348 tests, 100% passing**.
 
@@ -946,8 +946,8 @@ $$D_f = -W_f = -\sum_{n} \Delta W_{f, n} \ge 0$$
 For a curved cylindrical slider of radius $R$ undergoing finite sliding, the apparent macroscopic friction ratio is slightly lower than $\mu$ due to curvature projection ($\boldsymbol{n}$ is not strictly vertical across the contact patch):
 $$\frac{|F_x|}{F_z} = \frac{|\sum (p_N n_x + f_T t_x)|}{\sum (p_N n_z + f_T t_z)} \approx \mu \cdot \cos \theta_{\text{contact}} \in [0.70 \mu, 1.05 \mu]$$
 
-### 21.3 Executable Benchmark: `0812_ironing_large_strain.py`
-The standalone executable benchmark [`examples/08_contact/0812_ironing_large_strain.py`](file:///home/tanadul/Workspace/project-sierra/psierra/examples/08_contact/0812_ironing_large_strain.py) provides:
+### 21.3 Executable Benchmark: `0807_ironing_large_strain.py`
+The standalone executable benchmark [`examples/08_contact/0807_ironing_large_strain.py`](file:///home/tanadul/Workspace/project-sierra/psierra/examples/08_contact/0807_ironing_large_strain.py) provides:
 - **CLI Options**:
   * `--friction`, `-mu`: Coulomb friction coefficient (default: 0.25).
   * `--indentation`, `-dz`: Vertical indentation depth in mm (default: 0.15 mm).
@@ -1109,15 +1109,12 @@ The formal test suite [`tests/test_self_contact_stabilization.py`](file:///home/
    Evaluates the Stanford Bunny mesh and verifies that `consistent_orientation_filter=True` eliminates all spurious thin-ear penetrations ($> 4\text{ mm}$ false penetration with filter=False down to $0.0\text{ mm}$ with filter=True).
 
 ### 23.4 Executable Benchmarks
-1. **Simulation 0805: Slotted Cuboid Dynamic Self-Contact** ([`examples/08_contact/0805_cuboid_self_contact.py`](file:///home/tanadul/Workspace/project-sierra/psierra/examples/08_contact/0805_cuboid_self_contact.py)):
-   - Finite-strain Total Lagrangian formulation with Neo-Hookean hyperelasticity under dynamic bilateral pinching load ($25{,}000\ \mu\text{N}$) and gravitational acceleration.
-   - Solves all 25 dynamic generalized-$\alpha$ time steps ($dt = 0.02\text{ s}$) to completion.
-   - Flexure arms close the $10.0\text{ mm}$ keyhole slit, engage 11 self-contact nodes, and rebound elastically with maximum penetration $0.103\text{ mm}$ and stored potential energy $1089.4\text{ mJ}$.
-   - Zero active-set chattering; VTK CFD reader warnings resolved by filtering `.vtu`/`.xdmf` files.
-2. **Simulation 0804: Stanford Bunny Deformable Self-Contact** ([`examples/08_contact/0804_bunny_self_contact.py`](file:///home/tanadul/Workspace/project-sierra/psierra/examples/08_contact/0804_bunny_self_contact.py)):
-   - Inclined gravity self-weight collapse with Augmented Lagrangian formulation and consistent normal orientation filtering.
-   - Solves all 5 incremental Newton load steps to full gravity load ($\lambda = 1.0$) in $75.2\text{ s}$.
-   - Captures ear-to-skull self-contact engagement (3 active nodes, peak multiplier $1058.8\text{ N}$) with interface penetration depth of only $1.1\ \mu\text{m}$ ($0.0011\text{ mm}$).
-   - Zero element inversions, zero divergence.
+1. **Simulation 0803: Slotted Cuboid Dynamic Self-Contact** ([`examples/08_contact/0803_cuboid_self_contact.py`](file:///home/tanadul/Workspace/project-sierra/psierra/examples/08_contact/0803_cuboid_self_contact.py)):
+   - Finite-strain Total Lagrangian formulation with Neo-Hookean hyperelasticity under downward gravitational body load ($g = -9810\text{ mm/s}^2$) sagging into the negative Z-axis, with the base floor fixed in the XY plane ($Z \le 0.5\text{ mm}$).
+   - Solves dynamic generalized-$\alpha$ time steps ($dt = 0.02\text{ s}$) to completion.
+   - The $5.0\text{ mm}$ horizontal slit closes smoothly under gravity, engages self-contact, and rebounds elastically with zero active-set chattering.
+2. **Simulation 0804: Stanford Bunny Nonlinear Dynamic Self-Contact** ([`examples/08_contact/0804_bunny_self_contact.py`](file:///home/tanadul/Workspace/project-sierra/psierra/examples/08_contact/0804_bunny_self_contact.py)):
+   - Inclined gravity self-weight dynamic collapse with generalized-$\alpha$ time stepping and Augmented Lagrangian self-contact formulation.
+   - Solves dynamic time steps cleanly, resolving ear-to-skull self-contact engagement with microscopic interface penetration and zero element inversions.
 
 

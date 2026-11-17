@@ -1,4 +1,4 @@
-"""Example 0811: Classical 3D Hertzian Spherical Contact Benchmark.
+"""Example 0805: Classical 3D Hertzian Spherical Contact Benchmark.
 
 Milestone 1.1 of Loop 3 Contact Mechanics Overhaul in Project Sierra.
 ---------------------------------------------------------------------
@@ -56,7 +56,7 @@ from psierra.contact.hertz import (
 
 def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(
-        description="Example 0811: Hertzian Spherical Contact Benchmark"
+        description="Example 0805: Hertzian Spherical Contact Benchmark"
     )
     parser.add_argument(
         "--radius",
@@ -110,8 +110,8 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument(
         "--output-dir",
         type=str,
-        default="results/08_contact/0811_hertz_sphere_contact",
-        help="Directory to save simulation results (default: results/08_contact/0811_hertz_sphere_contact)",
+        default="results/08_contact/0805_hertz_sphere_contact",
+        help="Directory to save simulation results (default: results/08_contact/0805_hertz_sphere_contact)",
     )
     return parser.parse_args()
 
@@ -125,7 +125,7 @@ def run_hertz_sphere_benchmark(
     formulation: str = "penalty",
     n_steps: int = 5,
     resolution: float = 0.08,
-    output_dir: str | Path = "results/08_contact/0811_hertz_sphere_contact",
+    output_dir: str | Path = "results/08_contact/0805_hertz_sphere_contact",
     verbose: bool = True,
 ) -> dict[str, float | str | bool]:
     """Execute the spherical indentation benchmark and validate against analytical Hertz theory."""

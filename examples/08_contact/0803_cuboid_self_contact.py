@@ -1,13 +1,14 @@
 """
-Simulation 0805: Nonlinear Dynamic Self-Contact on Slotted Cuboid Flexure.
+Simulation 0803: Nonlinear Dynamic Self-Contact on Slotted Cuboid Flexure.
 ========================================================================
 Demonstrates:
 1. Finite-strain Total Lagrangian formulation (Tet4TotalLagrangian) with Neo-Hookean hyperelasticity.
-2. Slotted keyhole flexure geometry (cuboid1.vtk) with combined downward gravity and dynamic inward pinching.
-3. Autonomous self-contact mechanics (SelfContact) preventing interpenetration across the 10.0 mm slot.
-4. Topologically filtered Star BFS graph neighbor exclusion (rings=6) preventing false adjacent-facet detections.
-5. Generalized-alpha dynamic time stepping (rho_inf = 0.8) capturing impact closure and elastic rebound.
-6. Unified ParaView PVD time-series collection export (factor=0.0) with 3D "Displacement" vector field.
+2. Slotted flexure geometry (cuboid1.vtk) with downward gravitational body load (sagging into negative Z-axis).
+3. Autonomous self-contact mechanics (SelfContact) preventing interpenetration across the 5.0 mm horizontal slit.
+4. Rigid base foundation clamped in the XY plane (Z <= 0.5 mm).
+5. Topologically filtered Star BFS graph neighbor exclusion (rings=6) and opposing normal threshold.
+6. Generalized-alpha dynamic time stepping (rho_inf = 0.8) capturing impact closure and elastic rebound.
+7. Unified ParaView XDMF/PVD time-series collection export (factor=0.0) with 3D "Displacement" vector field.
 """
 
 from __future__ import annotations
@@ -40,7 +41,7 @@ console = Console()
 
 def parse_arguments() -> argparse.Namespace:
     parser = argparse.ArgumentParser(
-        description="Simulation 0805: Nonlinear Dynamic Self-Contact on Slotted Cuboid Flexure"
+        description="Simulation 0803: Nonlinear Dynamic Self-Contact on Slotted Cuboid Flexure"
     )
     parser.add_argument(
         "--mesh",
@@ -63,8 +64,8 @@ def parse_arguments() -> argparse.Namespace:
     parser.add_argument(
         "--pinch-force",
         type=float,
-        default=25000.0,
-        help="Total bilateral inward pinching force in g·mm/s² (1 µN) (default: 25000.0 g·mm/s² = 0.025 N)",
+        default=0.0,
+        help="Optional bilateral inward pinching force in g·mm/s² (1 µN) (default: 0.0, gravity alone drives sag)",
     )
     parser.add_argument(
         "--gravity",
@@ -154,8 +155,8 @@ def parse_arguments() -> argparse.Namespace:
     parser.add_argument(
         "--output-dir",
         type=str,
-        default="results/08_contact/0805_cuboid_self_contact",
-        help="Output directory path for ParaView PVD collection (default: results/08_contact/0805_cuboid_self_contact)",
+        default="results/08_contact/0803_cuboid_self_contact",
+        help="Output directory path for ParaView PVD collection (default: results/08_contact/0803_cuboid_self_contact)",
     )
     parser.add_argument(
         "--show",
@@ -170,8 +171,8 @@ def main() -> None:
 
     console.print(
         Panel.fit(
-            "[bold cyan]Example 0805: Nonlinear Dynamic Self-Contact on Slotted Cuboid Flexure[/bold cyan]\n"
-            "[dim]Project Sierra | Keyhole Flexure Inward Pinching, Slit Closure, and Elastic Rebound[/dim]",
+            "[bold cyan]Simulation 0803: Nonlinear Dynamic Self-Contact on Slotted Cuboid Flexure[/bold cyan]\n"
+            "[dim]Project Sierra | Slotted Flexure Gravity Sagging into -Z, Slit Closure, and Elastic Rebound[/dim]",
             title="[bold blue]project-sierra — Autonomous Self-Contact Mechanics[/bold blue]",
             border_style="cyan",
         )
@@ -184,7 +185,7 @@ def main() -> None:
     # [1/5] Loading Mesh Geometry & Slit Inspection
     # =========================================================================
     console.print(
-        "\n[bold yellow][1/5] Loading Mesh Geometry & Keyhole Slit Inspection[/bold yellow]"
+        "\n[bold yellow][1/5] Loading Mesh Geometry & Horizontal Slit Inspection[/bold yellow]"
     )
     mesh_path = Path(args.mesh)
     if not mesh_path.exists():
@@ -208,27 +209,32 @@ def main() -> None:
         f"Z=[{nodes[:, 2].min():.1f}, {nodes[:, 2].max():.1f}] mm (Span: {b_span[0]:.1f} × {b_span[1]:.1f} × {b_span[2]:.1f} mm)"
     )
 
-    # Identify slot dimensions dynamically
+    # Identify horizontal slit geometry dynamically
     surf_nodes = np.asarray(cuboid_mesh.surface.node_indices)
-    upper_mask = (nodes[surf_nodes, 2] >= 55.0) & (np.abs(nodes[surf_nodes, 0]) <= 7.0)
-    cand_coords = nodes[surf_nodes[upper_mask]]
-    x_left_face = float(np.max(cand_coords[cand_coords[:, 0] < 0, 0]))
-    x_right_face = float(np.min(cand_coords[cand_coords[:, 0] > 0, 0]))
+    slit_band_mask = (
+        (nodes[surf_nodes, 2] >= 34.0)
+        & (nodes[surf_nodes, 2] <= 41.0)
+        & (np.abs(nodes[surf_nodes, 1]) <= 65.0)
+    )
 
-    left_slit_nodes = surf_nodes[
-        (np.abs(nodes[surf_nodes, 0] - x_left_face) < 0.5) & (nodes[surf_nodes, 2] >= 55.0)
+    upper_slit_nodes = surf_nodes[
+        (np.abs(nodes[surf_nodes, 2] - 40.0) < 0.5)
+        & (np.abs(nodes[surf_nodes, 1]) <= 65.0)
     ]
-    right_slit_nodes = surf_nodes[
-        (np.abs(nodes[surf_nodes, 0] - x_right_face) < 0.5) & (nodes[surf_nodes, 2] >= 55.0)
+    lower_slit_nodes = surf_nodes[
+        (np.abs(nodes[surf_nodes, 2] - 35.0) < 0.5)
+        & (np.abs(nodes[surf_nodes, 1]) <= 65.0)
     ]
-    slit_gap = float(nodes[right_slit_nodes, 0].min() - nodes[left_slit_nodes, 0].max())
+    slit_gap = float(
+        nodes[upper_slit_nodes, 2].min() - nodes[lower_slit_nodes, 2].max()
+    )
 
     console.print(
-        f"  Keyhole Slit Geometry: [green]{len(left_slit_nodes)}[/green] left face nodes (X = {x_left_face:.1f} mm) vs "
-        f"[green]{len(right_slit_nodes)}[/green] right face nodes (X = {x_right_face:.1f} mm)"
+        f"  Horizontal Slit Geometry: [green]{len(upper_slit_nodes)}[/green] upper face nodes (Z ≈ 40 mm) vs "
+        f"[green]{len(lower_slit_nodes)}[/green] lower face nodes (Z ≈ 35 mm)"
     )
     console.print(
-        f"  Undeformed Slit Gap: [cyan]{slit_gap:.2f} mm[/cyan] (touchdown requires ~{slit_gap / 2.0:.1f} mm inward deflection per prong)"
+        f"  Undeformed Slit Gap: [cyan]{slit_gap:.2f} mm[/cyan] (gravity sag along -Z drives downward slit closure)"
     )
 
     # =========================================================================
@@ -255,8 +261,12 @@ def main() -> None:
         f"  Material Model: [cyan]NeoHookean[/cyan] (E = {params.youngs_modulus:.1f} Pa, "
         f"ν = {params.poissons_ratio:.2f}, ρ = {args.density:.2e} g/mm³)"
     )
-    console.print(f"  Element Kinematics: [cyan]Tet4TotalLagrangian[/cyan] (Large-Strain Finite Deformation)")
-    console.print(f"  Total Body Mass   : [green]{total_mass_kg:.3f} kg[/green] ({total_mass_g:.1f} g)")
+    console.print(
+        f"  Element Kinematics: [cyan]Tet4TotalLagrangian[/cyan] (Large-Strain Finite Deformation)"
+    )
+    console.print(
+        f"  Total Body Mass   : [green]{total_mass_kg:.3f} kg[/green] ({total_mass_g:.1f} g)"
+    )
 
     # =========================================================================
     # [3/5] Assembly Layer & Autonomous Self-Contact Registration
@@ -266,10 +276,10 @@ def main() -> None:
     )
     system = MultiBodySystem({"SlottedCuboid": cuboid_domain})
 
-    # Restrict contact candidate search to the inner flexure arms and slot chamfer
-    slit_candidates = surf_nodes[(nodes[surf_nodes, 2] >= 50.0) & (np.abs(nodes[surf_nodes, 0]) <= 7.0)]
+    # Restrict contact candidate search to the slit faces and interior boundaries
+    slit_candidates = surf_nodes[slit_band_mask]
     console.print(
-        f"  Self-Contact Candidates: [green]{len(slit_candidates)}[/green] surface nodes facing across the slit"
+        f"  Self-Contact Candidates: [green]{len(slit_candidates)}[/green] surface nodes within horizontal slit band"
     )
 
     thickness_buf = args.thickness_buffer
@@ -284,10 +294,10 @@ def main() -> None:
         contact_nodes=slit_candidates,
         k_penalty=args.kp,
         c_damping=args.cdamp,
-        contact_thickness=12.0,  # Detection shell wider than initial 10 mm gap
-        search_radius=25.0,
-        exclusion_rings=6,       # Exclude up to 6-ring local topological neighbors (prevents arm-step false detection)
-        normal_threshold=-0.2,   # Require opposing outward normals (n1 . n2 <= -0.2)
+        contact_thickness=6.0,  # Proximity shell wider than initial 5 mm gap
+        search_radius=15.0,
+        exclusion_rings=6,  # Exclude up to 6-ring local topological neighbors
+        normal_threshold=-0.2,  # Require opposing outward normals (n1 . n2 <= -0.2)
         formulation=args.formulation,
         thickness_buffer=thickness_buf,
         consistent_orientation_filter=args.consistent_orientation_filter,
@@ -296,42 +306,27 @@ def main() -> None:
 
     console.print(
         f"  Registered Contact: {type(contact).__name__}("
-        f"k_p = {args.kp:.1e} N/mm, mode={args.formulation}, thickness = 12.0 mm, rings = 6)"
+        f"k_p = {args.kp:.1e} N/mm, mode={args.formulation}, thickness = 6.0 mm, rings = 6)"
     )
 
-    # Boundary Conditions: Clamped base plate at Z <= 2.0 mm
-    base_nodes = np.where(nodes[:, 2] <= 2.0)[0]
+    # Boundary Conditions: Clamped base plate in XY plane (Z <= 0.5 mm)
+    base_nodes = np.where(nodes[:, 2] <= 0.5)[0]
     clamp_base = DirichletConstraint(base_nodes, components=(0, 1, 2), value=0.0)
     dirichlet = DirichletManager(system.n_dofs)
     dirichlet.add_constraint(clamp_base)
 
     console.print(
-        f"  Boundary Conditions: Fixed [green]{len(base_nodes)}[/green] base nodes at Z <= 2.0 mm (Rigid Foundation)"
+        f"  Boundary Conditions: Fixed [green]{len(base_nodes)}[/green] floor nodes at Z <= 0.5 mm in XY plane (Rigid Base Foundation)"
     )
 
-    # Dynamic External Loads: Pinching Load + Gravitational Body Force
+    # Dynamic External Loads: Gravitational Body Force along -Z
     f_ext = np.zeros(system.n_dofs)
 
-    # 1. Bilateral Pinching Force: Applied symmetrically on upper outer flanks
-    if args.pinch_force > 0.0:
-        left_flank = np.where((nodes[:, 0] <= -24.0) & (nodes[:, 2] >= 55.0))[0]
-        right_flank = np.where((nodes[:, 0] >= 24.0) & (nodes[:, 2] >= 55.0))[0]
-        f_left_node = (args.pinch_force / 2.0) / len(left_flank)
-        f_right_node = (-args.pinch_force / 2.0) / len(right_flank)
-        for n in left_flank:
-            f_ext[3 * n] += f_left_node
-        for n in right_flank:
-            f_ext[3 * n] += f_right_node
-
-        console.print(
-            f"  Dynamic Pinching Load: [cyan]{args.pinch_force:.1f} N[/cyan] total inward load "
-            f"([green]+{args.pinch_force/2:.1f} N[/green] on {len(left_flank)} left flank nodes, "
-            f"[green]-{args.pinch_force/2:.1f} N[/green] on {len(right_flank)} right flank nodes)"
-        )
-
-    # 2. Gravitational Body Force: Uniform downward body load F_grav = M @ g
+    # 1. Gravitational Body Force: Uniform downward body load F_grav = M @ g along -Z
     if args.gravity != 0.0:
-        gravity = GravityLoad(acceleration=(0.0, 0.0, -abs(args.gravity)), dofs_per_node=3)
+        gravity = GravityLoad(
+            acceleration=(0.0, 0.0, -abs(args.gravity)), dofs_per_node=3
+        )
         f_grav = gravity.compute_force_vector(M)
         f_ext += f_grav
         console.print(
@@ -339,8 +334,22 @@ def main() -> None:
             f"(Total Body Weight F_z = [green]{f_grav[2::3].sum():.1f} N[/green])"
         )
 
+    # 2. Optional Bilateral Pinching Force
+    if args.pinch_force > 0.0:
+        left_flank = np.where((nodes[:, 0] <= -24.0) & (nodes[:, 2] >= 40.0))[0]
+        right_flank = np.where((nodes[:, 0] >= 24.0) & (nodes[:, 2] >= 40.0))[0]
+        f_left_node = (args.pinch_force / 2.0) / len(left_flank)
+        f_right_node = (-args.pinch_force / 2.0) / len(right_flank)
+        for n in left_flank:
+            f_ext[3 * n] += f_left_node
+        for n in right_flank:
+            f_ext[3 * n] += f_right_node
+        console.print(
+            f"  Dynamic Pinching Load: [cyan]{args.pinch_force:.1f} N[/cyan] total inward load"
+        )
+
     # Rayleigh Damping
-    damping = RayleighDamping(alpha=1.0, beta=0.002)
+    damping = RayleighDamping(alpha=1.0, beta=0.2)
     console.print(
         f"  Rayleigh Damping     : alpha = {damping.alpha:.2f}, beta = {damping.beta:.4f}"
     )
@@ -389,17 +398,39 @@ def main() -> None:
     min_slit_gap_reached = slit_gap
     touchdown_detected = False
 
-    if result.time_series_files:
+    xdmf_path = (
+        output_dir / f"{result.output_name}.xdmf"
+        if hasattr(result, "output_name")
+        else output_dir / "result.xdmf"
+    )
+    if xdmf_path.exists():
+        try:
+            reader = pv.get_reader(xdmf_path)
+            for t in reader.time_values:
+                reader.set_active_time_value(t)
+                g = reader.read()
+                disp = g.point_data["Displacement"]
+                pts_cur = g.points + disp
+                z_upper_min = float(pts_cur[upper_slit_nodes, 2].min())
+                z_lower_max = float(pts_cur[lower_slit_nodes, 2].max())
+                gap_step = z_upper_min - z_lower_max
+                if gap_step < min_slit_gap_reached:
+                    min_slit_gap_reached = gap_step
+                if gap_step <= 0.05:
+                    touchdown_detected = True
+        except Exception:
+            pass
+    elif result.time_series_files:
         for p in result.time_series_files:
             try:
-                if Path(p).suffix.lower() not in ('.vtu', '.xdmf'):
+                if Path(p).suffix.lower() not in (".vtu", ".xdmf"):
                     continue
                 g = pv.read(p)
                 disp = g.point_data["Displacement"]
                 pts_cur = g.points + disp
-                x_left_max = float(pts_cur[left_slit_nodes, 0].max())
-                x_right_min = float(pts_cur[right_slit_nodes, 0].min())
-                gap_step = x_right_min - x_left_max
+                z_upper_min = float(pts_cur[upper_slit_nodes, 2].min())
+                z_lower_max = float(pts_cur[lower_slit_nodes, 2].max())
+                gap_step = z_upper_min - z_lower_max
                 if gap_step < min_slit_gap_reached:
                     min_slit_gap_reached = gap_step
                 if gap_step <= 0.05:  # Within contact threshold
@@ -413,7 +444,7 @@ def main() -> None:
     max_disp_val = float(np.linalg.norm(cuboid_domain.displacement, axis=1).max())
 
     table = Table(
-        title="Simulation 0805 Dynamic Self-Contact Results Summary",
+        title="Simulation 0803 Dynamic Self-Contact Results Summary",
         border_style="cyan",
     )
     table.add_column("Metric", style="bold white")
@@ -422,8 +453,12 @@ def main() -> None:
 
     table.add_row("Solve Status", "CONVERGED" if result.converged else "FAILED", "")
     table.add_row("Contact Formulation", args.formulation, "")
-    table.add_row("Gravitational Acceleration", f"-{abs(args.gravity):.1f}" if args.gravity != 0.0 else "None", "mm/s^2" if args.gravity != 0.0 else "")
-    table.add_row("Bilateral Pinching Force", f"{args.pinch_force:.1f}" if args.pinch_force != 0.0 else "None", "N" if args.pinch_force != 0.0 else "")
+    table.add_row(
+        "Gravitational Acceleration",
+        f"-{abs(args.gravity):.1f}" if args.gravity != 0.0 else "None",
+        "mm/s^2" if args.gravity != 0.0 else "",
+    )
+    table.add_row("Base Floor Boundary", "Fixed in XY Plane (Z <= 0.5 mm)", "")
     table.add_row("Total Computation Time", f"{solve_duration:.3f}", "s")
     table.add_row("Total Physical Duration", f"{args.steps * args.dt:.4f}", "s")
     table.add_row("Time Step (dt)", f"{args.dt:.4f}", "s")
@@ -433,7 +468,11 @@ def main() -> None:
     table.add_row("Minimum Slit Gap Reached", f"{min_slit_gap_reached:.3f}", "mm")
     table.add_row(
         "Self-Contact Touchdown",
-        "YES (Slit Closed & Rebounded)" if touchdown_detected else "NO (Free Oscillation)",
+        (
+            "YES (Slit Closed & Rebounded)"
+            if touchdown_detected
+            else "NO (Free Oscillation)"
+        ),
         "",
     )
     table.add_row("Max Total Displacement", f"{max_disp_val:.3f}", "mm")
@@ -449,7 +488,7 @@ def main() -> None:
     console.print(
         Panel.fit(
             f"[bold green]✓ Dynamic Self-Contact Results Saved to {output_dir / 'result.xdmf'}[/bold green]\n"
-            f"[dim]Total Lagrangian Neo-Hookean flexure squeezed dynamically, slit closed, and rebounded elastically.\n"
+            f"[dim]Total Lagrangian Neo-Hookean flexure sagged under gravity into -Z, slit closed, and rebounded elastically.\n"
             f"Open result.xdmf in ParaView and apply 'Warp By Vector' (Displacement, Scale = 1.0).[/dim]",
             border_style="green",
         )
@@ -457,8 +496,10 @@ def main() -> None:
 
     # Optional 3D Visualization
     if args.show:
-        console.print("\n[bold cyan]Launching Interactive PyVista 3D Viewer...[/bold cyan]")
-        pl = pv.Plotter(title="Project Sierra - Simulation 0805: Dynamic Self-Contact")
+        console.print(
+            "\n[bold cyan]Launching Interactive PyVista 3D Viewer...[/bold cyan]"
+        )
+        pl = pv.Plotter(title="Project Sierra - Simulation 0803: Dynamic Self-Contact")
         surf = cuboid_mesh.surface.polydata.copy()
         surf["Displacement"] = cuboid_domain.displacement
         warped = surf.warp_by_vector("Displacement", factor=1.0)
@@ -484,4 +525,3 @@ def main() -> None:
 
 if __name__ == "__main__":
     main()
-

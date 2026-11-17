@@ -392,14 +392,18 @@ class TestSelfContactStabilizationBenchmarks:
         system = MultiBodySystem({"SlottedCuboid": cuboid_domain})
         surf_nodes = np.asarray(cuboid_mesh.surface.node_indices)
         nodes = cuboid_mesh.nodes
-        slit_candidates = surf_nodes[(nodes[surf_nodes, 2] >= 50.0) & (np.abs(nodes[surf_nodes, 0]) <= 7.0)]
+        slit_candidates = surf_nodes[
+            (nodes[surf_nodes, 2] >= 34.0)
+            & (nodes[surf_nodes, 2] <= 41.0)
+            & (np.abs(nodes[surf_nodes, 1]) <= 65.0)
+        ]
 
         system.add_self_contact(
             body="SlottedCuboid",
             contact_nodes=slit_candidates,
             k_penalty=50000.0,
-            contact_thickness=12.0,
-            search_radius=25.0,
+            contact_thickness=6.0,
+            search_radius=15.0,
             exclusion_rings=6,
             normal_threshold=-0.2,
             thickness_buffer="auto",
@@ -407,19 +411,14 @@ class TestSelfContactStabilizationBenchmarks:
             smoothed_normals=True,
         )
 
-        base_nodes = np.where(nodes[:, 2] <= 2.0)[0]
+        base_nodes = np.where(nodes[:, 2] <= 0.5)[0]
         dirichlet = DirichletManager(system.n_dofs)
         dirichlet.add_constraint(DirichletConstraint(base_nodes, components=(0, 1, 2), value=0.0))
 
-        # Bilateral pinching load
-        f_ext = np.zeros(system.n_dofs)
-        left_flank = np.where((nodes[:, 0] <= -24.0) & (nodes[:, 2] >= 55.0))[0]
-        right_flank = np.where((nodes[:, 0] >= 24.0) & (nodes[:, 2] >= 55.0))[0]
-        pinch_force = 25000.0
-        for n in left_flank:
-            f_ext[3 * n] += (pinch_force / 2.0) / len(left_flank)
-        for n in right_flank:
-            f_ext[3 * n] -= (pinch_force / 2.0) / len(right_flank)
+        # Downward gravity loading driving sag along -Z
+        gravity = GravityLoad(acceleration=(0.0, 0.0, -9810.0), dofs_per_node=3)
+        M = cuboid_domain.assemble_mass_matrix()
+        f_ext = gravity.compute_force_vector(M)
 
         damping = RayleighDamping(alpha=1.0, beta=0.002)
         solver = NonlinearDynamicAnalysis(system, damping=damping, spectral_radius=0.8)

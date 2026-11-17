@@ -1,8 +1,8 @@
 """
-Simulation 0804: Deformable Self-Contact Mechanics on Stanford Bunny with Inclined Gravity Sag.
-=============================================================================================
+Simulation 0804: Nonlinear Dynamic Self-Contact Mechanics on Stanford Bunny.
+===========================================================================
 Demonstrates:
-1. Volumetric continuum self-contact mechanics driven purely by self-weight gravity loading
+1. Volumetric continuum self-contact mechanics driven purely by dynamic self-weight gravity loading
    (GravityLoad) on the Stanford Bunny geometry without artificial ear-pushing forces or
    prescribed ear displacements.
 2. Compound body inclination (Pitch and Roll):
@@ -12,15 +12,15 @@ Demonstrates:
      transverse g_x component, forcing the uphill ear to collapse sideways toward the downhill ear.
 3. Configurable clamping height threshold (--clamp-height): allows clamping the bottom pedestal (1.0 mm)
    or the lower haunches/torso (~34.0 mm) to keep the body firm while the head and ears flex freely.
-4. Topological Star Exclusion (BFS graph expansion, rings=5) eliminating spurious self-detection across
-   thin ear membranes and the inter-ear saddle in both undeformed and deformed states.
-5. C0-continuous vertex normal interpolation preventing facet edge chatter and lateral discontinuity jumps.
-6. Exact Voronoi triangle closest-point projection (Ericson formulation) for master surface facet queries.
-7. Strict Newton action-reaction balance (f_s + sum(f_m) = 0) and symmetric tangent stiffness assembly (K_c = K_c^T).
+4. Consistent normal orientation filtering and Star BFS topological exclusion (rings=5)
+   eliminating spurious undeformed thin-ear penetrations and adjacent-facet detections.
+5. C1 continuous pseudonormal smoothing across facet boundaries preventing normal discontinuity shocks.
+6. Proximity thickness buffer (thickness_buffer="auto") triggering penalty/AL forces smoothly before physical mesh interpenetration.
+7. Strict Newton action-reaction balance and symmetric tangent stiffness assembly.
 8. Uzawa Augmented Lagrangian multiplier updates driving penetration error to near zero.
 9. Support for both Tet4Linear and Tet4TotalLagrangian element formulations with Hookean or NeoHookean material.
-10. Incremental Newton-Raphson nonlinear static solve with rich telemetry.
-11. ParaView PVD collection export with factor=0.0 and attached 3D 'Displacement' vector array.
+10. Generalized-alpha nonlinear dynamic time stepping (rho_inf = 0.8) with Rayleigh damping.
+11. ParaView PVD/XDMF collection export with factor=0.0 and attached 3D 'Displacement' vector array.
 """
 
 from __future__ import annotations
@@ -45,7 +45,8 @@ from psierra.boundary import (
     GravityLoad,
 )
 from psierra.boundary.contact import SelfContact
-from psierra.analysis import NonlinearStaticAnalysis
+from psierra.damping import RayleighDamping
+from psierra.analysis import NonlinearDynamicAnalysis
 
 install(show_locals=False)
 console = Console()
@@ -53,7 +54,7 @@ console = Console()
 
 def parse_arguments() -> argparse.Namespace:
     parser = argparse.ArgumentParser(
-        description="Simulation 0804: Deformable Self-Contact Mechanics on Stanford Bunny with Inclined Gravity Sag"
+        description="Simulation 0804: Nonlinear Dynamic Self-Contact Mechanics on Stanford Bunny"
     )
     parser.add_argument(
         "--bunny-mesh",
@@ -65,7 +66,31 @@ def parse_arguments() -> argparse.Namespace:
         "--steps",
         type=int,
         default=5,
-        help="Number of incremental load steps (default: 5)",
+        help="Number of dynamic time steps (default: 5)",
+    )
+    parser.add_argument(
+        "--dt",
+        type=float,
+        default=0.02,
+        help="Dynamic time step in seconds (default: 0.02 s = 50 Hz)",
+    )
+    parser.add_argument(
+        "--spectral-radius",
+        type=float,
+        default=0.8,
+        help="Generalized-alpha spectral radius rho_inf in [0, 1] (default: 0.8)",
+    )
+    parser.add_argument(
+        "--damping-alpha",
+        type=float,
+        default=1.0,
+        help="Rayleigh mass damping coefficient alpha (default: 1.0)",
+    )
+    parser.add_argument(
+        "--damping-beta",
+        type=float,
+        default=0.002,
+        help="Rayleigh stiffness damping coefficient beta (default: 0.002)",
     )
     parser.add_argument(
         "--gravity",
@@ -415,10 +440,10 @@ def main() -> None:
     )
 
     # =========================================================================
-    # [5/6] Executing Simulation Solver (Incremental Newton-Raphson)
+    # [5/6] Executing Nonlinear Dynamic Analysis (Generalized-alpha)
     # =========================================================================
     console.print(
-        "[bold yellow][5/6] Executing Simulation Solver (Incremental Newton-Raphson)...[/bold yellow]"
+        "[bold yellow][5/6] Executing Generalized-alpha Dynamic Time Stepping...[/bold yellow]"
     )
     save_dir = None if args.no_export else Path(args.export_dir)
     if save_dir is not None:
@@ -427,13 +452,17 @@ def main() -> None:
             f"  Export directory: [dim]{save_dir}[/dim] (factor=0.0, WarpByVector compliant)"
         )
 
-    solver = NonlinearStaticAnalysis(domain)
+    damping = RayleighDamping(alpha=args.damping_alpha, beta=args.damping_beta)
+    solver = NonlinearDynamicAnalysis(
+        domain, damping=damping, spectral_radius=args.spectral_radius
+    )
 
     t_start = time.time()
     result = solver.solve(
         dirichlet=dirichlet,
         f_ext=f_ext,
         contact=contact,
+        dt=args.dt,
         n_steps=args.steps,
         nr_iterations=args.nr_max,
         nr_tol=args.tol,
@@ -510,7 +539,11 @@ def main() -> None:
     table.add_row("Contact Formulation", f"{args.formulation.upper()}")
     table.add_row("Penalty Stiffness (k_p)", f"{args.k_penalty:.1e} N/mm")
     table.add_row("Topological BFS Rings", f"{args.exclusion_rings}")
-    table.add_row("Load Steps Completed", f"{result.steps_completed} / {args.steps}")
+    table.add_row("Analysis Solver", f"Generalized-alpha Dynamic (rho_inf = {args.spectral_radius})")
+    table.add_row("Dynamic Time Step (dt)", f"{args.dt:.4f} s")
+    table.add_row("Total Physical Duration", f"{args.steps * args.dt:.4f} s")
+    table.add_row("Time Steps Completed", f"{result.steps_completed} / {args.steps}")
+    table.add_row("Rayleigh Damping", f"alpha = {args.damping_alpha:.2f}, beta = {args.damping_beta:.4f}")
     table.add_row("Total Newton Iterations", f"{sum(result.iteration_history)}")
     table.add_row(
         "Convergence Status",
