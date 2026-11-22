@@ -634,9 +634,18 @@ class HyperReducedDynamicRelaxationSolver:
         try:
             f_int, _ = self.model.evaluate_forces_and_stiffness(self.u_r)
         except (ValueError, FloatingPointError):
-            self.u_r[:] = 0.5 * (self.u_r + u_prev)
-            self.v_half_r.fill(0.0)
-            f_int, _ = self.model.evaluate_forces_and_stiffness(self.u_r)
+            for _ in range(6):
+                self.u_r[:] = 0.5 * (self.u_r + u_prev)
+                self.v_half_r.fill(0.0)
+                try:
+                    f_int, _ = self.model.evaluate_forces_and_stiffness(self.u_r)
+                    break
+                except (ValueError, FloatingPointError):
+                    continue
+            else:
+                self.u_r[:] = u_prev
+                self.v_half_r.fill(0.0)
+                f_int, _ = self.model.evaluate_forces_and_stiffness(self.u_r)
 
         f_c = np.zeros(self.r, dtype=np.float64)
         for c in self.contacts:
@@ -664,8 +673,12 @@ class HyperReducedDynamicRelaxationSolver:
                 u_peak = self.u_r - 1.5 * self.dt * self.v_half_r + 0.5 * (self.dt**2) * a_prev
                 self.u_r[:] = u_peak
 
-                # Re-evaluate forces at peak displacement
-                f_int_pk, _ = self.model.evaluate_forces_and_stiffness(self.u_r)
+                # Re-evaluate forces at peak displacement with safeguard
+                try:
+                    f_int_pk, _ = self.model.evaluate_forces_and_stiffness(self.u_r)
+                except (ValueError, FloatingPointError):
+                    self.u_r[:] = u_prev
+                    f_int_pk, _ = self.model.evaluate_forces_and_stiffness(self.u_r)
                 f_c_pk = np.zeros(self.r, dtype=np.float64)
                 for c in self.contacts:
                     fc, _ = c.evaluate_reduced_forces_and_stiffness(self.u_r, np.zeros(self.r))

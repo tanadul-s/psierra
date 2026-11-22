@@ -93,3 +93,4 @@
 1101 --headless    # 1101_beam.py (Interactive cantilever dynamic bending & axial torsion)
 1102 --headless    # 1102_brain.py (Interactive 3D brain shift with live posture rotation)
 1103 --headless    # 1103_brain_twin.py (Hyper-reduced clinical digital twin with live multi-modal sensing)
+1104 --headless    # 1104_ctbrain.py (Interactive 3D CT brain shift with live posture rotation)
