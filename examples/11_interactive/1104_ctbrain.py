@@ -635,7 +635,9 @@ def main() -> None:
     # --------------------------------------------------------------------------
     # [1/6] Loading Anatomical Meshes (Brain, Skull)
     # --------------------------------------------------------------------------
-    console.print("\n[bold yellow][1/6] Loading Anatomical Meshes (ctbrain1)...[/bold yellow]")
+    console.print(
+        "\n[bold yellow][1/6] Loading Anatomical Meshes (ctbrain1)...[/bold yellow]"
+    )
     brain_mesh_path = _resolve_asset_path("data/ctbrain1/mesh/brain.vtk")
     skull_mesh_path = _resolve_asset_path("data/ctbrain1/mesh/skull.vtk")
 
@@ -1435,9 +1437,7 @@ def main() -> None:
         navigator_state.set_probe_center(probe_center)
         R = orientation.rotation_matrix
         probe_world = rotate_around_centroid(probe_center, R)
-        probe_actor.GetMapper().SetInputData(
-            build_probe_geometry(probe_world, R)
-        )
+        probe_actor.GetMapper().SetInputData(build_probe_geometry(probe_world, R))
 
     def set_pose_preset(preset_key: str) -> None:
         if getattr(plotter, "render_window", None) is not None:
@@ -1448,9 +1448,7 @@ def main() -> None:
         )
         R = orientation.rotation_matrix
         probe_world = rotate_around_centroid(probe_center, R)
-        probe_actor.GetMapper().SetInputData(
-            build_probe_geometry(probe_world, R)
-        )
+        probe_actor.GetMapper().SetInputData(build_probe_geometry(probe_world, R))
         console.print(
             f"[cyan]Head Orientation Preset:[/cyan] [bold white]{desc}[/bold white]"
         )
@@ -1462,9 +1460,7 @@ def main() -> None:
         )
         R = orientation.rotation_matrix
         probe_world = rotate_around_centroid(probe_center, R)
-        probe_actor.GetMapper().SetInputData(
-            build_probe_geometry(probe_world, R)
-        )
+        probe_actor.GetMapper().SetInputData(build_probe_geometry(probe_world, R))
 
     def reset_simulation() -> None:
         orientation.set_preset("supine")
@@ -1482,9 +1478,7 @@ def main() -> None:
         probe_actor.GetProperty().SetOpacity(0.95)
         R = orientation.rotation_matrix
         probe_world = rotate_around_centroid(probe_center, R)
-        probe_actor.GetMapper().SetInputData(
-            build_probe_geometry(probe_world, R)
-        )
+        probe_actor.GetMapper().SetInputData(build_probe_geometry(probe_world, R))
         console.print(
             "[yellow]Simulation, head posture, contacts, and surgical probe reset to baseline.[/yellow]"
         )
