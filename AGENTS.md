@@ -89,7 +89,7 @@ $$\text{Parameters} \longrightarrow \text{Material} \longrightarrow \text{Elemen
 #### The 6-Stage Example Script Standard
 Every demonstration script in `examples/` MUST serve as a **first-class executable template** for users. If a user needs to build their own simulation, they should be able to open an example script, understand the flow immediately, adjust their parameters or mesh path, and run:
 
-- **Golden Standard Reference**: [`psierra/examples/05_simulation/sim02_linear_static_hookean.py`](examples/05_simulation/sim02_linear_static_hookean.py).
+- **Golden Standard Reference**: [`examples/02_linear_static/0201_beam.py`](examples/02_linear_static/0201_beam.py).
 
 Every script MUST strictly follow the 6-stage lifecycle:
 - `[1/6] Loading Mesh Geometry`: Load and inspect `VolumetricMesh` or `SurfaceMesh`.
@@ -183,7 +183,7 @@ To guarantee that code matches specifications and tests remain completely unbias
   & Interfaces       & Examples         Test Suite        & LaTeX Math
 ```
 
-Detailed role playbooks and system instructions are maintained in dedicated directories under [`.agents/agents/`](.agents/agents/):
+Claude Code uses the subagent definitions in [`.claude/agents/`](.claude/agents/) (`manager.md`, `developer.md`, `tester.md`, `teacher.md`), which are the maintained versions of these roles. The original playbooks remain under [`.agents/agents/`](.agents/agents/) for other tools:
 - **Project Manager**: [`.agents/agents/manager/ROLE.md`](.agents/agents/manager/ROLE.md)
 - **Software Developer**: [`.agents/agents/developer/ROLE.md`](.agents/agents/developer/ROLE.md)
 - **Test Engineer**: [`.agents/agents/tester/ROLE.md`](.agents/agents/tester/ROLE.md)
